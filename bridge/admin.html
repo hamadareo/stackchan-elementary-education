@@ -433,7 +433,7 @@ function renderJournal(j){if(!j)return;const k=JSON.stringify(j);if(k===jKey)ret
     return `<div class="dev"><div class="nm">${t} 「${esc(e.topic)}」 <small>${e.auto?'自発・'+esc(e.by)+'が切り出し':'依頼された議題'} · ${e.turns}発言</small></div><div class="ln">`+
     (e.summary?'<b>要約</b> '+esc(e.summary)+'<br>':'')+e.people.map(p=>'<b>'+esc(p.dev_name)+'('+esc(p.name)+')</b> '+
       [Object.keys(p.emotions).length?'感情 '+Object.keys(p.emotions).map(n=>n+p.emotions[n]).join('・'):'',p.learned?'学び「'+esc(p.learned)+'」':'',
-       Object.keys(p.radar_delta).length?'性格の変化 '+Object.keys(p.radar_delta).map(a=>a+(p.radar_delta[a]>0?'+':'')+p.radar_delta[a]).join(' '):''].filter(Boolean).join(' / ')).join('<br>')+'</div></div>'}).join('')||'<small>まだ記録がありません</small>'}
+       Object.keys(p.bond_delta||{}).length?'関係 '+Object.keys(p.bond_delta).map(o=>o+'へ'+(p.bond_delta[o]>0?'+':'')+p.bond_delta[o]+'('+((p.bonds||{})[o]||'')+')').join(' '):'',Object.keys(p.radar_delta).length?'性格の変化 '+Object.keys(p.radar_delta).map(a=>a+(p.radar_delta[a]>0?'+':'')+p.radar_delta[a]).join(' '):''].filter(Boolean).join(' / ')).join('<br>')+'</div></div>'}).join('')||'<small>まだ記録がありません</small>'}
 function renderAuto(a){if(!a)return;const k=JSON.stringify(a);if(k===aKey)return;aKey=k;
   if(document.activeElement!==$('aiv'))$('aiv').value=a.interval_min;$('aon').checked=a.enabled;
   $('astat').textContent=!a.enabled?'自律モードはオフです。議題を入れたときだけ話します':(a.why?'待機中('+a.why+')':'次に話し始めるのは'+(a.next_in<60?'まもなく':'約'+Math.floor(a.next_in/60)+'分後')+'の予定')+'  '+a.quiet+(a.last_topic?'  最後の自発: '+a.last_by+'「'+a.last_topic+'」':'')}
@@ -449,7 +449,7 @@ function profCard(g){
   <div style="flex:1;min-width:210px"><div class="nm">${esc(g.dev_name)} <small>(${esc(g.name)}${g.online?'':'・オフライン'})</small> <button data-forget="${esc(g.name)}" data-dn="${esc(g.dev_name)}">↺ リセット</button></div>
   <div class="ln"><b>${esc(g.title)}</b> · 口ぐせ「${esc(g.motto)}」<br>好き: ${esc(g.likes)}<br>苦手: ${esc(g.dislikes)}<br>
   会話 ${g.talks}回 · 発言 ${g.utterances}回${g.emo_now?' · いま <b>'+esc(g.emo_now)+'</b>':''}${g.emo_top.length?'<br>感情の傾向: '+g.emo_top.map(e=>esc(e.label)+' '+e.n).join(' / '):''}<br>
-  <b>学んだこと</b><br>${g.views.length?g.views.map(v=>'・'+esc(v)).join('<br>'):'まだ学んでいません'}
+  ${(g.bonds||[]).length?'<b>関係</b> '+g.bonds.map(b=>esc(b.to)+'へ: '+esc(b.label)+'('+(b.score>=0?'+':'')+b.score.toFixed(2)+')').join(' / ')+'<br>':''}<b>学んだこと</b><br>${g.views.length?g.views.map(v=>'・'+esc(v)).join('<br>'):'まだ学んでいません'}
   ${Object.keys(g.rel).map(o=>`<br><small>${esc(o)}への印象: ${esc(g.rel[o])}</small>`).join('')}
   ${g.topics.length?`<br><small>話した議題: ${g.topics.slice(0,4).map(esc).join('、')}</small>`:''}</div></div></div>`}
 function renderDiscuss(s){

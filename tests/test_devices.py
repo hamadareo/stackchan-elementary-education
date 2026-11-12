@@ -208,7 +208,9 @@ class DiscussTests(unittest.TestCase):
         self.assertEqual((r["talks"], r["views"][0], r["topics"][0]), (2, "料理は味見が大事", "料理"))
         self.assertEqual(r["rel"]["めたん"], "理屈っぽいが頼れる")
         sysmsg = d.build_msgs("旅行", P, 0, [], mem=r)[0]["content"]
-        self.assertIn("料理は味見が大事", sysmsg); self.assertIn("理屈っぽいが頼れる", sysmsg)
+        self.assertNotIn("料理は味見が大事", sysmsg)                                   # 無関係な記憶は持ち込まない
+        self.assertIn("理屈っぽいが頼れる", sysmsg)                                  # 相手への印象は持ち込む
+        self.assertIn("料理は味見が大事", d.build_msgs("料理の味見", P, 0, [], mem=r)[0]["content"])   # 関係する話題なら思い出す
         self.assertNotIn("理屈っぽいが頼れる", d.build_msgs("旅行", P, 1, [], mem=r)[0]["content"] if False else "")
         for i in range(10):
             m.learn("ずんだ", f"t{i}", [f"v{i}"], {})
@@ -492,4 +494,46 @@ class JournalTests(unittest.TestCase):
         self.assertTrue(any(p["emotions"] for p in e["people"]))
         self.assertEqual(d.Journal(jr.path).summary()["total"], 1)                  # 保存されて読み直せる
         self.assertEqual(d.radar_delta({"元気": 50, "論理": 60}, {"元気": 55, "論理": 60}), {"元気": 5})
+
+class BondTests(unittest.TestCase):
+    def test_bond_and_prompt(self):
+        import discuss as d, autonomy
+        m = d.Memory(os.path.join(tempfile.mkdtemp(), "m.json"))
+        self.assertAlmostEqual(m.get("ずんだ")["bond"]["めたん"], 0.22)               # 最初から少し偏りがある
+        self.assertEqual(d.bond_label(0.8), "恋心"); self.assertEqual(d.bond_label(0.5), "好意"); self.assertEqual(d.bond_label(-0.6), "対立")
+        for _ in range(20):
+            m.bond_add("ずんだ", "めたん", 0.1)
+        self.assertEqual(m.get("ずんだ")["bond"]["めたん"], 1.0)                      # 上限
+        m.bond_add("つむぎ", "めたん", -0.9)
+        self.assertEqual(d.bond_label(m.get("つむぎ")["bond"]["めたん"]), "対立")
+        P = d.PERSONAS
+        s = d.build_msgs("今日の出来事", P, 0, [], mem=m.get("ずんだ"))[0]["content"]
+        self.assertIn("めたん: 恋心", s); self.assertIn("日常会話", s); self.assertIn("照れ", s)
+        self.assertEqual(d.Memory(m.path).get("ずんだ")["bond"]["めたん"], 1.0)         # 保存される
+        tm = autonomy.topic_msgs(P[0], m.get("ずんだ"), [], 21, ["めたん", "つむぎ"])[0]["content"]
+        self.assertIn("恋バナ", tm); self.assertIn("雑学ではなく", tm)
+
+    def test_bond_moves_in_talk_and_shy(self):
+        import discuss as d
+        class S:
+            def send(s, m): pass
+            def _send_pcm(s, *x, **k): return 0.0
+        class Hub:
+            def by_id(s, i): return S()
+            def event(s, t): pass
+        class Reg:
+            def all(s): return [{"id": i, "name": "N" + i} for i in "abc"]
+        m = d.Memory(os.path.join(tempfile.mkdtemp(), "m.json"))
+        ds = d.Discussion(Hub(), Reg(), lambda: None, m, d.Journal(os.path.join(tempfile.mkdtemp(), "j.json")))
+        ds.people = [{**p, "dev": "x", "dev_name": "x"} for p in d.PERSONAS]
+        ds.mood = {}; ds.emos = {p["name"]: "neutral" for p in ds.people}; ds.log = [("ずんだ", "x")]
+        b0 = m.get("めたん")["bond"].get("ずんだ", 0.0)
+        for _ in range(6):                                                         # めたんに、ずんだがやさしく声をかけ続ける
+            ds._bond_step(0, 1, "めたん、ありがとう。一緒にいると落ち着くのだ、大好きなのだ")
+        self.assertGreater(m.get("めたん")["bond"]["ずんだ"], b0 + 0.3)
+        self.assertEqual(ds.emos["めたん"], "shy")                                  # 好意のある相手に優しくされると照れる
+        c0 = m.get("つむぎ")["bond"].get("ずんだ", 0.0)
+        ds._bond_step(0, 2, "つむぎ、それは違うでしょ、ふざけないで")
+        self.assertLess(m.get("つむぎ")["bond"]["ずんだ"], c0)                      # きつい言い方で下がる
+        self.assertEqual(d.split_emotion("【照れ】え、そんなこと言われると…")[0], "shy")
 

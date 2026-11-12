@@ -1208,6 +1208,8 @@ class Win(QMainWindow):
                     bits.append("感情 " + "・".join(f"{n}{c}" for n, c in sorted(p["emotions"].items(), key=lambda kv: -kv[1])))
                 if p.get("learned"):
                     bits.append(f'学び「{p["learned"]}」')
+                if p.get("bond_delta"):
+                    bits.append("関係 " + " ".join(f'{o}へ{"+" if d > 0 else ""}{d:.2f}({p.get("bonds", {}).get(o, "")})' for o, d in p["bond_delta"].items()))
                 if p.get("radar_delta"):
                     bits.append("性格の変化 " + " ".join(f'{a}{"+" if d > 0 else ""}{d}' for a, d in p["radar_delta"].items()))
                 lines.append(f'<b>{p["dev_name"]}({p["name"]})</b>　' + ("　".join(bits) or "変化なし"))
@@ -1274,6 +1276,8 @@ class Win(QMainWindow):
                      f'会話 {g["talks"]}回 ・ 発言 {g["utterances"]}回' + (f' ・ いま<b>{g["emo_now"]}</b>' if g.get("emo_now") else "")]
             if g["emo_top"]:
                 lines.append("感情の傾向: " + " / ".join(f'{e["label"]} {e["n"]}' for e in g["emo_top"]))
+            if g.get("bonds"):
+                lines.append("<b>関係</b>　" + "　".join(f'{b["to"]}へ: <span style="color:{MG}">{b["label"]}</span>({b["score"]:+.2f})' for b in g["bonds"]))
             lines.append("<b>学んだこと</b><br>" + ("<br>".join("・" + v for v in g["views"]) or "まだ学んでいません"))
             lines += [f'{o}への印象: {t}' for o, t in g["rel"].items()]
             if g["topics"]:

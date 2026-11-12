@@ -15,11 +15,11 @@ import time
 
 PERSONAS = [
     {"name": "ずんだ", "voice": "voicevox:3", "base": "joy", "neg": "sad", "a0": 0.55, "title": "好奇心いっぱいの元気っこ", "motto": "〜なのだ!", "likes": "新しい発見・おやつ・冒険", "dislikes": "退屈・長くて難しい話",
-     "radar": {"元気": 85, "好奇心": 90, "論理": 35, "共感": 60, "負けん気": 45, "感情表現": 85}, "trait": "元気で好奇心いっぱい。素直に驚き、思いついたことをすぐ言う。語尾は「〜なのだ」「〜のだ」。"},
+     "radar": {"元気": 85, "好奇心": 90, "論理": 35, "共感": 60, "負けん気": 45, "感情表現": 85}, "trait": "元気で好奇心いっぱい。素直に驚き、思いついたことをすぐ言う。語尾は「〜なのだ」「〜のだ」。好きな人の前ではそわそわして、顔に出てしまう。やきもちも焼く。"},
     {"name": "めたん", "voice": "voicevox:2", "base": "neutral", "neg": "anger", "a0": 0.3, "title": "理屈と皮肉の知性派", "motto": "それは筋が通っていませんね", "likes": "整理された議論・紅茶・正論", "dislikes": "根拠のない決めつけ",
-     "radar": {"元気": 40, "好奇心": 65, "論理": 90, "共感": 35, "負けん気": 80, "感情表現": 40}, "trait": "知的で少し皮肉屋。丁寧な言葉づかいで、論点を整理したり、鋭い指摘や反論をする。"},
+     "radar": {"元気": 40, "好奇心": 65, "論理": 90, "共感": 35, "負けん気": 80, "感情表現": 40}, "trait": "知的で少し皮肉屋。丁寧な言葉づかいで、鋭いことも言う。本当は照れ屋で、好意は皮肉や素っ気なさで隠そうとする。"},
     {"name": "つむぎ", "voice": "voicevox:8", "base": "neutral", "neg": "doubt", "a0": 0.2, "title": "おっとり現実派の聞き上手", "motto": "たとえばね…", "likes": "日常の工夫・お茶・体験談", "dislikes": "大げさな話",
-     "radar": {"元気": 50, "好奇心": 55, "論理": 60, "共感": 90, "負けん気": 25, "感情表現": 60}, "trait": "おっとりして現実的。身近な具体例や体験談を出して、話をやわらかくまとめる。"},
+     "radar": {"元気": 50, "好奇心": 55, "論理": 60, "共感": 90, "負けん気": 25, "感情表現": 60}, "trait": "おっとりして現実的。身近な体験談を出して、話をやわらかくまとめる。世話焼きで、さりげなく人を気づかい、気持ちの変化に敏感。"},
 ]
 # 感情: キー → (表示名, 声の調子(速さ・高さ・抑揚・音量の倍率/加算), 顔の状態)
 EMOTIONS = {
@@ -29,11 +29,12 @@ EMOTIONS = {
     "surprise": ("驚き", {"speed": 1.1, "pitch": 0.1, "intonation": 1.5, "volume": 1.1}, "surprise"),
     "sad":      ("悲しみ", {"speed": 0.88, "pitch": -0.06, "intonation": 0.75, "volume": 0.9}, "sad"),
     "anger":    ("怒り", {"speed": 1.1, "pitch": -0.03, "intonation": 1.35, "volume": 1.2}, "thinking"),
+    "shy":      ("照れ", {"speed": 0.94, "pitch": 0.05, "intonation": 1.1, "volume": 0.85}, "happy"),
     "doubt":    ("困惑", {"speed": 0.95, "pitch": 0.02, "intonation": 1.2, "volume": 1.0}, "thinking"),
 }
 EMO_WORDS = [("excited", ("興奮", "ワクワク", "わくわく")), ("joy", ("喜", "楽し", "嬉", "うれ", "幸")), ("surprise", ("驚", "びっくり")),
              ("sad", ("悲", "哀", "寂", "しょんぼり", "落ち込")), ("anger", ("怒", "憤", "イライラ", "不満")), ("doubt", ("困", "疑", "不安", "迷", "戸惑")),
-             ("neutral", ("平常", "普通", "通常", "冷静", "平静", "落ち着"))]
+             ("shy", ("照れ", "恥ず", "ドキドキ", "どきどき", "はにかみ")), ("neutral", ("平常", "普通", "通常", "冷静", "平静", "落ち着"))]
 
 
 def emo_key(word: str) -> str:
@@ -66,7 +67,7 @@ def has_emotion_tag(text: str) -> bool:
 
 def emotion_msgs(name: str, prev: str, text: str, heard: str) -> list:
     """発言の感情を 1 語で判定する短い問い合わせ(モデルが感情タグを付けなかったとき用)。"""
-    return [{"role": "system", "content": "会話の発言から、話し手の感情を判定します。【喜び】【興奮】【驚き】【怒り】【悲しみ】【困惑】【平常】のうち、"
+    return [{"role": "system", "content": "会話の発言から、話し手の感情を判定します。【喜び】【興奮】【驚き】【照れ】【怒り】【悲しみ】【困惑】【平常】のうち、"
                                           "いちばん近いものを 1 つだけ、その言葉だけで答えてください。内容・口調・文脈から判断し、迷ったら平常ではなく少しでも強く出ている感情を選ぶ。"},
             {"role": "user", "content": f"直前に聞いた発言: {heard or '(なし)'}\n{name}(直前の気持ち: {emo_label(prev)})の発言: {text}\n\n{name}の感情は?"}]
 
@@ -315,7 +316,7 @@ class Memory:
     def get(self, name: str) -> dict:
         with self.lock:
             r = self.d.get(name) or {}
-            return {"views": list(r.get("views", [])), "rel": dict(r.get("rel", {})),
+            return {"views": list(r.get("views", [])), "rel": dict(r.get("rel", {})), "bond": {**BOND0.get(name, {}), **r.get("bond", {})},
                     "topics": list(r.get("topics", [])), "talks": int(r.get("talks", 0)), "stats": dict(r.get("stats", {}))}
 
     def learn(self, name: str, topic: str, views: list, rel: dict) -> None:
@@ -327,6 +328,16 @@ class Memory:
             r["topics"] = ([topic] + [t for t in r.get("topics", []) if t != topic])[:self.MAX_TOPICS]
             r["talks"] = int(r.get("talks", 0)) + 1
             self.save()
+
+    def bond_add(self, name: str, other: str, delta: float) -> float:
+        """name が other に抱いている好意を delta だけ動かす(-1〜1)。"""
+        with self.lock:
+            r = self.d.setdefault(name, {})
+            bd = r.setdefault("bond", {})
+            cur = bd.get(other, BOND0.get(name, {}).get(other, 0.0))
+            bd[other] = round(max(-1.0, min(1.0, cur + delta)), 3)
+            self.save()
+            return bd[other]
 
     def observe(self, name: str, emo: str, text: str, addr: bool) -> None:
         with self.lock:
@@ -341,6 +352,30 @@ class Memory:
             else:
                 self.d = {}
             self.save()
+
+
+# 最初の関係(好意の度合い -1〜1)。三角関係ぎみに少しだけ偏らせて、会話で育つ余地を残す
+BOND0 = {"ずんだ": {"めたん": 0.22}, "めたん": {"つむぎ": 0.18}, "つむぎ": {"ずんだ": 0.22}}
+_AFFECT = re.compile(r"かわいい|可愛い|すてき|素敵|好き|大好き|ありがとう|頼りに|一緒に|会いたい|心配|気になる|ドキドキ|照れ|ほめ|優し|かっこいい")
+
+
+def bond_label(v: float) -> str:
+    return ("恋心" if v >= 0.7 else "好意" if v >= 0.45 else "仲良し" if v >= 0.25 else "ふつう" if v > -0.2 else "苦手" if v > -0.5 else "対立")
+
+
+def bond_text(mem: dict, others: list) -> str:
+    """プロンプトに入れる、ほかの人との関係(好意)。"""
+    bd = (mem or {}).get("bond", {})
+    lines = []
+    for o in others:
+        v = bd.get(o, 0.0)
+        lab = bond_label(v)
+        hint = {"恋心": "強く意識していて、目を合わせられないほどドキドキする。照れ・独占欲・やきもちが出る",
+                "好意": "好意を持っている。気にかけ、ほめたり、照れたりする", "仲良し": "気が合う友だち。親しみを込めて話す",
+                "苦手": "ちょっと苦手。つい素っ気なくなる", "対立": "いま対立している。つっかかってしまう"}.get(lab)
+        if hint:
+            lines.append(f"- {o}: {lab}({hint})")
+    return ("ほかの人との関係(このまま演じる):\n" + "\n".join(lines)) if lines else ""
 
 
 def memory_text(mem: dict, others: list) -> str:
@@ -393,7 +428,11 @@ def build_msgs(topic: str, people: list, idx: int, log: list, last: bool = False
     me = people[idx]
     names = "・".join(p["name"] for p in people)
     sysmsg = (f"あなたは「{me['name']}」。{me['trait']}\n"
-              f"いま {names}(と、ときどき参加する「私」)の{len(people)}人で、議題「{topic}」について雑談のように話し合っています。\n"
+              f"いま {names}(と、ときどき参加する「私」)の{len(people)}人で、「{topic}」について日常会話をしています。\n"
+              "これは講義や議論ではなく、友だち同士のおしゃべりです。感想・体験・気持ちを中心に、短く自然に話す。解説口調や、知識の羅列はしない。"
+              "【禁止】理由や仕組みを解説・説明すること(「〜だから〜なんだよ」と教える口調)。正解を言うのではなく、自分の気持ちや体験で返す。\n"
+              "口調の見本: 「えー、それ分かる〜。わたしもこの前さ、同じことでちょっと落ち込んだ」「ふーん…べつに、気にしてないけど(ちらっ)」「ちょっと、笑わないでよ!本気なんだから」「そういうとこ、ずるいと思う」。\n"
+              "相手の気持ちに反応し、ときどきからかったり、照れたり、やきもちを焼いたり、気づかったり、本音をぽろっと出したりする(恋愛や人間関係の話題も歓迎。上品に、冗談の範囲で)。\n"
               f"ルール: {me['name']}として次の一言だけを、日本語の話し言葉で、1〜2文・{MAX_CHARS - 10}文字以内で話す。"
               "名前・かっこ・説明・絵文字は書かない。直前の発言に反応し、同じことを繰り返さず、"
               "自分の意見や具体例を言い切るのを基本にし、質問で終わるのは 3 回に 1 回までにする(「どう?」で毎回終えない)。ときどき反論や別の視点も出して話を進める。" + ("今回は話をきれいに締めくくる。" if last else "")
@@ -406,9 +445,15 @@ def build_msgs(topic: str, people: list, idx: int, log: list, last: bool = False
     others_e = "、".join(f"{p['name']}={emo_label(em.get(p['name'], 'neutral'))}" for k, p in enumerate(people) if k != idx)
     sysmsg += (f"\n\nあなたには感情があります。いまの気持ちは「{emo_label(mine)}」。ほかの人の様子: {others_e}。"
                "話の流れ、相手の言葉、自分の価値観に応じて、気持ちは自然に変わります(嬉しい、驚く、むっとする、しょげる、迷う、など)。"
-               "出力の先頭に、いまの気持ちを【喜び】【興奮】【驚き】【怒り】【悲しみ】【困惑】【平常】のどれか 1 つで付け、続けて発言を書く。"
+               "出力の先頭に、いまの気持ちを【喜び】【興奮】【驚き】【照れ】【怒り】【悲しみ】【困惑】【平常】のどれか 1 つで付け、続けて発言を書く。"
                "気持ちを言葉と口調にも込める(例: 【驚き】えっ、そんなことがあったのだ!)。")
-    mt = memory_text(mem or {}, [p["name"] for k, p in enumerate(people) if k != idx])
+    mm = dict(mem or {})                                    # 今回の話題に関係する学び・過去の議題だけを思い出す(無関係な記憶に会話が引きずられないように)
+    mm["views"] = [v for v in mm.get("views", []) if similar(topic, v) > 0.04][:2]
+    mm["topics"] = [t for t in mm.get("topics", []) if similar(topic, t) > 0.04][:3]
+    mt = memory_text(mm, [p["name"] for k, p in enumerate(people) if k != idx])
+    bt = bond_text(mem or {}, [p["name"] for k, p in enumerate(people) if k != idx])
+    if bt:
+        sysmsg += "\n\n" + bt
     if mt:
         sysmsg += "\n\n" + mt
     hist = "\n".join(f"{who}: {text}" for who, text in log[-HISTORY:]) or "(まだ誰も話していません。口火を切ってください)"
@@ -428,6 +473,7 @@ class Discussion:
         self.auto_started = False
         self.t_start = 0.0
         self.radar0: dict = {}
+        self.bond0: dict = {}
         self.journal = journal if journal is not None else Journal()
         self.mood: dict = {}            # キャラ名 → {"v","a"}(気分)
         self.on = False
@@ -474,6 +520,7 @@ class Discussion:
         self.auto_started = bool(auto)
         self.t_start = time.time()
         self.radar0 = self._radars()
+        self.bond0 = {p["name"]: dict(self.memory.get(p["name"])["bond"]) for p in self.people}
         self.opener = max(0, min(len(self.people) - 1, int(opener)))      # 最初に口火を切る人(自発のときは話題を思いついた人)
         self.spoke_at = {}
         self.grew = ""
@@ -531,6 +578,23 @@ class Discussion:
             prev_same = next((t for w, t in reversed(self.log[:-1]) if w == self.people[i]["name"]), "")
             self.mood[p["name"]] = mood_step(self.mood.get(p["name"], {}), text, prev_same, p)
             self.emos[p["name"]] = mood_emotion(self.mood[p["name"]], p)
+            self._bond_step(i, k, text)
+
+    def _bond_step(self, i: int, k: int, text: str) -> None:
+        """話者 i の発言を聞いて、聞き手 k の i への好意が動く(やさしくされる・ほめられる→上がる、きつい言い方→下がる)。
+        好意が高い相手に名前で呼ばれたりやさしくされると、照れる。"""
+        me, sp = self.people[k]["name"], self.people[i]["name"]
+        to_me = addressed(self.people, i, text) == k
+        d = 0.015                                              # 話すだけで、ほんの少しずつ親しくなる
+        if _AFFECT.search(text):
+            d += 0.09 if to_me else 0.03
+        if _POS.search(text):
+            d += 0.04
+        if _NEG.search(text):
+            d -= 0.07 if to_me else 0.03
+        v = self.memory.bond_add(me, sp, d)
+        if v >= 0.45 and (to_me or _AFFECT.search(text)) and d > 0.03:
+            self.emos[me] = "shy"
 
     def _tts(self, eng, idx: int, text: str, emo: str):
         """感情に合わせた声(速さ・高さ・抑揚・音量)で読む。感情に未対応のエンジンなら、ふつうの声で読む。"""
@@ -709,7 +773,7 @@ class Discussion:
     def snap(self) -> dict:
         """いまの会話の控え(終わったあとの振り返りに使う)。"""
         return {"people": list(self.people), "topic": self.topic, "log": list(self.log), "log_emo": list(self.log_emo), "note": self.note,
-                "auto": self.auto_started, "t_start": self.t_start, "radar0": dict(self.radar0), "opener": self.opener}
+                "auto": self.auto_started, "t_start": self.t_start, "radar0": dict(self.radar0), "bond0": dict(self.bond0), "opener": self.opener}
 
     def _radars(self) -> dict:
         return {p["name"]: radar(p["radar"], self.memory.get(p["name"])["stats"]) for p in PERSONAS}
@@ -739,7 +803,10 @@ class Discussion:
             nm = p["name"]
             people.append({"name": nm, "dev_name": p["dev_name"], "learned": got.get(nm, ""), "rel": self.memory.get(nm)["rel"],
                            "emotions": emos.get(nm, {}), "radar_delta": radar_delta(sn["radar0"].get(nm, {}), after.get(nm, {})),
-                           "radar": after.get(nm, {})})
+                           "radar": after.get(nm, {}),
+                           "bond_delta": {o: round(v - sn.get("bond0", {}).get(nm, {}).get(o, 0.0), 2)
+                                          for o, v in self.memory.get(nm)["bond"].items() if abs(v - sn.get("bond0", {}).get(nm, {}).get(o, 0.0)) >= 0.02},
+                           "bonds": {o: bond_label(v) for o, v in self.memory.get(nm)["bond"].items()}})
         self.journal.add({"t": int(sn["t_start"] or time.time()), "topic": sn["topic"], "auto": sn["auto"], "turns": len(spoken),
                           "by": sn["people"][sn["opener"]]["name"] if sn["people"] else "", "note": sn["note"], "summary": summ,
                           "lines": [{"who": w, "text": t} for w, t in log[-6:]], "people": people})
@@ -759,7 +826,8 @@ class Discussion:
                         "radar": radar(P["radar"], st), "radar_base": dict(P["radar"]), "axes": AXES,
                         "emo_top": [{"label": emo_label(k), "n": n} for k, n in ec[:3]],
                         "emo_now": emo_label(self.emos.get(name, "neutral")) if self.on and name in self.emos else "", "online": online,
-                        "views": m["views"], "rel": m["rel"], "topics": m["topics"]})
+                        "views": m["views"], "rel": m["rel"], "topics": m["topics"],
+                        "bonds": [{"to": o, "score": round(v, 2), "label": bond_label(v)} for o, v in m["bond"].items() if o in {q["name"] for q in PERSONAS}]})
         return out
 
     def growth(self) -> list:

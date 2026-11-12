@@ -31,17 +31,31 @@ def due(now: float, last: float, interval_s: float, urge: float) -> bool:
     return now - last >= interval_s * urge
 
 
-def topic_msgs(persona: dict, mem: dict, recent: list, hour: int, others: list) -> list:
+# 話題の種類(重み): モデルに任せると天気などに偏るので、種類はこちらで決めて渡す
+CATEGORIES = [("恋バナ(好きな人のこと、ドキッとした瞬間、やきもち、告白するかどうか)", 4), ("相手への本音(さっきの一言が気になる、ちょっと言いにくいこと、感謝)", 3),
+              ("今日あった、ちょっと心が動いた出来事", 2), ("ささいな悩みや失敗談、恥ずかしかったこと", 2), ("昔の思い出・懐かしい話", 1), ("好きな食べ物や休日の過ごし方、ささやかな楽しみ", 1)]
+
+
+def pick_category(rnd) -> str:
+    return rnd.choices([c for c, _ in CATEGORIES], weights=[w for _, w in CATEGORIES])[0]
+
+
+def topic_msgs(persona: dict, mem: dict, recent: list, hour: int, others: list, category: str = "") -> list:
     part = "朝" if 5 <= hour < 11 else "昼" if 11 <= hour < 17 else "夕方" if 17 <= hour < 21 else "夜"
-    views = "\n".join(f"- {v}" for v in mem.get("views", [])[:4]) or "(まだありません)"
     rec = "、".join(recent[:6]) or "(なし)"
+    from discuss import bond_text
+    bt = bond_text(mem, others)
+    bond_line = (bt + "\n") if bt else ""
     sysmsg = (f"あなたは「{persona['name']}」。{persona['trait']}\n"
-              f"いまは{part}で、ユーザーから何も頼まれていません。退屈になったので、{ '・'.join(others) }に、自分から話しかけたい話題を 1 つ思いつきます。\n"
+              f"いまは{part}で、ユーザーから何も頼まれていません。ふと、{ '・'.join(others) }に、自分から話しかけたくなりました。\n"
               f"好きなこと: {persona.get('likes', '')}。\n"
-              "ルール: 話題は 25 文字以内の名詞句か疑問文(例: 「雨の日の過ごし方」「宇宙人はいると思う?」)。"
-              "自分の好み、最近学んだこと、いまの時間帯から自然に選ぶ。最近話した議題とは別のものにする。話題だけを 1 行で出力し、説明・かっこ・名前は書かない。")
+              + (f"今回の話題の種類は「{category}」。この種類で、誰かに話しかける形にする。天気・空・風・自然現象・科学の話はしない。\n" if category else "")
+              + "話題は、知識や雑学ではなく、人間らしい日常のおしゃべりにする。例: 今日あったちょっとした出来事 / 最近気になっていること / 恋バナ(好きな人・ドキッとした瞬間・やきもち) / "
+              "ささいな悩みや失敗談 / 昔の思い出 / 食べ物・休日の過ごし方 / さっきの一言が気になっている、など。"
+              "ルール: 25 文字以内の、話しかけの一言か話題(例: 「今日ちょっとドキッとしたことがあって…」「ねえ、好きな人いる?」「昨日の夢が変だった」)。"
+              "自分の気分と、ほかの人との関係から自然に選ぶ。最近話した話題とは別のものにする。1 行だけを出力し、説明・かっこ・名前は書かない。")
     return [{"role": "system", "content": sysmsg},
-            {"role": "user", "content": f"最近学んだこと:\n{views}\n最近話した議題: {rec}\n\n{persona['name']}が話したい話題は?"}]
+            {"role": "user", "content": f"{bond_line}最近話した話題: {rec}\n\n{persona['name']}が話しかけたい一言は?"}]
 
 
 def clean_topic(text: str) -> str:
@@ -144,7 +158,7 @@ class Autonomy:
         recent = list(mem.get("topics", [])) + ([self.last_topic] if self.last_topic else [])
         others = [PERSONAS[idx[j]]["name"] for j in range(len(pk)) if j != k]
         try:
-            out, _l = eng.translate(topic_msgs(P, mem, recent, time.localtime(now).tm_hour, others))
+            out, _l = eng.translate(topic_msgs(P, mem, recent, time.localtime(now).tm_hour, others, pick_category(self.rnd)))
         except Exception:  # noqa: BLE001
             self.last = now - self.cfg["interval_min"] * 60.0 * 0.5      # 失敗したら半分の間隔であとでやり直す
             return False
