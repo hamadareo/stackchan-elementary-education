@@ -1056,6 +1056,11 @@ class Win(QMainWindow):
         self.d_log.setWordWrap(True)
         l.addWidget(self.d_log, 1)
         lay.addWidget(c)
+        c2, l2 = card("学んだこと", "会話のたびに、機器ごとのキャラが学びを覚えて成長します")
+        self.d_grow = QListWidget()
+        self.d_grow.setWordWrap(True)
+        l2.addWidget(self.d_grow, 1)
+        lay.addWidget(c2, 1)
         self.d_key = ""
         return w
 
@@ -1086,6 +1091,15 @@ class Win(QMainWindow):
         for x in d["log"]:
             self.d_log.addItem(f'{x["who"]}: {x["text"]}')
         self.d_log.scrollToBottom()
+        self.d_grow.clear()
+        for g in d.get("growth", []):
+            lines = [f'■ {g["dev_name"]}({g["name"]}・{g["talks"]}回の会話)'] + [f'　・{v}' for v in g["views"]] or []
+            if not g["views"]:
+                lines.append("　まだ学んでいません")
+            lines += [f'　{o}への印象: {t}' for o, t in g["rel"].items()]
+            if g["topics"]:
+                lines.append("　話した議題: " + "、".join(g["topics"][:4]))
+            self.d_grow.addItem("\n".join(lines))
 
     # ---------------- ページ: 会話
     def page_talk(self) -> QWidget:

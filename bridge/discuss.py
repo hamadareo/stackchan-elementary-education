@@ -415,10 +415,22 @@ class Discussion:
             self.grew = " / ".join(f"{n}: {v}" for n, v in got.items() if v)
             self.hub.event(f"キャラが成長しました({len(got)}人が学びを記憶)")
 
+    def growth(self) -> list:
+        """機器ごとの「育ち」。機器は登録順に 1 人目・2 人目・3 人目のキャラを担当する(会話中は参加者のまま)。"""
+        if self.on and self.people:
+            who = [(p["name"], p["dev_name"]) for p in self.people]
+        else:
+            who = [(PERSONAS[i]["name"], r["name"]) for i, (r, _s) in enumerate(self.pick())]
+        out = []
+        for name, dev in who:
+            m = self.memory.get(name)
+            out.append({"name": name, "dev_name": dev, "talks": m["talks"], "views": m["views"], "rel": m["rel"], "topics": m["topics"]})
+        return out
+
     def snapshot(self) -> dict:
         with self.lock:
             return {"on": self.on, "topic": self.topic, "turn": self.turn, "max": self.max_turns, "note": self.note,
                     "people": [{"name": p["name"], "dev_name": p["dev_name"], "trait": p["trait"]} for p in self.people],
                     "grew": self.grew,
-                    "growth": [{"name": p["name"], **{k: v for k, v in self.memory.get(p["name"]).items() if k in ("talks", "views")}} for p in PERSONAS],
+                    "growth": self.growth(),
                     "log": [{"who": w, "text": t} for w, t in self.log[-30:]]}

@@ -210,6 +210,7 @@ img{border-radius:14px;box-shadow:0 6px 20px rgba(0,0,0,.25);border-color:var(--
   <div class="row"><input id="dme" type="text" maxlength="100" placeholder="会話に加わる(「私」の発言)" style="flex:1;min-width:0"><button id="dmesend">送る</button></div>
   <div class="msg" style="color:var(--mute)" id="dstat">待機中。話している間は、機器のマイクを止めます(お互いの声を翻訳しないように)。</div>
   <div id="dlog" style="max-height:260px;overflow:auto;font-size:14px;line-height:1.6"></div>
+  <div id="dgrow" style="margin-top:12px;font-size:13px;line-height:1.6"></div>
 </section>
 
 <section class="panel">
@@ -425,6 +426,10 @@ function renderDiscuss(s){
   $('dgo').disabled=d.on;
   $('dlog').innerHTML=d.log.map(x=>`<div><b>${esc(x.who)}</b>: ${esc(x.text)}</div>`).join('');
   $('dlog').scrollTop=1e6;
+  $('dgrow').innerHTML=(d.growth||[]).map(g=>`<div class="dev"><div class="nm">${esc(g.dev_name)} <small>(${esc(g.name)} · ${g.talks}回の会話)</small></div><div class="ln">`+
+    (g.views.length?g.views.map(v=>'・'+esc(v)).join('<br>'):'まだ学んでいません')+
+    Object.keys(g.rel).map(o=>`<br><small>${esc(o)}への印象: ${esc(g.rel[o])}</small>`).join('')+
+    (g.topics.length?`<br><small>話した議題: ${g.topics.slice(0,4).map(esc).join('、')}</small>`:'')+`</div></div>`).join('');
 }
 $('dgo').onclick=async()=>{const t=$('dtopic').value.trim();if(!t)return toast('議題を入れてください');
   const j=await api('discuss_start',{topic:t,turns:+$('dturns').value});if(j&&j.ok)toast('会話を始めます')};
