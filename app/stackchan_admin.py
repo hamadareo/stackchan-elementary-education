@@ -680,6 +680,7 @@ class Win(QMainWindow):
         self.tabs.addTab(self.page_ctrl(), "操作")
         self.tabs.addTab(self.page_devices(), "機器")
         self.tabs.addTab(self.page_discuss(), "3人会話")
+        self.tabs.addTab(self.page_profile(), "プロフィール")
         self.tabs.addTab(self.page_talk(), "会話")
 
         self.msg = muted()
@@ -1109,9 +1110,15 @@ class Win(QMainWindow):
         l.addWidget(self.d_stat)
         self.d_log = QListWidget()
         self.d_log.setWordWrap(True)
-        self.d_log.setMaximumHeight(170)
         l.addWidget(self.d_log, 1)
         lay.addWidget(c, 1)
+        self.d_key = ""
+        return w
+
+    def page_profile(self) -> QWidget:
+        w = QWidget()
+        lay = QVBoxLayout(w)
+        lay.setContentsMargins(0, 0, 0, 0)
         c2, l2 = card("プロフィール", "機器ごとのキャラの性格・感情・学び。レーダーは会話を重ねるほど実際の話し方に近づきます")
         self.d_prof = QWidget()
         self.d_prof_l = QVBoxLayout(self.d_prof)
@@ -1127,7 +1134,6 @@ class Win(QMainWindow):
         l2.addLayout(hrow(btn("↺ 全員をリセット", lambda: self.forget_growth(None), name="bad")))
         self.d_prof_key = ""
         lay.addWidget(c2, 3)
-        self.d_key = ""
         return w
 
     def discuss_go(self):
