@@ -123,7 +123,7 @@ class Hub:
         v = d.get("voice")
         if isinstance(v, str) and v.startswith("voicevox:"):
             try:
-                self.act("voice", {"id": int(v.split(":")[1])}, persist=False)
+                self.act("voice", {"id": int(v.split(":")[1]), "default": True}, persist=False)
             except Exception:  # noqa: BLE001
                 pass
 
@@ -206,7 +206,7 @@ class Hub:
         for rec in REG.all():
             x = self.by_id(rec["id"])
             d = {"id": rec["id"], "name": rec.get("name", ""), "ip": rec.get("ip", ""), "fw": rec.get("fw", ""),
-                 "first": rec.get("first"), "seen_age": int(now - rec["seen"]) if rec.get("seen") else None,
+                 "first": rec.get("first"), "voice": rec.get("voice", ""), "seen_age": int(now - rec["seen"]) if rec.get("seen") else None,
                  "auto": bool(rec.get("auto")), "setup": rec.get("setup"), "online": bool(x),
                  "lang": rec.get("lang"), "topic": rec.get("topic", "")}
             if x:
@@ -384,7 +384,9 @@ class Hub:
         st["track"], st["listen"], st["turn_count"] = self.track, self.listen, self.turn_count
         if e is not None:
             st["speed"] = round(getattr(e, "speed_scale", 1.0), 2)
-            st["voice"] = str(((getattr(getattr(e, "tts", None), "voices", None) or {}).get("ja", "")).split(":")[-1])
+            vs_ = self.view_session()
+            vv = (REG.get(getattr(vs_, "dev_id", "")).get("voice") if self.target != "all" and vs_ else "") or getattr(e, "voice_ja", "") or ""
+            st["voice"] = str(vv).split(":")[-1]
             st["voices"] = self.voices()
             try:
                 st["vad_th"] = round(float(e.vad_conf.silero_vad.threshold), 2)
@@ -487,11 +489,26 @@ class Hub:
             return {"ok": True}
         if name == "voice":
             vid = str(int(body.get("id", 3)))
+            spec = f"voicevox:{vid}"
             tts = getattr(self.engine, "tts", None)
             if tts is None:
                 return {"ok": False, "error": "声エンジンがありません"}
-            tts.voices = {**dict(tts.voices or {}), "ja": f"voicevox:{vid}"}
-            self.engine.voice_ja = f"voicevox:{vid}"
+            dev = str(body.get("device") or self.target or "all")
+            if body.get("default") or dev == "all":               # 既定の声(全機器に適用)
+                self.engine.voice_ja = spec
+                tts.voices = {**dict(tts.voices or {}), "ja": spec}
+                if not body.get("default"):                       # 画面で「全機器」のときは、各機器の個別設定もそろえる
+                    for rec in REG.all():
+                        REG.set(rec["id"], voice=spec)
+                    for x in self.live():
+                        x.voice = spec
+                return {"ok": True}
+            x = self.by_id(dev)
+            if not REG.get(dev):
+                return {"ok": False, "error": "その機器は登録されていません"}
+            REG.set(dev, voice=spec)                              # この機器だけの声
+            if x is not None:
+                x.voice = spec
             return {"ok": True}
         if name == "vad":
             th = max(0.3, min(0.9, float(body.get("threshold", 0.5))))

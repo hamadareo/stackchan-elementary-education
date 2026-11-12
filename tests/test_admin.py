@@ -198,3 +198,35 @@ class MultiDeviceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class VoicePerDeviceTests(unittest.TestCase):
+    def setUp(self):
+        class Tts: voices = {"ja": "voicevox:3"}
+        self.h = admin.Hub()
+        self.h.engine = FakeEng()
+        self.h.engine.tts = Tts()
+        self.h.engine.voice_ja = "voicevox:3"
+        self.a, self.b = FakeSess(), FakeSess()
+        self.h.add_session(self.a); self.h.add_session(self.b)
+        for x in (self.a, self.b):
+            admin.REG.touch(x.dev_id, "10.0.0.1")
+            x.voice = None
+
+    def test_one_device_only(self):
+        self.h.act("device_select", {"id": self.b.dev_id})
+        self.assertTrue(self.h.act("voice", {"id": 2})["ok"])
+        self.assertEqual(self.b.voice, "voicevox:2")
+        self.assertIsNone(self.a.voice)
+        self.assertEqual(admin.REG.get(self.b.dev_id)["voice"], "voicevox:2")
+        self.assertEqual(self.h.engine.voice_ja, "voicevox:3")          # 既定は変わらない
+        self.assertEqual(self.h.state()["voice"], "2")
+
+    def test_all_sets_everyone_and_default_only_on_load(self):
+        self.h.act("voice", {"id": 8})
+        self.assertEqual((self.a.voice, self.b.voice, self.h.engine.voice_ja), ("voicevox:8",) * 3)
+        self.h.act("device_select", {"id": self.a.dev_id})
+        self.h.act("voice", {"id": 1})
+        self.h.act("voice", {"id": 5, "default": True})                  # 起動時の復元: 個別の声は触らない
+        self.assertEqual(self.a.voice, "voicevox:1")
+        self.assertEqual(self.h.engine.voice_ja, "voicevox:5")

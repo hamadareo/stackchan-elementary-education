@@ -187,19 +187,36 @@ class Engine:
         print(f"[bridge] 翻訳失敗: {last}", flush=True)
         return "", ""
 
-    def speech_pcm(self, text: str, lang: str, src_dur: float = 0.0, speed: "float | None" = None) -> np.ndarray:
-        """読み上げの音を 16kHz mono int16 にして返す。話速は原文を話した長さに合わせる(Sokutsu の pace)。"""
-        from tsuyaku.pace import engine_of
-        ckey = (text, lang, round(self.speed_scale, 2), (self.tts.voices or {}).get(lang, "") if self.tts is not None else "")
+    def speech_pcm(self, text: str, lang: str, src_dur: float = 0.0, speed: "float | None" = None, voice: "str | None" = None) -> np.ndarray:
+        """読み上げの音を 16kHz mono int16 にして返す。話速は原文を話した長さに合わせる(Sokutsu の pace)。
+        日本語は機器ごとの声(voice、例 voicevox:2)で読む。指定がなければ既定の声。"""
+        if lang == "ja":
+            voice = voice or self.voice_ja
+            vkey = voice
+        else:
+            vkey = (self.tts.voices or {}).get(lang, "") if self.tts is not None else ""
+        ckey = (text, lang, round(self.speed_scale, 2), vkey)
         if src_dur <= 0 and speed is None and ckey in self._pcm_cache:   # 同じ定型文は作り置きを使う
             self._pcm_cache.move_to_end(ckey)
             return self._pcm_cache[ckey]
-        pcm = self._speech_pcm(text, lang, src_dur, speed)
+        pcm = self.speech_pcm_as(text, voice, src_dur, speed) if lang == "ja" else self._speech_pcm(text, lang, src_dur, speed)
         if src_dur <= 0 and speed is None and len(pcm):
             self._pcm_cache[ckey] = pcm
             while len(self._pcm_cache) > 48:
                 self._pcm_cache.popitem(last=False)
         return pcm
+
+    def speech_pcm_as(self, text: str, voice: "str | None", src_dur: float = 0.0, speed: "float | None" = None) -> np.ndarray:
+        """日本語を、指定した声で読む。声の切り替えは排他にし、終わったら必ず「いまの既定の声」へ戻す
+        (切り替え中に管理画面で既定の声を変えても、古い声に巻き戻さない)。"""
+        with self._voice_lock:
+            if self.tts is None:
+                return self._speech_pcm(text, "ja", src_dur, speed)
+            self.tts.voices["ja"] = voice or self.voice_ja
+            try:
+                return self._speech_pcm(text, "ja", src_dur, speed)
+            finally:
+                self.tts.voices["ja"] = self.voice_ja
 
     def prewarm(self, items) -> None:
         """定型フレーズを先に声にしておく(押したらすぐ鳴る)。"""
@@ -906,7 +923,7 @@ class Session:
         def run():
             try:
                 time.sleep(0.8)                                  # ack が端末に届いてから
-                pcm = self.eng.speech_pcm(text, lang)
+                pcm = self.eng.speech_pcm(text, lang, voice=self.voice)
                 print(f"[bridge] 自発話 {len(pcm)/SR:.1f}秒: {text}", flush=True)
                 self._send_pcm(pcm, caption=text, lang=lang)
             except Exception as e:  # noqa: BLE001
@@ -1020,7 +1037,7 @@ class Session:
                 try:
                     self._stage("tts", "active", text=chunk[:30], lang=target, voice=self.eng.voice_name(target))
                     _t = time.time()
-                    pcm = self.eng.speech_pcm(chunk, target, src_dur, speed)
+                    pcm = self.eng.speech_pcm(chunk, target, src_dur, speed, voice=self.voice)
                     self._stage("tts", "done", ms=int((time.time() - _t) * 1000), text=chunk[:30], lang=target, voice=self.eng.voice_name(target))
                 except Exception as e:  # noqa: BLE001
                     print(f"[bridge] 読み上げの音づくり失敗: {type(e).__name__}: {e}", flush=True)

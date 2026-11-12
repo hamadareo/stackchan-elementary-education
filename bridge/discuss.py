@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import random
 import re
 import threading
 import time
@@ -31,14 +32,52 @@ def clean_line(text: str, name: str = "") -> str:
     return t
 
 
-def build_msgs(topic: str, people: list, idx: int, log: list, last: bool = False) -> list:
+PASS = "PASS"
+
+
+def is_pass(text: str) -> bool:
+    t = (text or "").strip().strip("「」『』\"'()（）[]").upper()
+    return t.startswith(PASS) or t in ("", "…", "...", "・・・")
+
+
+def addressed(people: list, speaker: int, text: str) -> "int | None":
+    """発言の中で、ほかの誰かが名前で呼ばれていれば、その人の番号。"""
+    best, pos = None, 10 ** 9
+    for k, p in enumerate(people):
+        if k == speaker:
+            continue
+        m = re.search(re.escape(p["name"]) + r"(?:さん|くん|ちゃん)?[、,。!?！？は が の に も]", text or "")
+        if m and m.start() < pos:
+            best, pos = k, m.start()
+    return best
+
+
+def choose(people: list, last_speaker: "int | None", last_text: str, cands: dict, spoke_at: dict, rnd) -> "int | None":
+    """話したがっている人(cands: 番号→発言)から、次に話す人を決める。
+    名前を呼ばれた人を優先 → 直前に話した人は避ける → しばらく話していない人ほど出やすい。"""
+    if not cands:
+        return None
+    if last_speaker is not None:
+        a = addressed(people, last_speaker, last_text)
+        if a in cands:
+            return a
+    pool = [k for k in cands if k != last_speaker] or list(cands)
+    w = [1.0 + 0.25 * min(4.0, spoke_at.get("now", 0) - spoke_at.get(k, 0)) for k in pool]    # 弱い偏りだけ(輪番にならないように)
+    return rnd.choices(pool, weights=w)[0]
+
+
+def build_msgs(topic: str, people: list, idx: int, log: list, last: bool = False, force: bool = True) -> list:
     me = people[idx]
     names = "・".join(p["name"] for p in people)
     sysmsg = (f"あなたは「{me['name']}」。{me['trait']}\n"
               f"いま {names}(と、ときどき参加する「私」)の{len(people)}人で、議題「{topic}」について雑談のように話し合っています。\n"
               f"ルール: {me['name']}として次の一言だけを、日本語の話し言葉で、1〜2文・{MAX_CHARS - 10}文字以内で話す。"
               "名前・かっこ・説明・絵文字は書かない。直前の発言に反応し、同じことを繰り返さず、"
-              "自分の意見や具体例を言い切るのを基本にし、質問で終わるのは 3 回に 1 回までにする(「どう?」で毎回終えない)。ときどき反論や別の視点も出して話を進める。" + ("今回は話をきれいに締めくくる。" if last else ""))
+              "自分の意見や具体例を言い切るのを基本にし、質問で終わるのは 3 回に 1 回までにする(「どう?」で毎回終えない)。ときどき反論や別の視点も出して話を進める。" + ("今回は話をきれいに締めくくる。" if last else "")
+              + ("" if force else f"\nあなたは独立した 1 人です。順番は決まっていません。自分の名前で呼ばれたら必ず答えます。"
+                 f"呼ばれていなくても、言いたいこと(反論・補足・共感・話題の転換)があれば割り込んで話してよいです。"
+                 f"直前の発言に異論・補足があるときは、相手の名前を呼んで(例: 「{people[(idx + 1) % len(people)]['name']}、それは違うと思う」)話しかけると、その人が次に答えます。"
+                 f"自分の考えが前と同じなら無理に話さず、{PASS} とだけ出力して黙ってよいです(黙るのは普通のことです)。"))
     hist = "\n".join(f"{who}: {text}" for who, text in log[-HISTORY:]) or "(まだ誰も話していません。口火を切ってください)"
     return [{"role": "system", "content": sysmsg},
             {"role": "user", "content": f"これまでの会話:\n{hist}\n\n{me['name']}の番です。{me['name']}の発言だけを出力してください。"}]
@@ -57,6 +96,8 @@ class Discussion:
         self._inject: list = []
         self.lock = threading.Lock()
         self.note = ""
+        self.spoke_at: dict = {}
+        self.rnd = random.Random()
 
     # --- 参加者: 接続中の機器を、登録順に最大 3 台
     def pick(self) -> list:
@@ -81,6 +122,7 @@ class Discussion:
             return False, "接続中の機器が 2 台以上必要です"
         self.people = [{**PERSONAS[i], "dev": r["id"], "dev_name": r["name"]} for i, (r, _s) in enumerate(pk)]
         self.topic, self.turn, self.max_turns, self.log, self._inject, self.note = topic, 0, max(2, min(40, int(turns))), [], [], ""
+        self.spoke_at = {}
         self._stop.clear()
         self.on = True
         self.hub.event(f"会話モード開始: {topic}({len(self.people)}人)")
@@ -100,35 +142,62 @@ class Discussion:
     def _sess(self, i: int):
         return self.hub.by_id(self.people[i]["dev"])
 
-    def _gen(self, eng, idx: int, last: bool) -> str:
+    def _drain(self) -> None:
         with self.lock:
             while self._inject:
                 self.log.append(("私", self._inject.pop(0)))
-        out, _label = eng.translate(build_msgs(self.topic, self.people, idx, self.log, last))
+
+    def _gen(self, eng, idx: int, last: bool = False, force: bool = True) -> str:
+        """idx 番の人の発言を作る。force=False のときは、話さない(空)こともある。"""
+        out, _label = eng.translate(build_msgs(self.topic, self.people, idx, self.log, last, force))
+        if not force and is_pass(out):
+            return ""
         return clean_line(out, self.people[idx]["name"])
+
+    def _decide(self, eng, i: int, last: bool) -> "tuple[int | None, str]":
+        """直前に話した i 以外の人が、それぞれ独立に「話すか黙るか」を決める(並列)。次に話す人と発言を返す。"""
+        self._drain()
+        others = [k for k in range(len(self.people)) if k != i]
+        if last:                                           # 最後は、いちばん話していない人が締める
+            k = min(others, key=lambda k: self.spoke_at.get(k, 0))
+            return k, self._gen(eng, k, True, True)
+        res: dict = {}
+
+        def one(k):
+            try:
+                res[k] = self._gen(eng, k, False, False)
+            except Exception:  # noqa: BLE001
+                res[k] = ""
+        ts = [threading.Thread(target=one, args=(k,), daemon=True) for k in others]
+        for t in ts:
+            t.start()
+        for t in ts:
+            t.join(40)
+        cands = {k: t for k, t in res.items() if t}
+        self.spoke_at["now"] = self.turn
+        who = choose(self.people, i, self.log[-1][1] if self.log else "", cands, self.spoke_at, self.rnd)
+        if who is None:                                    # 全員が黙った
+            return None, ""
+        return who, cands[who]
 
     def _run(self, eng) -> None:
         try:
-            nxt, nxt_pcm, i = None, None, 0
-            while self.turn < self.max_turns and not self._stop.is_set():
+            i, text, quiet = 0, self._gen(eng, 0, False, True), 0
+            pcm = None
+            if not text:
+                self.note = "発言を作れませんでした(LLM)。会話を終えます"
+            while text and self.turn < self.max_turns and not self._stop.is_set():
                 s = self._sess(i)
                 if s is None or any(self._sess(k) is None for k in range(len(self.people))):
                     self.note = "機器が切れたので会話を終えました"
                     break
-                last = self.turn == self.max_turns - 1
-                if nxt is None:
-                    nxt = self._gen(eng, i, last)
-                    if not nxt:
-                        self.note = "発言を作れませんでした(LLM)。会話を終えます"
-                        break
-                text = nxt
-                pcm = nxt_pcm if nxt_pcm is not None else eng.speech_pcm_as(text, self.people[i]["voice"])
-                nxt, nxt_pcm = None, None
+                if pcm is None:
+                    pcm = eng.speech_pcm_as(text, self.people[i]["voice"])
                 with self.lock:
                     self.log.append((self.people[i]["name"], text))
                 self.turn += 1
-                # 話者は声と字幕、ほかの機器は「聞いている」顔と字幕
-                for k in range(len(self.people)):
+                self.spoke_at[i] = self.turn
+                for k in range(len(self.people)):          # 話者は声と字幕、ほかは「聞いている」顔と字幕
                     sk = self._sess(k)
                     if sk is None:
                         continue
@@ -139,21 +208,31 @@ class Discussion:
                         sk.send({"t": "caption", "lang": "ja", "to": "ja", "orig": f"{self.people[i]['name']}: {text}", "trans": "", "final": True})
                 t0 = time.time()
                 dur = s._send_pcm(pcm, caption=text, lang="ja")
-                # 再生している間に、次の人の発言を作って声にしておく
-                j = (i + 1) % len(self.people)
+                nxt_i, nxt_text, nxt_pcm = None, "", None
                 if self.turn < self.max_turns and not self._stop.is_set():
-                    try:
-                        nxt = self._gen(eng, j, self.turn == self.max_turns - 1)
-                        if nxt:
-                            nxt_pcm = eng.speech_pcm_as(nxt, self.people[j]["voice"])
+                    try:                                    # 再生している間に、ほかの人が独立に決める
+                        nxt_i, nxt_text = self._decide(eng, i, self.turn == self.max_turns - 1)
+                        if nxt_i is None:                  # 全員黙った: 1 回だけ、いちばん話していない人に振る。続けて黙れば終わる
+                            quiet += 1
+                            if quiet >= 2:
+                                self.note = "話すことがなくなったので、会話を終えました"
+                            else:
+                                k = min((k for k in range(len(self.people)) if k != i), key=lambda k: self.spoke_at.get(k, 0))
+                                nxt_i, nxt_text = k, self._gen(eng, k, False, True)
+                        else:
+                            quiet = 0
+                        if nxt_i is not None and nxt_text:
+                            nxt_pcm = eng.speech_pcm_as(nxt_text, self.people[nxt_i]["voice"])
                     except Exception:  # noqa: BLE001
-                        nxt, nxt_pcm = None, None
+                        nxt_i, nxt_text, nxt_pcm = None, "", None
                 rest = t0 + dur + 0.5 - time.time()
                 while rest > 0 and not self._stop.is_set():
                     time.sleep(min(0.2, rest))
                     rest = t0 + dur + 0.5 - time.time()
                 s.send({"t": "face", "state": "neutral"})
-                i = j
+                if nxt_i is None or not nxt_text:
+                    break
+                i, text, pcm = nxt_i, nxt_text, nxt_pcm
         except Exception as e:  # noqa: BLE001
             self.note = f"エラー: {type(e).__name__}"
         finally:

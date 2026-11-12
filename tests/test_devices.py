@@ -127,6 +127,55 @@ class DiscussTests(unittest.TestCase):
             if not d.on: break
             time.sleep(0.1)
         self.assertFalse(d.on)
-        self.assertEqual([x[0] for x in sent], ["a", "b", "c", "a"])
+        who = [x[0] for x in sent]
+        self.assertEqual(who[0], "a")
+        self.assertEqual(len(who), 4)
+        self.assertTrue(all(x != y for x, y in zip(who, who[1:])))      # 同じ人が続けて話さない
         self.assertEqual(len(d.snapshot()["log"]), 4)
         self.assertFalse(Hub().ss and d.start("", 3)[0])
+
+
+    def test_choose_and_pass(self):
+        P = self.d.PERSONAS
+        self.assertTrue(self.d.is_pass("PASS")); self.assertTrue(self.d.is_pass("「pass」")); self.assertFalse(self.d.is_pass("そうだね"))
+        self.assertEqual(self.d.addressed(P, 0, "めたん、どう思うのだ?"), 1)
+        self.assertEqual(self.d.addressed(P, 0, "ずんだは元気だね"), None)       # 自分の名前は数えない
+        import random
+        r = random.Random(1)
+        self.assertEqual(self.d.choose(P, 0, "つむぎさん、どう?", {1: "a", 2: "b"}, {}, r), 2)   # 呼ばれた人が先
+        self.assertIsNone(self.d.choose(P, 0, "x", {}, {}, r))
+        for _ in range(20):
+            self.assertNotEqual(self.d.choose(P, 0, "x", {0: "a", 1: "b", 2: "c"}, {}, r), 0)   # 直前の話者は避ける
+
+    def test_all_pass_ends(self):
+        sent = []
+
+        class S:
+            def send(s, m): pass
+            def _send_pcm(s, pcm, caption="", lang=""): sent.append(caption); return 0.0
+
+        class Hub:
+            def by_id(s, i): return S_
+            def event(s, t): pass
+
+        S_ = S()
+
+        class Reg:
+            def all(s): return [{"id": i, "name": "N" + i} for i in "abc"]
+
+        class Eng:
+            n = 0
+            def translate(s, msgs):
+                forced = "PASS とだけ" not in msgs[0]["content"]
+                s.n += 1
+                return (f"最初の発言{s.n}", "x") if forced else ("PASS", "x")
+            def speech_pcm_as(s, text, voice): return b""
+
+        d = self.d.Discussion(Hub(), Reg(), lambda: Eng())
+        d.start("旅行", 12)
+        for _ in range(100):
+            if not d.on: break
+            time.sleep(0.1)
+        self.assertFalse(d.on)
+        self.assertLess(len(sent), 12)                                 # 全員黙ると、早めに終わる
+        self.assertIn("終え", d.snapshot()["note"])
