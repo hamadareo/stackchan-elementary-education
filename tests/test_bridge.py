@@ -212,3 +212,22 @@ class HalluPunctTest(unittest.TestCase):
         import stackchan_bridge as b
         self.assertEqual(b.clean_hallucination("これでいいのかな?"), "これでいいのかな?")
         self.assertEqual(b.clean_hallucination("不快点。"), "不快点。")
+
+
+class SessionVoiceDefault(unittest.TestCase):
+    def test_voice_attr_defined(self):
+        # identify() の前に読み上げが走っても落ちない(Session.voice の既定は None)。identify でも台帳の声を入れる
+        self.assertIn("class Session:\n    voice = None", SRC)
+        self.assertIn('self.voice = rec.get("voice") or None', SRC)
+
+
+class NoDuplicateMethods(unittest.TestCase):
+    def test_no_duplicate_defs_in_classes(self):
+        # 同じクラスに同名メソッドが 2 つあると、後ろの定義が前を黙って上書きする(声の不具合の原因だった)
+        import ast
+        for fn in ("stackchan_bridge.py", "admin.py", "discuss.py", "devices.py", "usbprov.py"):
+            tree = ast.parse(open(os.path.join(os.path.dirname(__file__), "..", "bridge", fn), encoding="utf-8").read())
+            for cls in [n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)]:
+                names = [n.name for n in cls.body if isinstance(n, ast.FunctionDef)]
+                dup = {x for x in names if names.count(x) > 1}
+                self.assertFalse(dup, f"{fn}:{cls.name} に重複: {dup}")

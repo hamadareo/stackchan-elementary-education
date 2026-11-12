@@ -16,8 +16,25 @@ PERSONAS = [
     {"name": "めたん", "voice": "voicevox:2", "trait": "知的で少し皮肉屋。丁寧な言葉づかいで、論点を整理したり、鋭い指摘や反論をする。"},
     {"name": "つむぎ", "voice": "voicevox:8", "trait": "おっとりして現実的。身近な具体例や体験談を出して、話をやわらかくまとめる。"},
 ]
+BACKCHANNEL = ["うん", "なるほど", "へえ", "そっか", "たしかに", "ふむふむ"]    # 聞いている人の相槌
 MAX_CHARS = 70
 HISTORY = 14                      # LLM に渡す直近の発言数
+
+
+def plan_reactions(dur: float, listeners: list, rnd) -> list:
+    """話している間の、聞き手の反応の予定: [(経過秒, 聞き手の番号, "nod" | "voice")]。
+    頷きは 2〜4 秒おきに、聞き手ごとにずらして。相槌の声は長めの発言(3 秒以上)で 1 回だけ、真ん中あたりで。
+    発言の終わりぎわ(最後の 1 秒)には何もしない(次の話者の声と重ならないように)。"""
+    out = []
+    end = dur - 1.0
+    for k in listeners:
+        t = 0.8 + rnd.random() * 1.2
+        while t < end:
+            out.append((round(t, 2), k, "nod"))
+            t += 2.0 + rnd.random() * 2.0
+    if dur >= 3.0 and listeners and rnd.random() < 0.75:
+        out.append((round(dur * (0.35 + 0.3 * rnd.random()), 2), rnd.choice(listeners), "voice"))
+    return sorted(out)
 
 
 def clean_line(text: str, name: str = "") -> str:
@@ -142,6 +159,30 @@ class Discussion:
     def _sess(self, i: int):
         return self.hub.by_id(self.people[i]["dev"])
 
+    def _react(self, eng, speaker: int, dur: float) -> None:
+        """話者以外の機器が、頷き(首を軽く振る)と相槌の声で反応する。話者が話している間、別スレッドで動く。"""
+        plan = plan_reactions(dur, [k for k in range(len(self.people)) if k != speaker], self.rnd)
+        t0 = time.time()
+        for t, k, kind in plan:
+            wait = t0 + t - time.time()
+            if wait > 0 and self._stop.wait(wait):
+                return
+            sk = self._sess(k)
+            if sk is None or self._stop.is_set():
+                return
+            try:
+                if kind == "nod":
+                    sk.send({"t": "servo", "dtilt": -80, "speed": 500})
+                    time.sleep(0.25)
+                    sk.send({"t": "servo", "dtilt": 80, "speed": 500})
+                else:
+                    word = self.rnd.choice(BACKCHANNEL)
+                    pcm = eng.speech_pcm(word, "ja", voice=self.people[k]["voice"])
+                    if len(pcm):
+                        sk._send_pcm(pcm, caption=word, lang="ja")
+            except Exception:  # noqa: BLE001
+                pass
+
     def _drain(self) -> None:
         with self.lock:
             while self._inject:
@@ -207,6 +248,7 @@ class Discussion:
                         sk.send({"t": "face", "state": "listening"})
                         sk.send({"t": "caption", "lang": "ja", "to": "ja", "orig": f"{self.people[i]['name']}: {text}", "trans": "", "final": True})
                 t0 = time.time()
+                threading.Thread(target=self._react, args=(eng, i, len(pcm) / 16000.0), daemon=True).start()   # 聞き手の頷き・相槌(16kHz のサンプル数から秒へ)
                 dur = s._send_pcm(pcm, caption=text, lang="ja")
                 nxt_i, nxt_text, nxt_pcm = None, "", None
                 if self.turn < self.max_turns and not self._stop.is_set():

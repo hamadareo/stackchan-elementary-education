@@ -111,7 +111,7 @@ class Face(QWidget):
         self.setFixedSize(84, 84)
         tm = QTimer(self)
         tm.timeout.connect(self._tick)
-        tm.start(50)
+        tm.start(70)
 
     def _tick(self):
         self.t += 1
@@ -191,7 +191,7 @@ class MicScope(QWidget):
         self.ph = 0.0
         tm = QTimer(self)
         tm.timeout.connect(self._tick)
-        tm.start(50)
+        tm.start(66)
 
     def _tick(self):
         import random
@@ -337,8 +337,14 @@ class Root(QWidget):
     """サイバー風の背景: 暗い青 + 光のにじみ + 細かいグリッド。"""
 
     def paintEvent(self, e):
-        p = QPainter(self)
         w, h = self.width(), self.height()
+        if getattr(self, "_bg", None) is None or self._bg.size() != self.size():     # 背景は大きさが変わったときだけ描く(毎フレーム描くと重くてチカチカする)
+            self._bg = QPixmap(self.size())
+            self._paint_bg(QPainter(self._bg), w, h)
+        p = QPainter(self)
+        p.drawPixmap(0, 0, self._bg)
+
+    def _paint_bg(self, p, w, h):
         g = QLinearGradient(0, 0, 0, h)
         g.setColorAt(0, QColor("#0a111d"))
         g.setColorAt(1, QColor("#04070d"))
@@ -353,6 +359,7 @@ class Root(QWidget):
             p.drawLine(x, 0, x, h)
         for y in range(0, h, 44):
             p.drawLine(0, y, w, y)
+        p.end()
 
 
 def card(title: str = "", sub: str = "") -> tuple[QFrame, QVBoxLayout]:
@@ -625,7 +632,7 @@ class Win(QMainWindow):
 
         self.sweep = QTimer(self)                                  # 動いている段の光を流す
         self.sweep.timeout.connect(self._sweep)
-        self.sweep.start(40)
+        self.sweep.start(70)
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.poll)
         self.timer.start(1000)
@@ -928,43 +935,63 @@ class Win(QMainWindow):
         l.addWidget(t)
         lay.addWidget(c)
         lay.addStretch()
-        self.dev_key = ""
+        self.dev_struct = ""
+        self.dev_w = {}
         return self.scroll(w)
 
     def render_devices(self, s: dict):
+        """機器の一覧。つくり(台数・名前・オンライン)が変わったときだけ作り直し、電池や電波などは文字だけ差し替える
+        (毎回作り直すと、ボタンが消えては現れてチカチカする)。"""
         ds, tg = s.get("devices") or [], s.get("target", "all")
-        key = json.dumps([[d["id"], d["name"], d["online"], d.get("lang"), d.get("who"), d.get("talking"), (d.get("batt") or {}).get("pct"),
-                           d.get("vol"), d.get("rssi"), (d.get("seen_age") or 0) // 10] for d in ds]) + tg
-        if key == self.dev_key:
-            return
-        self.dev_key = key
-        # 上の選択バー
-        while self.chip_l.count():
-            it = self.chip_l.takeAt(0)
-            if it.widget():
-                it.widget().deleteLater()
+        struct = json.dumps([[d["id"], d["name"], d["online"], bool(d.get("auto"))] for d in ds])
+        if struct != self.dev_struct:
+            self.dev_struct = struct
+            self.dev_w = {}
+            while self.chip_l.count():
+                it = self.chip_l.takeAt(0)
+                if it.widget():
+                    it.widget().deleteLater()
+            self.chip_all = btn("", lambda: self.act("device_select", {"id": "all"}), checkable=True)
+            self.chip_l.addWidget(self.chip_all)
+            for d in ds:
+                b = btn("", lambda i=d["id"]: self.act("device_select", {"id": i}), checkable=True)
+                self.chip_l.addWidget(b)
+                self.dev_w[d["id"]] = {"chip": b}
+            self.chip_l.addStretch()
+            while self.dev_box.count():
+                it = self.dev_box.takeAt(0)
+                if it.widget():
+                    it.widget().deleteLater()
+            for d in ds:
+                f = QFrame()
+                f.setObjectName("node")
+                f.setProperty("st", "done" if d["online"] else "")
+                row = QHBoxLayout(f)
+                row.setContentsMargins(14, 10, 14, 10)
+                lab = QLabel()
+                lab.setTextFormat(Qt.RichText)
+                row.addWidget(lab, 1)
+                row.addWidget(btn("選ぶ", lambda i=d["id"]: self.act("device_select", {"id": i})))
+                row.addWidget(btn("名前", lambda i=d["id"], n=d["name"]: self.rename_dev(i, n)))
+                if d["online"]:
+                    row.addWidget(btn("初期設定", lambda i=d["id"]: self.setup_dev(i)))
+                else:
+                    row.addWidget(btn("削除", lambda i=d["id"], n=d["name"]: self.forget_dev(i, n), name="bad"))
+                self.dev_box.addWidget(f)
+                self.dev_w[d["id"]]["lab"] = lab
+            if not ds:
+                self.dev_box.addWidget(muted("まだ機器がありません"))
+        # 文字と選択状態だけ更新(変わったときだけ)
         on = sum(1 for d in ds if d["online"])
-        b = btn(f"全機器  {on}/{len(ds)}", lambda: self.act("device_select", {"id": "all"}), checkable=True)
-        b.setChecked(tg == "all")
-        self.chip_l.addWidget(b)
+        self._set(self.chip_all, f"全機器  {on}/{len(ds)}")
+        self._chk(self.chip_all, tg == "all")
         for d in ds:
+            w = self.dev_w.get(d["id"])
+            if not w:
+                continue
             pct = (d.get("batt") or {}).get("pct")
-            b = btn(("● " if d["online"] else "○ ") + d["name"] + (f"  {pct}%" if pct is not None and d["online"] else ""),
-                    lambda i=d["id"]: self.act("device_select", {"id": i}), checkable=True)
-            b.setChecked(tg == d["id"])
-            self.chip_l.addWidget(b)
-        self.chip_l.addStretch()
-        # 機器タブのカード
-        while self.dev_box.count():
-            it = self.dev_box.takeAt(0)
-            if it.widget():
-                it.widget().deleteLater()
-        for d in ds:
-            f = QFrame()
-            f.setObjectName("node")
-            f.setProperty("st", "done" if d["online"] else "")
-            row = QHBoxLayout(f)
-            row.setContentsMargins(14, 10, 14, 10)
+            self._set(w["chip"], ("● " if d["online"] else "○ ") + d["name"] + (f"  {pct}%" if pct is not None and d["online"] else ""))
+            self._chk(w["chip"], tg == d["id"])
             ag = d.get("seen_age")
             ago = "-" if ag is None else (f"{ag}秒前" if ag < 60 else f"{ag // 60}分前" if ag < 3600 else f"{ag // 3600}時間前")
             if d["online"]:
@@ -974,26 +1001,26 @@ class Win(QMainWindow):
                         + (f'  ·  {d["who"]}' if d.get("who") else "") + ("  ·  話し中" if d.get("talking") else ""))
             else:
                 info = f"オフライン  ·  最後 {ago}"
-            lab = QLabel(f'<span style="color:{GR if d["online"] else "#6f8aa6"}">●</span> <b style="font-size:15px">{d["name"]}</b>'
-                         + (f' <span style="color:{GR}">[自動登録]</span>' if d.get("auto") else "")
-                         + f'<br><span style="color:#6f8aa6">{info}<br>{d.get("ip", "")}   fw {d.get("fw", "-")}</span>')
-            lab.setTextFormat(Qt.RichText)
-            row.addWidget(lab, 1)
-            row.addWidget(btn("選ぶ", lambda i=d["id"]: self.act("device_select", {"id": i})))
-            row.addWidget(btn("名前", lambda i=d["id"], n=d["name"]: self.rename_dev(i, n)))
-            if d["online"]:
-                row.addWidget(btn("初期設定", lambda i=d["id"]: self.setup_dev(i)))
-            else:
-                row.addWidget(btn("削除", lambda i=d["id"], n=d["name"]: self.forget_dev(i, n), name="bad"))
-            self.dev_box.addWidget(f)
-        if not ds:
-            self.dev_box.addWidget(muted("まだ機器がありません"))
+            html = (f'<span style="color:{GR if d["online"] else "#6f8aa6"}">●</span> <b style="font-size:15px">{d["name"]}</b>'
+                    + (f' <span style="color:{GR}">[自動登録]</span>' if d.get("auto") else "")
+                    + f'<br><span style="color:#6f8aa6">{info}<br>{d.get("ip", "")}   fw {d.get("fw", "-")}</span>')
+            self._set(w["lab"], html)
+
+    @staticmethod
+    def _set(w, text: str):
+        if w.text() != text:
+            w.setText(text)
+
+    @staticmethod
+    def _chk(b, on: bool):
+        if b.isChecked() != on:
+            b.setChecked(on)
 
     def rename_dev(self, dev_id: str, cur: str):
         n, ok = QInputDialog.getText(self, "名前を変える", "新しい名前", text=cur)
         if ok and n.strip():
             self.act("device_rename", {"id": dev_id, "name": n.strip()})
-            self.dev_key = ""
+            self.dev_struct = ""
 
     def setup_dev(self, dev_id: str):
         if QMessageBox.question(self, "確認", "この機器の初期設定(音量・明るさ・向き)をやり直しますか?") == QMessageBox.Yes:
@@ -1002,7 +1029,7 @@ class Win(QMainWindow):
     def forget_dev(self, dev_id: str, name: str):
         if QMessageBox.question(self, "確認", f"{name} を台帳から消しますか?") == QMessageBox.Yes:
             self.act("device_forget", {"id": dev_id})
-            self.dev_key = ""
+            self.dev_struct = ""
 
     # ---------------- ページ: 3人会話
     def page_discuss(self) -> QWidget:

@@ -228,18 +228,6 @@ class Engine:
                     pass
         threading.Thread(target=run, daemon=True).start()
 
-    def speech_pcm_as(self, text: str, voice: str) -> np.ndarray:
-        """声(例 voicevox:2)を指定して日本語を読む(会話モードの登場人物ごとの声)。"""
-        with self._voice_lock:
-            if self.tts is None:
-                return self._speech_pcm(text, "ja")
-            old = (self.tts.voices or {}).get("ja")
-            self.tts.voices["ja"] = voice
-            try:
-                return self._speech_pcm(text, "ja")
-            finally:
-                self.tts.voices["ja"] = old
-
     def _speech_pcm(self, text: str, lang: str, src_dur: float = 0.0, speed: "float | None" = None) -> np.ndarray:
         from tsuyaku.pace import engine_of
         wav = None
@@ -409,6 +397,8 @@ class Face:
 
 # ---------------------------------------------------------------- 接続ごとの会話処理
 class Session:
+    voice = None                                              # この機器の日本語の声(台帳の値。無ければ既定の声)
+
     def __init__(self, eng: Engine, send, pair=("ja", "en"), topic: str = ""):
         """send(dict | bytes): スレッドから呼んでよい(接続へ送る)。"""
         from tsuyaku.audio import AutoGain, StreamSegmenter
@@ -454,6 +444,7 @@ class Session:
         if self.lang_pref in ("en", "zh", "ko"):
             self.pair = ("ja", self.lang_pref)
         self.topic = rec.get("topic", "") or ""
+        self.voice = rec.get("voice") or None                 # この機器の日本語の声(無ければ既定)
         self.send({"t": "name", "name": self.name})            # 画面の右下に機器名を出す
         if new:
             self.auto_setup(rec)

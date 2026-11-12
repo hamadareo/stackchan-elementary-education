@@ -179,3 +179,16 @@ class DiscussTests(unittest.TestCase):
         self.assertFalse(d.on)
         self.assertLess(len(sent), 12)                                 # 全員黙ると、早めに終わる
         self.assertIn("終え", d.snapshot()["note"])
+
+
+    def test_reactions(self):
+        import random
+        r = random.Random(3)
+        plan = self.d.plan_reactions(8.0, [1, 2], r)
+        self.assertTrue(plan)
+        self.assertTrue(all(0.5 < t < 7.1 for t, _k, _x in plan))                # 始めと終わりぎわは何もしない
+        self.assertTrue(all(k in (1, 2) for _t, k, _x in plan))
+        self.assertLessEqual(sum(1 for *_a, x in plan if x == "voice"), 1)       # 相槌の声は 1 回まで
+        self.assertEqual(plan, sorted(plan))
+        short = self.d.plan_reactions(2.0, [1, 2], random.Random(1))
+        self.assertFalse([x for *_a, x in short if x == "voice"])                # 短い発言には声を出さない
