@@ -375,6 +375,7 @@ class Discussion:
         self.grew = ""
         self.emos: dict = {}            # キャラ名 → いまの感情キー
         self.log_emo: list = []         # log と同じ並びの感情キー
+        self.opener = 0
         self.mood: dict = {}            # キャラ名 → {"v","a"}(気分)
         self.on = False
         self.topic = ""
@@ -403,7 +404,7 @@ class Discussion:
         ids = [r["id"] for r in self.reg.all()]
         return (ids.index(dev_id) if dev_id in ids else 0) % len(PERSONAS)
 
-    def start(self, topic: str, turns: int = 12) -> "tuple[bool, str]":
+    def start(self, topic: str, turns: int = 12, opener: int = 0) -> "tuple[bool, str]":
         topic = (topic or "").strip()[:80]
         if not topic:
             return False, "議題が空です"
@@ -417,6 +418,7 @@ class Discussion:
             return False, "接続中の機器が 2 台以上必要です"
         self.people = [{**PERSONAS[self.persona_of(r["id"])], "dev": r["id"], "dev_name": r["name"]} for r, _s in pk]
         self.topic, self.turn, self.max_turns, self.log, self._inject, self.note = topic, 0, max(2, min(40, int(turns))), [], [], ""
+        self.opener = max(0, min(len(self.people) - 1, int(opener)))      # 最初に口火を切る人(自発のときは話題を思いついた人)
         self.spoke_at = {}
         self.grew = ""
         self.emos = {p["name"]: p.get("base", "neutral") for p in self.people}
@@ -538,8 +540,8 @@ class Discussion:
 
     def _run(self, eng) -> None:
         try:
-            emo, text = self._gen(eng, 0, False, True)
-            i, quiet = 0, 0
+            i, quiet = self.opener, 0
+            emo, text = self._gen(eng, i, False, True)
             pcm = None
             if not text:
                 self.note = "発言を作れませんでした(LLM)。会話を終えます"

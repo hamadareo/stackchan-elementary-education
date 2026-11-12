@@ -1,0 +1,175 @@
+"""完全自立モード: 議題を入れなくても、キャラたちが自分の意思で話題を決めて話し始める。
+
+- 退屈(前回の会話からの経過)と、キャラの気質(元気なほど切り出しやすい)で「話したい度」が上がり、超えたら誰かが口火を切る。
+- 話題は LLM が、そのキャラの好み・前の会話で学んだこと・最近の議題(重複は避ける)・時間帯から考える。
+- 遠慮: 夜間(既定 23〜7 時)は話さない / 人が機器に話しかけて間もないときは話さない / 会話中や機器が 2 台未満のときは話さない。
+- 「私」が話しかけた・議題を入れたら、その時点から間隔を数え直す。設定は ~/.sokutsu_autonomy.json。
+"""
+from __future__ import annotations
+
+import json
+import os
+import random
+import re
+import threading
+import time
+
+DEFAULT = {"enabled": True, "interval_min": 20, "quiet_from": 23, "quiet_to": 7}
+USER_QUIET_S = 120.0          # 人の声がしてから、この秒数は話し始めない
+TURNS = (6, 10)
+
+
+def in_quiet_hours(hour: int, a: int, b: int) -> bool:
+    """a 時〜b 時(日をまたぐ)は静かな時間。a==b なら常に話してよい。"""
+    if a == b:
+        return False
+    return hour >= a or hour < b if a > b else a <= hour < b
+
+
+def due(now: float, last: float, interval_s: float, urge: float) -> bool:
+    """前回から interval_s 以上たち、話したい度(0.5〜1.5 のゆらぎ)で時間が来たか。"""
+    return now - last >= interval_s * urge
+
+
+def topic_msgs(persona: dict, mem: dict, recent: list, hour: int, others: list) -> list:
+    part = "朝" if 5 <= hour < 11 else "昼" if 11 <= hour < 17 else "夕方" if 17 <= hour < 21 else "夜"
+    views = "\n".join(f"- {v}" for v in mem.get("views", [])[:4]) or "(まだありません)"
+    rec = "、".join(recent[:6]) or "(なし)"
+    sysmsg = (f"あなたは「{persona['name']}」。{persona['trait']}\n"
+              f"いまは{part}で、ユーザーから何も頼まれていません。退屈になったので、{ '・'.join(others) }に、自分から話しかけたい話題を 1 つ思いつきます。\n"
+              f"好きなこと: {persona.get('likes', '')}。\n"
+              "ルール: 話題は 25 文字以内の名詞句か疑問文(例: 「雨の日の過ごし方」「宇宙人はいると思う?」)。"
+              "自分の好み、最近学んだこと、いまの時間帯から自然に選ぶ。最近話した議題とは別のものにする。話題だけを 1 行で出力し、説明・かっこ・名前は書かない。")
+    return [{"role": "system", "content": sysmsg},
+            {"role": "user", "content": f"最近学んだこと:\n{views}\n最近話した議題: {rec}\n\n{persona['name']}が話したい話題は?"}]
+
+
+def clean_topic(text: str) -> str:
+    t = re.sub(r"<think>.*?</think>", "", text or "", flags=re.S).strip()
+    t = (t.splitlines() or [""])[0].strip()
+    t = re.sub(r"^(話題|議題)\s*[:：]\s*", "", t)
+    t = t.strip().strip("「」『』\"'【】[]()（）・- ")
+    return t[:30]
+
+
+class Autonomy:
+    def __init__(self, hub, reg, discuss, eng_getter, path: "str | None" = None, clock=time.time, rnd=None):
+        self.hub, self.reg, self.discuss, self.eng_getter = hub, reg, discuss, eng_getter
+        self.path = path or os.environ.get("SC_AUTONOMY", os.path.expanduser("~/.sokutsu_autonomy.json"))
+        self.clock = clock
+        self.rnd = rnd or random.Random()
+        self.cfg = dict(DEFAULT)
+        try:
+            self.cfg.update({k: v for k, v in json.load(open(self.path)).items() if k in DEFAULT})
+        except (OSError, ValueError):
+            pass
+        self.last = clock()           # 最後に会話(自発・ユーザーの議題とも)が終わった/始まった時刻。起動直後は待つ
+        self.urge = self.rnd.uniform(0.7, 1.3)
+        self.last_topic = ""
+        self.last_by = ""
+        self.note = ""
+        self._was_on = False
+        self.lock = threading.Lock()
+
+    def save(self) -> None:
+        try:
+            fd = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w") as f:
+                json.dump(self.cfg, f)
+        except OSError:
+            pass
+
+    def set(self, enabled=None, interval_min=None) -> None:
+        with self.lock:
+            if enabled is not None:
+                self.cfg["enabled"] = bool(enabled)
+            if interval_min is not None:
+                self.cfg["interval_min"] = max(1, min(240, int(interval_min)))
+            self.last = max(self.last, self.clock() - 0)          # 設定を変えたら数え直す
+            self.save()
+
+    def blockers(self, now: float) -> str:
+        """いま話し始めてはいけない理由(なければ空)。"""
+        if not self.cfg["enabled"]:
+            return "自律モードはオフです"
+        if self.discuss.on:
+            return "会話中です"
+        if in_quiet_hours(time.localtime(now).tm_hour, self.cfg["quiet_from"], self.cfg["quiet_to"]):
+            return "静かな時間です(夜間)"
+        if len(self.discuss.pick()) < 2:
+            return "接続中の機器が 2 台未満です"
+        eng = self.eng_getter()
+        if eng is None:
+            return "エンジンの準備中です"
+        heard = max(getattr(eng, "last_voice", 0.0), getattr(eng, "last_greet", 0.0), getattr(eng, "last_hello", 0.0))
+        if now - heard < USER_QUIET_S:
+            return "人が話しかけたばかりです"
+        if any(getattr(x, "talking", False) for x in self.hub.live()):
+            return "人が機器に話しています"
+        return ""
+
+    def step(self, now: "float | None" = None) -> bool:
+        """1 回ぶんの判断。話し始めたら True。"""
+        now = self.clock() if now is None else now
+        on = bool(self.discuss.on)
+        if self._was_on and not on:                      # 会話が終わった → そこから間隔を数える
+            self.last = now
+            self.urge = self.rnd.uniform(0.7, 1.4)
+        self._was_on = on
+        why = self.blockers(now)
+        self.note = why
+        if why:
+            return False
+        if not due(now, self.last, self.cfg["interval_min"] * 60.0, self.urge):
+            return False
+        return self.initiate(now)
+
+    def initiate(self, now: float) -> bool:
+        eng = self.eng_getter()
+        pk = self.discuss.pick()
+        if eng is None or len(pk) < 2:
+            return False
+        idx = [self.discuss.persona_of(r["id"]) for r, _s in pk]
+        from discuss import PERSONAS
+        # 切り出す人: 気質の高ぶりやすさ(元気なほど)に、ゆらぎを足して選ぶ
+        w = [0.3 + PERSONAS[i].get("a0", 0.3) for i in idx]
+        k = self.rnd.choices(range(len(pk)), weights=w)[0]
+        P = PERSONAS[idx[k]]
+        mem = self.discuss.memory.get(P["name"])
+        recent = list(mem.get("topics", [])) + ([self.last_topic] if self.last_topic else [])
+        others = [PERSONAS[idx[j]]["name"] for j in range(len(pk)) if j != k]
+        try:
+            out, _l = eng.translate(topic_msgs(P, mem, recent, time.localtime(now).tm_hour, others))
+        except Exception:  # noqa: BLE001
+            self.last = now - self.cfg["interval_min"] * 60.0 * 0.5      # 失敗したら半分の間隔であとでやり直す
+            return False
+        topic = clean_topic(out)
+        if len(topic) < 3 or topic in recent:
+            self.last = now - self.cfg["interval_min"] * 60.0 * 0.5
+            return False
+        ok, err = self.discuss.start(topic, self.rnd.randint(*TURNS), opener=k)
+        if ok:
+            self.last, self.last_topic, self.last_by = now, topic, P["name"]
+            self.hub.event(f"自発: {P['name']}が「{topic}」について話しかけました")
+        else:
+            self.note = err
+        return ok
+
+    def user_touched(self) -> None:
+        """ユーザーが議題を入れた・発言した。間隔を数え直す。"""
+        self.last = self.clock()
+
+    def snapshot(self) -> dict:
+        now = self.clock()
+        left = max(0, int(self.last + self.cfg["interval_min"] * 60.0 * self.urge - now))
+        return {"enabled": self.cfg["enabled"], "interval_min": self.cfg["interval_min"], "next_in": left,
+                "why": self.note, "last_topic": self.last_topic, "last_by": self.last_by,
+                "quiet": f'{self.cfg["quiet_from"]}〜{self.cfg["quiet_to"]}時は静か'}
+
+    def run(self) -> None:
+        while True:
+            try:
+                self.step()
+            except Exception:  # noqa: BLE001 - 監視は落とさない
+                pass
+            time.sleep(5.0)

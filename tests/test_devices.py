@@ -351,3 +351,81 @@ class DiscussTests(unittest.TestCase):
         self.assertGreater(d.similar("たけのこの里が未来を支える", "たけのこの里が未来を支えるのだ"), 0.35)
         self.assertLess(d.similar("きのこの山", "宝くじの話"), 0.1)
 
+class AutonomyTests(unittest.TestCase):
+    def setUp(self):
+        import autonomy, discuss
+        self.a, self.d = autonomy, discuss
+
+    def _mk(self, n_dev=3, voice_ago=999.0, hour_ok=True, talking=False):
+        a, d = self.a, self.d
+        started = []
+
+        class S:
+            def __init__(s): s.talking = talking
+            def send(s, m): pass
+            def _send_pcm(s, *x, **k): return 0.0
+
+        class Hub:
+            def __init__(s): s.ss = {i: S() for i in "abc"[:n_dev]}
+            def by_id(s, i): return s.ss.get(i)
+            def live(s): return list(s.ss.values())
+            def event(s, t): pass
+
+        class Reg:
+            def all(s): return [{"id": i, "name": "N" + i} for i in "abc"]
+
+        class Eng:
+            last_voice = time.time() - voice_ago
+            def translate(s, msgs): return "雨の日の過ごし方", "x"
+            def speech_pcm_as(s, text, voice, emotion=None): return b""
+
+        eng = Eng()
+        h = Hub()
+        mem = d.Memory(os.path.join(tempfile.mkdtemp(), "m.json"))
+        ds = d.Discussion(h, Reg(), lambda: eng, mem)
+        ds.start = lambda topic, turns=12, opener=0: (started.append((topic, opener)) or True, "")
+        au = a.Autonomy(h, Reg(), ds, lambda: eng, os.path.join(tempfile.mkdtemp(), "a.json"))
+        au.cfg.update({"quiet_from": 0, "quiet_to": 0} if hour_ok else {})
+        return au, ds, started
+
+    def test_helpers(self):
+        a = self.a
+        self.assertTrue(a.in_quiet_hours(23, 23, 7) and a.in_quiet_hours(3, 23, 7))
+        self.assertFalse(a.in_quiet_hours(12, 23, 7)); self.assertFalse(a.in_quiet_hours(5, 5, 5))
+        self.assertEqual(a.clean_topic("話題: 「雨の日の過ごし方」\n説明"), "雨の日の過ごし方")
+        self.assertFalse(a.due(100, 0, 1200, 1.0)); self.assertTrue(a.due(1300, 0, 1200, 1.0))
+
+    def test_starts_by_itself(self):
+        au, ds, started = self._mk()
+        now = time.time() + 3600
+        self.assertTrue(au.step(now))
+        self.assertEqual(started[0][0], "雨の日の過ごし方")
+        self.assertIn(au.last_by, [p["name"] for p in self.d.PERSONAS])
+
+    def test_respects_conditions(self):
+        au, ds, started = self._mk()
+        self.assertFalse(au.step(time.time() + 10))                 # まだ間隔がたっていない
+        au.cfg["enabled"] = False
+        self.assertFalse(au.step(time.time() + 7200)); self.assertIn("オフ", au.note)
+        au, ds, started = self._mk(n_dev=1)
+        self.assertFalse(au.step(time.time() + 7200)); self.assertIn("2 台未満", au.note)
+        au, ds, started = self._mk(voice_ago=10)
+        self.assertFalse(au.step(time.time() + 60)); self.assertTrue(au.note)      # 人が話したばかり
+        au, ds, started = self._mk(talking=True)
+        self.assertFalse(au.step(time.time() + 7200)); self.assertIn("機器に話", au.note)
+        au, ds, started = self._mk()
+        ds.on = True
+        self.assertFalse(au.step(time.time() + 7200)); self.assertIn("会話中", au.note)
+        self.assertEqual(started, [])
+
+    def test_no_repeat_topic_and_touch(self):
+        au, ds, started = self._mk()
+        au.last_topic = "雨の日の過ごし方"
+        ds.memory.learn("ずんだ", "雨の日の過ごし方", [], {}); ds.memory.learn("めたん", "雨の日の過ごし方", [], {}); ds.memory.learn("つむぎ", "雨の日の過ごし方", [], {})
+        self.assertFalse(au.step(time.time() + 7200))              # 最近話した議題と同じなら話さない(あとでやり直す)
+        au.user_touched()
+        self.assertGreaterEqual(au.last, time.time() - 2)
+        au.set(enabled=True, interval_min=999)
+        self.assertEqual(au.cfg["interval_min"], 240)
+        self.assertEqual(self.a.Autonomy(au.hub, au.reg, ds, au.eng_getter, au.path).cfg["interval_min"], 240)     # 保存される
+

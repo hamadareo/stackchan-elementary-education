@@ -32,6 +32,7 @@ class Hub:
 
     def __init__(self):
         self.discuss = None              # 3人会話モード(ブリッジが起動時に設定)
+        self.auto = None                 # 完全自立モード(自分たちで話題を決めて話し始める)
         self.usb = None                  # USB 監視(同上)
         self.sessions: list = []
         self.turns: list = []            # 直近の通訳(新しい順に最大 40)
@@ -373,6 +374,7 @@ class Hub:
                       "gated": g["gated"], "clip": self.clip_pct(vdev), "level": round(max(self.gate_min, g["amb"] * self.gate_mult), 4)}
         st["devices"] = self.devices_state()
         st["discuss"] = self.discuss.snapshot() if self.discuss else None
+        st["auto"] = self.auto.snapshot() if self.auto else None
         st["usb"] = self.usb.snapshot() if getattr(self, "usb", None) else []
         st["target"] = self.target
         st["view_dev"] = vdev
@@ -525,6 +527,12 @@ class Hub:
                 return {"ok": False, "error": "不明なサービス"}
             subprocess.Popen(["systemctl", "--user", "restart", svc])
             return {"ok": True}
+        if name == "auto_set":
+            if not self.auto:
+                return {"ok": False, "error": "未対応"}
+            self.auto.set(body.get("enabled"), body.get("interval_min"))
+            self.event("自律モード: " + ("オン" if self.auto.cfg["enabled"] else "オフ") + f"({self.auto.cfg['interval_min']}分おき)")
+            return {"ok": True}
         if name == "discuss_forget":
             if not self.discuss:
                 return {"ok": False, "error": "未対応"}
@@ -587,6 +595,8 @@ class Hub:
                 x.history = []
                 REG.set(x.dev_id, topic=t)
         elif name == "discuss_start":
+            if self.auto:
+                self.auto.user_touched()
             ok, err = self.discuss.start(str(body.get("topic", "")), int(body.get("turns", 12) or 12)) if self.discuss else (False, "未対応")
             if not ok:
                 return {"ok": False, "error": err}
@@ -594,6 +604,8 @@ class Hub:
             if self.discuss:
                 self.discuss.stop()
         elif name == "discuss_say":
+            if self.auto:
+                self.auto.user_touched()
             if self.discuss:
                 self.discuss.say(str(body.get("text", "")))
         elif name == "say":

@@ -1388,8 +1388,11 @@ def main() -> None:
     eng = Engine(a.engine)
     if os.environ.get("SC_NO_ADMIN") != "1":
         admin.start(eng, int(os.environ.get("SC_ADMIN_PORT", "8080")))
+    import autonomy
     import discuss
     admin.HUB.discuss = discuss.Discussion(admin.HUB, admin.REG, lambda: eng)
+    admin.HUB.auto = autonomy.Autonomy(admin.HUB, admin.REG, admin.HUB.discuss, lambda: eng)
+    threading.Thread(target=admin.HUB.auto.run, daemon=True).start()
     try:                                                              # Ubuntu の USB に挿した機器を認識し、新品なら書き込む
         import usbprov
         admin.HUB.usb = usbprov.Watcher(admin.HUB, admin.REG)

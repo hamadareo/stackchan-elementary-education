@@ -20,7 +20,7 @@ import time
 from PySide6.QtCore import QObject, QPointF, QRectF, Qt, QTimer, QUrl
 from PySide6.QtGui import QBrush, QColor, QFont, QIcon, QLinearGradient, QPainter, QPen, QPixmap, QRadialGradient
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkRequest
-from PySide6.QtWidgets import (QApplication, QInputDialog, QGraphicsDropShadowEffect, QComboBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel,
+from PySide6.QtWidgets import (QApplication, QInputDialog, QGraphicsDropShadowEffect, QComboBox, QCheckBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel,
                                QLineEdit, QListWidget, QMainWindow, QMessageBox, QProgressBar, QPushButton,
                                QScrollArea, QSlider, QTabWidget, QVBoxLayout, QWidget)
 
@@ -1093,6 +1093,17 @@ class Win(QMainWindow):
         lay = QVBoxLayout(w)
         lay.setContentsMargins(0, 0, 0, 0)
         c, l = card("3人会話", "議題を入れると、接続中の機器が順番に話し合います(話している間はマイクを止めます)")
+        self.a_on = QCheckBox("自律モード: 議題がなくても、自分たちで話題を決めて話し始める")
+        self.a_on.clicked.connect(self.auto_apply)
+        self.a_iv = QComboBox()
+        for n in (5, 10, 20, 40, 60):
+            self.a_iv.addItem(f"{n}分おき", n)
+        self.a_iv.setCurrentIndex(2)
+        self.a_iv.activated.connect(lambda _=0: self.auto_apply())
+        self.a_stat = muted("")
+        l.addLayout(hrow(self.a_on, self.a_iv, stretch=True))
+        l.addWidget(self.a_stat)
+        self.a_key = ""
         self.d_topic = QLineEdit()
         self.d_topic.setPlaceholderText("議題(例: 週末は家で過ごすか、出かけるか)")
         self.d_topic.returnPressed.connect(self.discuss_go)
@@ -1140,6 +1151,30 @@ class Win(QMainWindow):
         t = self.d_topic.text().strip()
         if t:
             self.act("discuss_start", {"topic": t, "turns": self.d_turns.currentData()}, "会話を始めます")
+
+    def auto_apply(self):
+        self.act("auto_set", {"enabled": self.a_on.isChecked(), "interval_min": self.a_iv.currentData()})
+        self.a_key = ""
+
+    def render_auto(self, a):
+        if not a:
+            return
+        k = json.dumps(a, ensure_ascii=False)
+        if k == self.a_key:
+            return
+        self.a_key = k
+        if not self.a_iv.view().isVisible():
+            self.a_on.setChecked(bool(a["enabled"]))
+            ix = self.a_iv.findData(a["interval_min"])
+            if ix >= 0:
+                self.a_iv.setCurrentIndex(ix)
+        if not a["enabled"]:
+            self.a_stat.setText("自律モードはオフです。議題を入れたときだけ話します")
+        else:
+            m = a["next_in"] // 60
+            when = "まもなく" if a["next_in"] < 60 else f"約{m}分後"
+            last = f'　最後の自発: {a["last_by"]}「{a["last_topic"]}」' if a["last_topic"] else ""
+            self.a_stat.setText((f'次に話し始めるのは{when}の予定' if not a["why"] else f'待機中({a["why"]})') + f'　{a["quiet"]}' + last)
 
     def forget_growth(self, who):
         """who=None で全員、名前(キャラ名)でその機器だけ。"""
@@ -1496,6 +1531,7 @@ class Win(QMainWindow):
         self.tg_listen.setChecked(bool(s.get("listen")))
         self.render_devices(s)
         self.render_discuss(s.get("discuss"))
+        self.render_auto(s.get("auto"))
         self.render_phrases()
         self.render_people(s.get("people"))
         self.render_turns()
