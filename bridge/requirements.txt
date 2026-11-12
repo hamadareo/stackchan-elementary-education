@@ -1,0 +1,6 @@
+# StackChan ブリッジ用(Sokutsu=tsuyaku 本体の依存は別途 tsuyaku 側の環境に入る)
+websockets
+pyserial
+zeroconf
+numpy
+opencv-python-headless==4.10.0.84   # 5.x には Haar 検出器が無い(YuNet は 4.x で動作確認)

@@ -1,0 +1,9 @@
+[Unit]
+Description=VOICEVOX engine (CPU)
+[Service]
+WorkingDirectory=%h/stackchan/voicevox/linux-cpu-x64
+ExecStart=%h/stackchan/voicevox/linux-cpu-x64/run --host 127.0.0.1 --port 50021 --cpu_num_threads 8
+Restart=always
+RestartSec=3
+[Install]
+WantedBy=default.target

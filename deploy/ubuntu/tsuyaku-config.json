@@ -1,0 +1,12 @@
+{
+  "engine": "auto",
+  "vad_threshold": 0.65,
+  "noise_rms_floor": 0.006,
+  "tts_dir_kokoro": "/home/USER/stackchan/tsuyaku/models/kokoro-multi-lang-v1_0",
+  "tts_voice": {
+    "ja": "voicevox:13",
+    "en": "kokoro:3",
+    "zh": "kokoro:45",
+    "ko": "say:Yuna"
+  }
+}

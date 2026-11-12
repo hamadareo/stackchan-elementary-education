@@ -1,0 +1,8 @@
+bridge/.venv/
+__pycache__/
+*.wav
+firmware/.pio/
+firmware/src/config.h
+bridge/logs/
+bridge/calib.json
+bridge/.ctl/

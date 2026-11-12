@@ -1,0 +1,10 @@
+[Unit]
+Description=Tunnel to s109 GPU (ears + small translation LLM)
+Before=sc-bridge.service
+[Service]
+ExecStart=%h/stackchan/s109_link.sh
+Restart=always
+RestartSec=5
+KillMode=control-group
+[Install]
+WantedBy=default.target

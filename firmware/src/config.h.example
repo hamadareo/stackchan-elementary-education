@@ -1,0 +1,31 @@
+// コピーして config.h にする(config.h は git に入れない)。
+#pragma once
+
+// USB と Wi-Fi は両方有効。USB を外しても、WIFI_SSID を設定すれば Wi-Fi で続く(自立動作)。
+// WIFI_SSID を "" にすると USB のみ。
+#define WIFI_SSID     "your-ssid"
+#define WIFI_PASS     "your-password"
+
+// 無線書き込み(OTA)のパスワード。pio run -e ota -t upload で使う(環境変数 SC_OTA_PASS に同じ値を入れる)
+#define OTA_PASS      "change-me"
+
+// Sokutsu ブリッジを動かしている Mac の LAN アドレス(bridge/run.sh のポート既定 8765)
+#define BRIDGE_HOST   "192.168.0.10"
+#define BRIDGE_PORT   8765
+
+// 言語ペア(ja en zh ko のうち2つ)。話された言語に応じて、もう一方へ訳して読み上げる
+#define PAIR_A "ja"
+#define PAIR_B "en"
+
+// ---- 首のサーボ: 公式 StackChan の SCS0009(シリアル, BSP が制御)。角度は 0.1 度単位 ----
+// X(左右) -1280..1280 / Y(上下) 0..900。ぶつけない範囲に絞ってある
+#define SERVO_PAN_MIN   -700
+#define SERVO_PAN_MAX    700
+#define SERVO_TILT_MIN    60
+#define SERVO_TILT_MAX   600
+#define SERVO_SPEED      250   // 0..1000
+#define SERVO_ENABLE     1     // 0 にすると首を動かさない
+
+// カメラ(顔追従用)。0 = 使わない
+#define USE_CAMERA      1
+#define CAMERA_FPS      4
