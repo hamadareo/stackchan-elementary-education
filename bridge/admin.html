@@ -205,15 +205,20 @@ img{border-radius:14px;box-shadow:0 6px 20px rgba(0,0,0,.25);border-color:var(--
 <section class="panel">
   <h2>Discussion <span>3人会話モード(議題を入れると、接続中の機器が順番に話し合います)</span></h2>
   <div class="row"><label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="aon"> 自律モード(議題がなくても、自分たちで話題を決めて話し始める)</label>
-    <select id="aiv"><option value="5">5分おき</option><option value="10">10分おき</option><option value="20">20分おき</option><option value="40">40分おき</option><option value="60">60分おき</option></select></div>
+    <select id="aiv"><option value="1">1分おき</option><option value="3">3分おき</option><option value="5">5分おき</option><option value="10">10分おき</option><option value="20">20分おき</option><option value="60">60分おき</option></select></div>
   <div id="astat" style="font-size:13px;color:var(--mute);margin:4px 0 8px"></div>
   <div class="row"><input id="dtopic" type="text" maxlength="80" placeholder="議題(例: 週末は家で過ごすか、出かけるか)" style="flex:1;min-width:0">
     <select id="dturns"><option value="8">8回</option><option value="12" selected>12回</option><option value="20">20回</option></select>
-    <button id="dgo">▶ はじめる</button><button id="dstop">■ 止める</button></div>
+    <button id="dgo">▶ はじめる</button><button id="dstop">■ 止める(自律も停止)</button></div>
   <div class="row"><input id="dme" type="text" maxlength="100" placeholder="会話に加わる(「私」の発言)" style="flex:1;min-width:0"><button id="dmesend">送る</button></div>
   <div class="msg" style="color:var(--mute)" id="dstat">待機中。話している間は、機器のマイクを止めます(お互いの声を翻訳しないように)。</div>
   <div id="dlog" style="max-height:260px;overflow:auto;font-size:14px;line-height:1.6"></div>
   <div id="dgrow" style="margin-top:12px;font-size:13px;line-height:1.6"></div>
+</section>
+<section class="panel">
+  <h2>Journal <span>活動記録(話して得たこと・感情・性格の変化)</span></h2>
+  <div id="jsum" style="font-size:13px;color:var(--mute);margin-bottom:8px"></div>
+  <div id="jlist" style="max-height:420px;overflow:auto;font-size:13px;line-height:1.7"></div>
 </section>
 
 <section class="panel">
@@ -421,7 +426,14 @@ let devKey='';
 const agoS=n=>n==null?'-':n<60?n+'秒前':n<3600?Math.floor(n/60)+'分前':Math.floor(n/3600)+'時間前';
 function usbLine(s){var u=s.usb||[];return u.map(function(x){return '<div class="dev"><div class="ln"><b>USB</b> '+(x.name||x.mac.slice(-6))+' — '+esc(x.msg||'確認中')+'</div></div>'}).join('')}
 
-let dKey='',aKey='';
+let dKey='',aKey='',jKey='';
+function renderJournal(j){if(!j)return;const k=JSON.stringify(j);if(k===jKey)return;jKey=k;const m=j.summary;
+  $('jsum').textContent='これまでの会話 '+m.total+'回(うち自発 '+m.auto+'回)・発言 '+m.turns+'回';
+  $('jlist').innerHTML=j.items.map(e=>{const t=new Date(e.t*1000).toLocaleString('ja-JP',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});
+    return `<div class="dev"><div class="nm">${t} 「${esc(e.topic)}」 <small>${e.auto?'自発・'+esc(e.by)+'が切り出し':'依頼された議題'} · ${e.turns}発言</small></div><div class="ln">`+
+    (e.summary?'<b>要約</b> '+esc(e.summary)+'<br>':'')+e.people.map(p=>'<b>'+esc(p.dev_name)+'('+esc(p.name)+')</b> '+
+      [Object.keys(p.emotions).length?'感情 '+Object.keys(p.emotions).map(n=>n+p.emotions[n]).join('・'):'',p.learned?'学び「'+esc(p.learned)+'」':'',
+       Object.keys(p.radar_delta).length?'性格の変化 '+Object.keys(p.radar_delta).map(a=>a+(p.radar_delta[a]>0?'+':'')+p.radar_delta[a]).join(' '):''].filter(Boolean).join(' / ')).join('<br>')+'</div></div>'}).join('')||'<small>まだ記録がありません</small>'}
 function renderAuto(a){if(!a)return;const k=JSON.stringify(a);if(k===aKey)return;aKey=k;
   if(document.activeElement!==$('aiv'))$('aiv').value=a.interval_min;$('aon').checked=a.enabled;
   $('astat').textContent=!a.enabled?'自律モードはオフです。議題を入れたときだけ話します':(a.why?'待機中('+a.why+')':'次に話し始めるのは'+(a.next_in<60?'まもなく':'約'+Math.floor(a.next_in/60)+'分後')+'の予定')+'  '+a.quiet+(a.last_topic?'  最後の自発: '+a.last_by+'「'+a.last_topic+'」':'')}
@@ -591,7 +603,7 @@ async function poll(){
     document.querySelectorAll('[data-s]').forEach(b=>b.onclick=()=>{if(confirm(b.dataset.s+' を再起動しますか?'))api('restart',{service:b.dataset.s})});
     $('events').innerHTML=(s.events||[]).map(e=>`<div><b>${e.t}</b>${esc(e.msg)}</div>`).join('')||'<div>まだありません</div>';
     if(s.build){if(build0===null)build0=s.build;else if(s.build!==build0){toast('新しい版に更新します…');setTimeout(()=>location.reload(),800)}}
-    cur=s;renderDevices(s);renderDiscuss(s);renderAuto(s.auto);renderPeople(s.people);renderTurns();{const k=JSON.stringify(s.phrases)+editPh;if(k!==phKey){phKey=k;renderPh()}}
+    cur=s;renderDevices(s);renderDiscuss(s);renderAuto(s.auto);renderJournal(s.journal);renderPeople(s.people);renderTurns();{const k=JSON.stringify(s.phrases)+editPh;if(k!==phKey){phKey=k;renderPh()}}
     $('tg-track').classList.toggle('on',!!s.track);$('tg-listen').classList.toggle('on',!!s.listen);
     if(s.gate){if(!gd){$('gate').value=s.gate.mult;$('gatenum').textContent=s.gate.mult.toFixed(1)+'×'}
       const g=s.gate,snr=g.amb>0&&g.speech>0?(20*Math.log10(g.speech/g.amb)).toFixed(0):'-';

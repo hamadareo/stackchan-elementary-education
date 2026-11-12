@@ -1,4 +1,7 @@
 import os, sys, tempfile, time, unittest
+os.environ["SC_JOURNAL"] = os.path.join(tempfile.mkdtemp(), "journal.json")      # 実際の活動記録に触れない
+os.environ["SC_PERSONA"] = os.path.join(tempfile.mkdtemp(), "persona.json")
+os.environ["SC_AUTONOMY"] = os.path.join(tempfile.mkdtemp(), "auto.json")
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "bridge"))
 import devices
 
@@ -383,7 +386,7 @@ class AutonomyTests(unittest.TestCase):
         h = Hub()
         mem = d.Memory(os.path.join(tempfile.mkdtemp(), "m.json"))
         ds = d.Discussion(h, Reg(), lambda: eng, mem)
-        ds.start = lambda topic, turns=12, opener=0: (started.append((topic, opener)) or True, "")
+        ds.start = lambda topic, turns=12, opener=0, auto=False: (started.append((topic, opener, auto)) or True, "")
         au = a.Autonomy(h, Reg(), ds, lambda: eng, os.path.join(tempfile.mkdtemp(), "a.json"))
         au.cfg.update({"quiet_from": 0, "quiet_to": 0} if hour_ok else {})
         return au, ds, started
@@ -393,6 +396,8 @@ class AutonomyTests(unittest.TestCase):
         self.assertTrue(a.in_quiet_hours(23, 23, 7) and a.in_quiet_hours(3, 23, 7))
         self.assertFalse(a.in_quiet_hours(12, 23, 7)); self.assertFalse(a.in_quiet_hours(5, 5, 5))
         self.assertEqual(a.clean_topic("話題: 「雨の日の過ごし方」\n説明"), "雨の日の過ごし方")
+        self.assertEqual(a.clean_topic("夕方の空、なぜ赤くなるのだろうのだ"), "夕方の空、なぜ赤くなるのだろう?")
+        self.assertEqual(a.clean_topic("雨の日の過ごし方なのだ"), "雨の日の過ごし方")
         self.assertFalse(a.due(100, 0, 1200, 1.0)); self.assertTrue(a.due(1300, 0, 1200, 1.0))
 
     def test_starts_by_itself(self):
@@ -410,7 +415,7 @@ class AutonomyTests(unittest.TestCase):
         au, ds, started = self._mk(n_dev=1)
         self.assertFalse(au.step(time.time() + 7200)); self.assertIn("2 台未満", au.note)
         au, ds, started = self._mk(voice_ago=10)
-        self.assertFalse(au.step(time.time() + 60)); self.assertTrue(au.note)      # 人が話したばかり
+        self.assertFalse(au.step(time.time() + 15)); self.assertTrue(au.note)      # 人が話したばかり
         au, ds, started = self._mk(talking=True)
         self.assertFalse(au.step(time.time() + 7200)); self.assertIn("機器に話", au.note)
         au, ds, started = self._mk()
@@ -428,4 +433,63 @@ class AutonomyTests(unittest.TestCase):
         au.set(enabled=True, interval_min=999)
         self.assertEqual(au.cfg["interval_min"], 240)
         self.assertEqual(self.a.Autonomy(au.hub, au.reg, ds, au.eng_getter, au.path).cfg["interval_min"], 240)     # 保存される
+
+    def test_ignore_voice(self):
+        au, ds, started = self._mk(voice_ago=5)
+        au.last = 0.0                                                # 間隔は十分たっている
+        self.assertFalse(au.step(time.time() + 10))                  # 人の声があれば、既定では遠慮する
+        au.set(ignore_voice=True)
+        au.last = 0.0
+        self.assertTrue(au.step(time.time() + 10))                 # 「人の声があっても話す」なら話し始める
+        self.assertTrue(au.snapshot()["ignore_voice"])
+
+    def test_night_and_defaults(self):
+        au, ds, started = self._mk()
+        self.assertEqual(au.cfg["quiet_from"], au.cfg["quiet_to"])                  # 夜間も話す
+        self.assertFalse(self.a.in_quiet_hours(3, au.cfg["quiet_from"], au.cfg["quiet_to"]))
+        self.assertIn("夜間も", au.snapshot()["quiet"])
+        self.assertTrue(au.step(time.time() + 3600))
+        self.assertTrue(started[0][2])                                              # 自発のフラグが付く
+
+
+class JournalTests(unittest.TestCase):
+    def test_journal_written_after_discussion(self):
+        import discuss as d
+        class S:
+            def send(s, m): pass
+            def _send_pcm(s, *x, **k): return 0.0
+        S_ = S()
+        class Hub:
+            def by_id(s, i): return S_
+            def event(s, t): pass
+        class Reg:
+            def all(s): return [{"id": i, "name": "N" + i} for i in "abc"]
+        class Eng:
+            n = 0
+            def translate(s, msgs):
+                c = msgs[0]["content"]
+                if "要約" in c:
+                    return "旅について話し、計画派と偶然派で意見が分かれた。", "x"
+                if "振り返り" in c:
+                    return "学び: 偶然も楽しい\n印象 めたん: 計画派", "x"
+                s.n += 1
+                return f"【喜び】発言{s.n}です。", "x"
+            def speech_pcm_as(s, text, voice, emotion=None): return b""
+        jr = d.Journal(os.path.join(tempfile.mkdtemp(), "j.json"))
+        ds = d.Discussion(Hub(), Reg(), lambda: Eng(), d.Memory(os.path.join(tempfile.mkdtemp(), "m.json")), jr)
+        ds.start("旅", 5, auto=True)
+        for _ in range(100):
+            if not ds.on: break
+            time.sleep(0.1)
+        for _ in range(60):
+            if jr.items and not ds.reflecting: break
+            time.sleep(0.1)
+        self.assertEqual(len(jr.items), 1)
+        e = jr.items[0]
+        self.assertTrue(e["auto"]); self.assertEqual(e["topic"], "旅"); self.assertIn("意見が分かれた", e["summary"])
+        self.assertEqual(len(e["people"]), 3)
+        self.assertTrue(any(p["learned"] for p in e["people"]))
+        self.assertTrue(any(p["emotions"] for p in e["people"]))
+        self.assertEqual(d.Journal(jr.path).summary()["total"], 1)                  # 保存されて読み直せる
+        self.assertEqual(d.radar_delta({"元気": 50, "論理": 60}, {"元気": 55, "論理": 60}), {"元気": 5})
 

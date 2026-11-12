@@ -375,6 +375,7 @@ class Hub:
         st["devices"] = self.devices_state()
         st["discuss"] = self.discuss.snapshot() if self.discuss else None
         st["auto"] = self.auto.snapshot() if self.auto else None
+        st["journal"] = {"summary": self.discuss.journal.summary(), "items": self.discuss.journal.recent(20)} if self.discuss else None
         st["usb"] = self.usb.snapshot() if getattr(self, "usb", None) else []
         st["target"] = self.target
         st["view_dev"] = vdev
@@ -530,8 +531,15 @@ class Hub:
         if name == "auto_set":
             if not self.auto:
                 return {"ok": False, "error": "未対応"}
-            self.auto.set(body.get("enabled"), body.get("interval_min"))
+            self.auto.set(body.get("enabled"), body.get("interval_min"), body.get("ignore_voice"))
             self.event("自律モード: " + ("オン" if self.auto.cfg["enabled"] else "オフ") + f"({self.auto.cfg['interval_min']}分おき)")
+            return {"ok": True}
+        if name == "discuss_stop":                      # 停止命令: いまの会話を止め、自律も止める(再開は自律モードをオンに)
+            if self.auto:
+                self.auto.set(enabled=False)
+                self.event("停止命令: 自律モードをオフにしました")
+            if self.discuss:
+                self.discuss.stop()
             return {"ok": True}
         if name == "discuss_forget":
             if not self.discuss:
@@ -600,9 +608,6 @@ class Hub:
             ok, err = self.discuss.start(str(body.get("topic", "")), int(body.get("turns", 12) or 12)) if self.discuss else (False, "未対応")
             if not ok:
                 return {"ok": False, "error": err}
-        elif name == "discuss_stop":
-            if self.discuss:
-                self.discuss.stop()
         elif name == "discuss_say":
             if self.auto:
                 self.auto.user_touched()

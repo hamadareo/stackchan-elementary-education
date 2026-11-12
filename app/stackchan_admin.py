@@ -681,6 +681,7 @@ class Win(QMainWindow):
         self.tabs.addTab(self.page_devices(), "機器")
         self.tabs.addTab(self.page_discuss(), "3人会話")
         self.tabs.addTab(self.page_profile(), "プロフィール")
+        self.tabs.addTab(self.page_journal(), "活動記録")
         self.tabs.addTab(self.page_talk(), "会話")
 
         self.msg = muted()
@@ -1093,15 +1094,18 @@ class Win(QMainWindow):
         lay = QVBoxLayout(w)
         lay.setContentsMargins(0, 0, 0, 0)
         c, l = card("3人会話", "議題を入れると、接続中の機器が順番に話し合います(話している間はマイクを止めます)")
-        self.a_on = QCheckBox("自律モード: 議題がなくても、自分たちで話題を決めて話し始める")
+        self.a_on = QCheckBox("自律モード: 自分たちで話題を決めて、停止命令が出るまで話し続ける(夜間も)")
         self.a_on.clicked.connect(self.auto_apply)
         self.a_iv = QComboBox()
-        for n in (5, 10, 20, 40, 60):
+        for n in (1, 3, 5, 10, 20, 60):
             self.a_iv.addItem(f"{n}分おき", n)
-        self.a_iv.setCurrentIndex(2)
+        self.a_iv.setCurrentIndex(1)
         self.a_iv.activated.connect(lambda _=0: self.auto_apply())
+        self.a_ig = QCheckBox("人の声がしていても話す(周りの会話を翻訳中でも割り込む)")
+        self.a_ig.clicked.connect(self.auto_apply)
         self.a_stat = muted("")
         l.addLayout(hrow(self.a_on, self.a_iv, stretch=True))
+        l.addWidget(self.a_ig)
         l.addWidget(self.a_stat)
         self.a_key = ""
         self.d_topic = QLineEdit()
@@ -1112,7 +1116,7 @@ class Win(QMainWindow):
             self.d_turns.addItem(f"{n}回", n)
         self.d_turns.setCurrentIndex(1)
         self.d_go = btn("▶ はじめる", self.discuss_go)
-        l.addLayout(hrow(self.d_topic, self.d_turns, self.d_go, btn("■ 止める", lambda: self.act("discuss_stop"), name="bad")))
+        l.addLayout(hrow(self.d_topic, self.d_turns, self.d_go, btn("■ 止める(自律も停止)", lambda: self.act("discuss_stop", None, "止めました。自律モードもオフです"), name="bad")))
         self.d_me = QLineEdit()
         self.d_me.setPlaceholderText("会話に加わる(「私」の発言)")
         self.d_me.returnPressed.connect(self.discuss_me)
@@ -1152,8 +1156,73 @@ class Win(QMainWindow):
         if t:
             self.act("discuss_start", {"topic": t, "turns": self.d_turns.currentData()}, "会話を始めます")
 
+    def page_journal(self) -> QWidget:
+        w = QWidget()
+        lay = QVBoxLayout(w)
+        lay.setContentsMargins(0, 0, 0, 0)
+        c, l = card("活動記録", "3人が話して得たこと・感情・性格の変化を、会話ごとに残します(新しい順)")
+        self.j_sum = muted("")
+        l.addWidget(self.j_sum)
+        self.j_wrap = QWidget()
+        self.j_wrap.setObjectName("jwrap")
+        self.j_wrap.setStyleSheet("#jwrap{background:transparent}")
+        self.j_l = QVBoxLayout(self.j_wrap)
+        self.j_l.setContentsMargins(0, 0, 0, 0)
+        sa = QScrollArea()
+        sa.setWidgetResizable(True)
+        sa.setStyleSheet("QScrollArea{background:transparent;border:0}")
+        sa.viewport().setStyleSheet("background:transparent")
+        sa.setWidget(self.j_wrap)
+        l.addWidget(sa, 1)
+        lay.addWidget(c, 1)
+        self.j_key = ""
+        return w
+
+    def render_journal(self, j):
+        if not j:
+            return
+        k = json.dumps(j, ensure_ascii=False)
+        if k == self.j_key:
+            return
+        self.j_key = k
+        sm = j["summary"]
+        self.j_sum.setText(f'これまでの会話 {sm["total"]}回(うち自発 {sm["auto"]}回)・発言 {sm["turns"]}回' + (f'・最初の記録 {time.strftime("%m/%d %H:%M", time.localtime(sm["since"]))}' if sm["since"] else ""))
+        while self.j_l.count():
+            it = self.j_l.takeAt(0)
+            if it.widget():
+                it.widget().deleteLater()
+        if not j["items"]:
+            self.j_l.addWidget(muted("まだ記録がありません。会話が終わると、ここに残ります"))
+        for e in j["items"]:
+            fr = QFrame()
+            fr.setObjectName("jent")
+            fr.setStyleSheet("#jent{background:rgba(10,20,34,0.55);border:1px solid #1d3a55;border-radius:8px}#jent QLabel{background:transparent}")
+            v = QVBoxLayout(fr)
+            kind = f'<span style="color:{MG}">自発・{e.get("by", "")}が切り出し</span>' if e.get("auto") else f'<span style="color:{GR}">依頼された議題</span>'
+            lines = [f'<b>{time.strftime("%m/%d %H:%M", time.localtime(e["t"]))}</b>　<span style="color:{AM}">「{e["topic"]}」</span>　{kind}　{e["turns"]}発言']
+            if e.get("summary"):
+                lines.append(f'<b>要約</b>　{e["summary"]}')
+            for p in e.get("people", []):
+                bits = []
+                if p.get("emotions"):
+                    bits.append("感情 " + "・".join(f"{n}{c}" for n, c in sorted(p["emotions"].items(), key=lambda kv: -kv[1])))
+                if p.get("learned"):
+                    bits.append(f'学び「{p["learned"]}」')
+                if p.get("radar_delta"):
+                    bits.append("性格の変化 " + " ".join(f'{a}{"+" if d > 0 else ""}{d}' for a, d in p["radar_delta"].items()))
+                lines.append(f'<b>{p["dev_name"]}({p["name"]})</b>　' + ("　".join(bits) or "変化なし"))
+            tail = e.get("lines", [])[-3:]
+            if tail:
+                lines.append('<span style="color:#7f93ad">' + "<br>".join(f'{x["who"]}: {x["text"]}' for x in tail) + "</span>")
+            lab = QLabel("<br>".join(lines))
+            lab.setWordWrap(True)
+            lab.setTextFormat(Qt.RichText)
+            v.addWidget(lab)
+            self.j_l.addWidget(fr)
+        self.j_l.addStretch(1)
+
     def auto_apply(self):
-        self.act("auto_set", {"enabled": self.a_on.isChecked(), "interval_min": self.a_iv.currentData()})
+        self.act("auto_set", {"enabled": self.a_on.isChecked(), "interval_min": self.a_iv.currentData(), "ignore_voice": self.a_ig.isChecked()})
         self.a_key = ""
 
     def render_auto(self, a):
@@ -1165,6 +1234,7 @@ class Win(QMainWindow):
         self.a_key = k
         if not self.a_iv.view().isVisible():
             self.a_on.setChecked(bool(a["enabled"]))
+            self.a_ig.setChecked(bool(a.get("ignore_voice")))
             ix = self.a_iv.findData(a["interval_min"])
             if ix >= 0:
                 self.a_iv.setCurrentIndex(ix)
@@ -1532,6 +1602,7 @@ class Win(QMainWindow):
         self.render_devices(s)
         self.render_discuss(s.get("discuss"))
         self.render_auto(s.get("auto"))
+        self.render_journal(s.get("journal"))
         self.render_phrases()
         self.render_people(s.get("people"))
         self.render_turns()

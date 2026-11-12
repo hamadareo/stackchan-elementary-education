@@ -2,6 +2,8 @@
 import os, re, sys, tempfile, unittest
 
 _TMP = tempfile.mkdtemp()
+os.environ["SC_JOURNAL"] = os.path.join(_TMP, "journal.json")
+os.environ["SC_AUTONOMY"] = os.path.join(_TMP, "auto.json")
 os.environ["SC_DEVICES"] = os.path.join(_TMP, "devices.json")       # 実際の台帳・顔データ・設定に触れない
 os.environ["SC_FACES"] = os.path.join(_TMP, "faces.json")
 os.environ["SC_SETTINGS"] = os.path.join(_TMP, "settings.json")
@@ -55,6 +57,19 @@ def fresh():
 
 
 class HubTests(unittest.TestCase):
+    def test_stop_command_stops_autonomy(self):
+        import discuss, autonomy
+        h = admin.Hub()
+        h.discuss = discuss.Discussion(h, admin.REG, lambda: None, discuss.Memory(os.path.join(tempfile.mkdtemp(), "m.json")))
+        h.auto = autonomy.Autonomy(h, admin.REG, h.discuss, lambda: None, os.path.join(tempfile.mkdtemp(), "a.json"))
+        h.auto.set(enabled=True)
+        self.assertTrue(h.act("discuss_stop", {})["ok"])
+        self.assertFalse(h.auto.cfg["enabled"])                          # 停止命令で自律も止まる
+        self.assertTrue(h.act("auto_set", {"enabled": True, "interval_min": 5})["ok"])
+        self.assertTrue(h.auto.cfg["enabled"])
+        st = h.state() if hasattr(h, "state") else {}
+        self.assertIn("journal", st)
+
     def test_discuss_forget(self):
         import discuss
         h = admin.Hub()

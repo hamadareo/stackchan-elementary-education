@@ -241,6 +241,54 @@ def radar(base: dict, st: "dict | None") -> dict:
     return {ax: int(max(5, min(100, round(out.get(ax, 50))))) for ax in AXES}
 
 
+class Journal:
+    """活動記録。会話が終わるたびに、話題・要約・各キャラの学び・感情・性格(レーダー)の変化を 1 件ずつ残す。
+    ~/.sokutsu_journal.json(本人だけが読める)。最新 200 件まで。"""
+    MAX = 200
+
+    def __init__(self, path: "str | None" = None):
+        self.path = path or os.environ.get("SC_JOURNAL", os.path.expanduser("~/.sokutsu_journal.json"))
+        self.lock = threading.Lock()
+        try:
+            d = json.load(open(self.path))
+            self.items = d if isinstance(d, list) else []
+        except (OSError, ValueError):
+            self.items = []
+
+    def add(self, entry: dict) -> None:
+        with self.lock:
+            self.items.append(entry)
+            del self.items[:-self.MAX]
+            try:
+                fd = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                with os.fdopen(fd, "w") as f:
+                    json.dump(self.items, f, ensure_ascii=False)
+            except OSError:
+                pass
+
+    def recent(self, n: int = 30) -> list:
+        with self.lock:
+            return list(reversed(self.items[-n:]))
+
+    def summary(self) -> dict:
+        with self.lock:
+            it = self.items
+            return {"total": len(it), "auto": sum(1 for e in it if e.get("auto")), "turns": sum(e.get("turns", 0) for e in it),
+                    "since": it[0]["t"] if it else 0}
+
+
+def radar_delta(before: dict, after: dict) -> dict:
+    """性格(レーダー)の変化: 軸 → 増減(0 は入れない)。"""
+    return {a: after.get(a, 0) - before.get(a, 0) for a in AXES if after.get(a, 0) != before.get(a, 0)}
+
+
+def summary_msgs(topic: str, log: list) -> list:
+    hist = "\n".join(f"{w}: {t}" for w, t in log[-20:])
+    return [{"role": "system", "content": "会話の記録を、あとで読み返す人のために 2 文・90 文字以内の日本語で要約します。"
+                                          "何が話され、どんな結論や対立があったかを書く。前置き・かっこは不要。"},
+            {"role": "user", "content": f"議題: {topic}\n{hist}\n\n要約:"}]
+
+
 class Memory:
     """キャラごとの「育ち」。会話のたびに、学んだこと・意見・相手への印象・話した議題を覚え、次の会話の発言に反映する。
     ~/.sokutsu_persona.json(本人だけが読める)。会話の記録そのものではなく、LLM がまとめた短い要約だけを持つ。"""
@@ -369,13 +417,18 @@ def build_msgs(topic: str, people: list, idx: int, log: list, last: bool = False
 
 
 class Discussion:
-    def __init__(self, hub, reg, eng_getter, memory: "Memory | None" = None):
+    def __init__(self, hub, reg, eng_getter, memory: "Memory | None" = None, journal: "Journal | None" = None):
         self.hub, self.reg, self.eng_getter = hub, reg, eng_getter
         self.memory = memory if memory is not None else Memory()
         self.grew = ""
         self.emos: dict = {}            # キャラ名 → いまの感情キー
         self.log_emo: list = []         # log と同じ並びの感情キー
         self.opener = 0
+        self.reflecting = False
+        self.auto_started = False
+        self.t_start = 0.0
+        self.radar0: dict = {}
+        self.journal = journal if journal is not None else Journal()
         self.mood: dict = {}            # キャラ名 → {"v","a"}(気分)
         self.on = False
         self.topic = ""
@@ -404,7 +457,7 @@ class Discussion:
         ids = [r["id"] for r in self.reg.all()]
         return (ids.index(dev_id) if dev_id in ids else 0) % len(PERSONAS)
 
-    def start(self, topic: str, turns: int = 12, opener: int = 0) -> "tuple[bool, str]":
+    def start(self, topic: str, turns: int = 12, opener: int = 0, auto: bool = False) -> "tuple[bool, str]":
         topic = (topic or "").strip()[:80]
         if not topic:
             return False, "議題が空です"
@@ -418,6 +471,9 @@ class Discussion:
             return False, "接続中の機器が 2 台以上必要です"
         self.people = [{**PERSONAS[self.persona_of(r["id"])], "dev": r["id"], "dev_name": r["name"]} for r, _s in pk]
         self.topic, self.turn, self.max_turns, self.log, self._inject, self.note = topic, 0, max(2, min(40, int(turns))), [], [], ""
+        self.auto_started = bool(auto)
+        self.t_start = time.time()
+        self.radar0 = self._radars()
         self.opener = max(0, min(len(self.people) - 1, int(opener)))      # 最初に口火を切る人(自発のときは話題を思いついた人)
         self.spoke_at = {}
         self.grew = ""
@@ -613,34 +669,80 @@ class Discussion:
                     sk.send({"t": "face", "state": "neutral"})
             self.on = False
             self.hub.event("会話モード終了" + (f"({self.note})" if self.note else ""))
-            threading.Thread(target=self.reflect, args=(eng,), daemon=True).start()
+            self.reflecting = True                                  # 振り返りが終わるまで、次の自発会話を始めない
+            threading.Thread(target=self.reflect, args=(eng, self.snap()), daemon=True).start()
 
-    def reflect(self, eng) -> None:
-        """会話のあと、各キャラが振り返って学びを覚える(並列)。会話が短すぎるときは覚えない。"""
-        people, topic, log = list(self.people), self.topic, list(self.log)
-        if sum(1 for w, _ in log if w != "私") < 4:
-            return
+    def reflect(self, eng, sn: "dict | None" = None) -> None:
+        """会話のあと、各キャラが振り返って学びを覚え(並列)、活動記録を残す。会話が短すぎるときは学ばない。"""
+        sn = sn or self.snap()
+        people, topic, log = sn["people"], sn["topic"], sn["log"]
         got: dict = {}
-
-        def one(k):
+        self.reflecting = True
+        try:
+            if sum(1 for w, _ in log if w != "私") >= 4:
+                def one(k):
+                    try:
+                        name = people[k]["name"]
+                        others = [p["name"] for j, p in enumerate(people) if j != k]
+                        out, _l = eng.translate(reflect_msgs(topic, people, k, log, self.memory.get(name)))
+                        views, rel = parse_reflect(out, others)
+                        if views or rel:
+                            self.memory.learn(name, topic, views, rel)
+                            got[name] = views[0] if views else ""
+                    except Exception:  # noqa: BLE001
+                        pass
+                ts = [threading.Thread(target=one, args=(k,), daemon=True) for k in range(len(people))]
+                for t in ts:
+                    t.start()
+                for t in ts:
+                    t.join(60)
+                if got:
+                    self.grew = " / ".join(f"{n}: {v}" for n, v in got.items() if v)
+                    self.hub.event(f"キャラが成長しました({len(got)}人が学びを記憶)")
             try:
-                name = people[k]["name"]
-                others = [p["name"] for j, p in enumerate(people) if j != k]
-                out, _l = eng.translate(reflect_msgs(topic, people, k, log, self.memory.get(name)))
-                views, rel = parse_reflect(out, others)
-                if views or rel:
-                    self.memory.learn(name, topic, views, rel)
-                    got[name] = views[0] if views else ""
+                self.write_journal(eng, got, sn)
             except Exception:  # noqa: BLE001
                 pass
-        ts = [threading.Thread(target=one, args=(k,), daemon=True) for k in range(len(people))]
-        for t in ts:
-            t.start()
-        for t in ts:
-            t.join(60)
-        if got:
-            self.grew = " / ".join(f"{n}: {v}" for n, v in got.items() if v)
-            self.hub.event(f"キャラが成長しました({len(got)}人が学びを記憶)")
+        finally:
+            self.reflecting = False
+
+    def snap(self) -> dict:
+        """いまの会話の控え(終わったあとの振り返りに使う)。"""
+        return {"people": list(self.people), "topic": self.topic, "log": list(self.log), "log_emo": list(self.log_emo), "note": self.note,
+                "auto": self.auto_started, "t_start": self.t_start, "radar0": dict(self.radar0), "opener": self.opener}
+
+    def _radars(self) -> dict:
+        return {p["name"]: radar(p["radar"], self.memory.get(p["name"])["stats"]) for p in PERSONAS}
+
+    def write_journal(self, eng, got: dict, sn: dict) -> None:
+        """会話の記録を 1 件残す(要約・学び・感情・性格の変化)。sn は会話が終わった時点の控え(次の会話に影響されない)。"""
+        log = sn["log"]
+        spoken = [(w, t) for w, t in log if w != "私"]
+        if len(spoken) < 2:
+            return
+        summ = ""
+        try:
+            out, _l = eng.translate(summary_msgs(sn["topic"], log))
+            out = re.sub(r"<think>.*?</think>", "", out or "", flags=re.S).strip()
+            summ = out.splitlines()[0][:120] if out else ""
+        except Exception:  # noqa: BLE001
+            pass
+        emos: dict = {}
+        for n, (w, _t) in enumerate(log):
+            if w != "私" and n < len(sn["log_emo"]):
+                lab = emo_label(sn["log_emo"][n])
+                emos.setdefault(w, {})
+                emos[w][lab] = emos[w].get(lab, 0) + 1
+        after = self._radars()
+        people = []
+        for p in sn["people"]:
+            nm = p["name"]
+            people.append({"name": nm, "dev_name": p["dev_name"], "learned": got.get(nm, ""), "rel": self.memory.get(nm)["rel"],
+                           "emotions": emos.get(nm, {}), "radar_delta": radar_delta(sn["radar0"].get(nm, {}), after.get(nm, {})),
+                           "radar": after.get(nm, {})})
+        self.journal.add({"t": int(sn["t_start"] or time.time()), "topic": sn["topic"], "auto": sn["auto"], "turns": len(spoken),
+                          "by": sn["people"][sn["opener"]]["name"] if sn["people"] else "", "note": sn["note"], "summary": summ,
+                          "lines": [{"who": w, "text": t} for w, t in log[-6:]], "people": people})
 
     def profiles(self) -> list:
         """機器ごとのプロフィール(性格・口ぐせ・好き嫌い・レーダーチャート・感情の傾向・学び)。"""

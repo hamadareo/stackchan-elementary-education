@@ -1,8 +1,8 @@
-"""完全自立モード: 議題を入れなくても、キャラたちが自分の意思で話題を決めて話し始める。
+"""完全自立モード: 議題を入れなくても、キャラたちが自分の意思で話題を決めて話し始める。停止命令(管理画面の「止める」)が出るまで続ける。
 
 - 退屈(前回の会話からの経過)と、キャラの気質(元気なほど切り出しやすい)で「話したい度」が上がり、超えたら誰かが口火を切る。
 - 話題は LLM が、そのキャラの好み・前の会話で学んだこと・最近の議題(重複は避ける)・時間帯から考える。
-- 遠慮: 夜間(既定 23〜7 時)は話さない / 人が機器に話しかけて間もないときは話さない / 会話中や機器が 2 台未満のときは話さない。
+- 遠慮: 人が機器に話しかけて間もないときは話さない / 会話中や機器が 2 台未満のときは話さない。
 - 「私」が話しかけた・議題を入れたら、その時点から間隔を数え直す。設定は ~/.sokutsu_autonomy.json。
 """
 from __future__ import annotations
@@ -14,8 +14,8 @@ import re
 import threading
 import time
 
-DEFAULT = {"enabled": True, "interval_min": 20, "quiet_from": 23, "quiet_to": 7}
-USER_QUIET_S = 120.0          # 人の声がしてから、この秒数は話し始めない
+DEFAULT = {"enabled": True, "interval_min": 3, "ignore_voice": False, "quiet_from": 0, "quiet_to": 0}      # 夜間も話す(quiet_from==quiet_to なら静かな時間なし)
+USER_QUIET_S = 30.0          # 人の声(聞き取れた発話)から、この秒数は話し始めない。手振りの検出では止めない(誤検出が多い)
 TURNS = (6, 10)
 
 
@@ -49,6 +49,7 @@ def clean_topic(text: str) -> str:
     t = (t.splitlines() or [""])[0].strip()
     t = re.sub(r"^(話題|議題)\s*[:：]\s*", "", t)
     t = t.strip().strip("「」『』\"'【】[]()（）・- ")
+    t = re.sub(r"(だろう|でしょう|かな|のか|だ)?(なの)?のだ[。!！]*$", lambda m: "だろう?" if m.group(1) == "だろう" else ("?" if m.group(1) in ("のか", "かな") else ""), t)   # キャラの語尾(のだ)は話題に持ち込まない
     return t[:30]
 
 
@@ -60,7 +61,7 @@ class Autonomy:
         self.rnd = rnd or random.Random()
         self.cfg = dict(DEFAULT)
         try:
-            self.cfg.update({k: v for k, v in json.load(open(self.path)).items() if k in DEFAULT})
+            self.cfg.update({k: v for k, v in json.load(open(self.path)).items() if k in ("enabled", "interval_min", "ignore_voice")})
         except (OSError, ValueError):
             pass
         self.last = clock()           # 最後に会話(自発・ユーザーの議題とも)が終わった/始まった時刻。起動直後は待つ
@@ -79,10 +80,12 @@ class Autonomy:
         except OSError:
             pass
 
-    def set(self, enabled=None, interval_min=None) -> None:
+    def set(self, enabled=None, interval_min=None, ignore_voice=None) -> None:
         with self.lock:
             if enabled is not None:
                 self.cfg["enabled"] = bool(enabled)
+            if ignore_voice is not None:
+                self.cfg["ignore_voice"] = bool(ignore_voice)
             if interval_min is not None:
                 self.cfg["interval_min"] = max(1, min(240, int(interval_min)))
             self.last = max(self.last, self.clock() - 0)          # 設定を変えたら数え直す
@@ -94,6 +97,8 @@ class Autonomy:
             return "自律モードはオフです"
         if self.discuss.on:
             return "会話中です"
+        if getattr(self.discuss, "reflecting", False):
+            return "さっきの会話を振り返っています"
         if in_quiet_hours(time.localtime(now).tm_hour, self.cfg["quiet_from"], self.cfg["quiet_to"]):
             return "静かな時間です(夜間)"
         if len(self.discuss.pick()) < 2:
@@ -101,10 +106,10 @@ class Autonomy:
         eng = self.eng_getter()
         if eng is None:
             return "エンジンの準備中です"
-        heard = max(getattr(eng, "last_voice", 0.0), getattr(eng, "last_greet", 0.0), getattr(eng, "last_hello", 0.0))
-        if now - heard < USER_QUIET_S:
+        heard = getattr(eng, "last_voice", 0.0)
+        if not self.cfg.get("ignore_voice") and now - heard < USER_QUIET_S:
             return "人が話しかけたばかりです"
-        if any(getattr(x, "talking", False) for x in self.hub.live()):
+        if not self.cfg.get("ignore_voice") and any(getattr(x, "talking", False) for x in self.hub.live()):
             return "人が機器に話しています"
         return ""
 
@@ -147,7 +152,7 @@ class Autonomy:
         if len(topic) < 3 or topic in recent:
             self.last = now - self.cfg["interval_min"] * 60.0 * 0.5
             return False
-        ok, err = self.discuss.start(topic, self.rnd.randint(*TURNS), opener=k)
+        ok, err = self.discuss.start(topic, self.rnd.randint(*TURNS), opener=k, auto=True)
         if ok:
             self.last, self.last_topic, self.last_by = now, topic, P["name"]
             self.hub.event(f"自発: {P['name']}が「{topic}」について話しかけました")
@@ -162,9 +167,9 @@ class Autonomy:
     def snapshot(self) -> dict:
         now = self.clock()
         left = max(0, int(self.last + self.cfg["interval_min"] * 60.0 * self.urge - now))
-        return {"enabled": self.cfg["enabled"], "interval_min": self.cfg["interval_min"], "next_in": left,
+        return {"enabled": self.cfg["enabled"], "interval_min": self.cfg["interval_min"], "ignore_voice": bool(self.cfg.get("ignore_voice")), "next_in": left,
                 "why": self.note, "last_topic": self.last_topic, "last_by": self.last_by,
-                "quiet": f'{self.cfg["quiet_from"]}〜{self.cfg["quiet_to"]}時は静か'}
+                "quiet": "夜間も話します" if self.cfg["quiet_from"] == self.cfg["quiet_to"] else f'{self.cfg["quiet_from"]}〜{self.cfg["quiet_to"]}時は静か'}
 
     def run(self) -> None:
         while True:
