@@ -55,6 +55,19 @@ def fresh():
 
 
 class HubTests(unittest.TestCase):
+    def test_discuss_forget(self):
+        import discuss
+        h = admin.Hub()
+        h.discuss = discuss.Discussion(h, admin.REG, lambda: None, discuss.Memory(os.path.join(tempfile.mkdtemp(), "m.json")))
+        h.discuss.memory.learn("ずんだ", "旅", ["a"], {})
+        h.discuss.memory.learn("めたん", "旅", ["b"], {})
+        self.assertTrue(h.act("discuss_forget", {"name": "ずんだ"})["ok"])
+        self.assertEqual((h.discuss.memory.get("ずんだ")["talks"], h.discuss.memory.get("めたん")["talks"]), (0, 1))
+        h.act("discuss_forget", {})
+        self.assertEqual(h.discuss.memory.get("めたん")["talks"], 0)
+        h.discuss.on = True
+        self.assertFalse(h.act("discuss_forget", {})["ok"])        # 会話中は消せない
+
     def test_no_device(self):
         h = admin.Hub(); h.engine = FakeEng()
         self.assertFalse(h.act("volume", {"v": 100})["ok"])

@@ -525,6 +525,16 @@ class Hub:
                 return {"ok": False, "error": "不明なサービス"}
             subprocess.Popen(["systemctl", "--user", "restart", svc])
             return {"ok": True}
+        if name == "discuss_forget":
+            if not self.discuss:
+                return {"ok": False, "error": "未対応"}
+            if self.discuss.on:
+                return {"ok": False, "error": "会話中はリセットできません"}
+            who = str(body.get("name", "")).strip()
+            self.discuss.memory.reset(who or None)
+            self.discuss.grew = ""
+            self.event("学びをリセット: " + (who or "全員"))
+            return {"ok": True}
         # ---- 機器の管理(複数台)
         if name == "device_select":
             dev = str(body.get("id", "all"))

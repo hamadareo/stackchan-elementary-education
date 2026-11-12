@@ -426,11 +426,13 @@ function renderDiscuss(s){
   $('dgo').disabled=d.on;
   $('dlog').innerHTML=d.log.map(x=>`<div><b>${esc(x.who)}</b>: ${esc(x.text)}</div>`).join('');
   $('dlog').scrollTop=1e6;
-  $('dgrow').innerHTML=(d.growth||[]).map(g=>`<div class="dev"><div class="nm">${esc(g.dev_name)} <small>(${esc(g.name)} · ${g.talks}回の会話)</small></div><div class="ln">`+
+  $('dgrow').innerHTML=(d.growth||[]).map(g=>`<div class="dev"><div class="nm">${esc(g.dev_name)} <small>(${esc(g.name)} · ${g.talks}回の会話)</small> <button data-forget="${esc(g.name)}" data-dn="${esc(g.dev_name)}">↺ リセット</button></div><div class="ln">`+
     (g.views.length?g.views.map(v=>'・'+esc(v)).join('<br>'):'まだ学んでいません')+
     Object.keys(g.rel).map(o=>`<br><small>${esc(o)}への印象: ${esc(g.rel[o])}</small>`).join('')+
     (g.topics.length?`<br><small>話した議題: ${g.topics.slice(0,4).map(esc).join('、')}</small>`:'')+`</div></div>`).join('');
 }
+$('dgrow').onclick=async e=>{const b=e.target.closest('[data-forget]');if(!b)return;
+  if(confirm(b.dataset.dn+' の学んだことをすべて消しますか?')){const j=await api('discuss_forget',{name:b.dataset.forget});toast(j&&j.ok?'リセットしました':(j&&j.error)||'失敗');dKey=''}};
 $('dgo').onclick=async()=>{const t=$('dtopic').value.trim();if(!t)return toast('議題を入れてください');
   const j=await api('discuss_start',{topic:t,turns:+$('dturns').value});if(j&&j.ok)toast('会話を始めます')};
 $('dstop').onclick=()=>api('discuss_stop',{});

@@ -1060,6 +1060,9 @@ class Win(QMainWindow):
         self.d_grow = QListWidget()
         self.d_grow.setWordWrap(True)
         l2.addWidget(self.d_grow, 1)
+        l2.addLayout(hrow(btn("↺ 選んだ機器をリセット", lambda: self.forget_growth(False), name="bad"),
+                          btn("↺ 全員をリセット", lambda: self.forget_growth(True), name="bad")))
+        self.d_gnames: list = []
         lay.addWidget(c2, 1)
         self.d_key = ""
         return w
@@ -1068,6 +1071,17 @@ class Win(QMainWindow):
         t = self.d_topic.text().strip()
         if t:
             self.act("discuss_start", {"topic": t, "turns": self.d_turns.currentData()}, "会話を始めます")
+
+    def forget_growth(self, everyone: bool):
+        row = self.d_grow.currentRow()
+        if not everyone and not (0 <= row < len(self.d_gnames)):
+            self.msg.setText("リセットする機器を、一覧から選んでください")
+            return
+        who = "" if everyone else self.d_gnames[row][0]
+        label = "全員" if everyone else self.d_gnames[row][1]
+        if QMessageBox.question(self, "確認", f"{label} の学んだことをすべて消しますか?") == QMessageBox.Yes:
+            self.act("discuss_forget", {"name": who}, "リセットしました")
+            self.d_key = ""
 
     def discuss_me(self):
         t = self.d_me.text().strip()
@@ -1091,7 +1105,9 @@ class Win(QMainWindow):
         for x in d["log"]:
             self.d_log.addItem(f'{x["who"]}: {x["text"]}')
         self.d_log.scrollToBottom()
+        cur = self.d_grow.currentRow()
         self.d_grow.clear()
+        self.d_gnames = [(g["name"], g["dev_name"]) for g in d.get("growth", [])]
         for g in d.get("growth", []):
             lines = [f'■ {g["dev_name"]}({g["name"]}・{g["talks"]}回の会話)'] + [f'　・{v}' for v in g["views"]] or []
             if not g["views"]:
@@ -1100,6 +1116,8 @@ class Win(QMainWindow):
             if g["topics"]:
                 lines.append("　話した議題: " + "、".join(g["topics"][:4]))
             self.d_grow.addItem("\n".join(lines))
+        if 0 <= cur < self.d_grow.count():
+            self.d_grow.setCurrentRow(cur)
 
     # ---------------- ページ: 会話
     def page_talk(self) -> QWidget:
