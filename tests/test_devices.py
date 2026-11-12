@@ -120,7 +120,7 @@ class DiscussTests(unittest.TestCase):
             def translate(s, msgs): s.n += 1; return f"発言{s.n}です。", "x"
             def speech_pcm_as(s, text, voice): return b""
 
-        d = self.d.Discussion(Hub(), Reg(), lambda: Eng())
+        d = self.d.Discussion(Hub(), Reg(), lambda: Eng(), self.d.Memory(os.path.join(tempfile.mkdtemp(), "m.json")))
         ok, _ = d.start("旅行", 4)
         self.assertTrue(ok)
         for _ in range(100):
@@ -171,7 +171,7 @@ class DiscussTests(unittest.TestCase):
                 return (f"最初の発言{s.n}", "x") if forced else ("PASS", "x")
             def speech_pcm_as(s, text, voice): return b""
 
-        d = self.d.Discussion(Hub(), Reg(), lambda: Eng())
+        d = self.d.Discussion(Hub(), Reg(), lambda: Eng(), self.d.Memory(os.path.join(tempfile.mkdtemp(), "m.json")))
         d.start("旅行", 12)
         for _ in range(100):
             if not d.on: break
@@ -192,3 +192,60 @@ class DiscussTests(unittest.TestCase):
         self.assertEqual(plan, sorted(plan))
         short = self.d.plan_reactions(2.0, [1, 2], random.Random(1))
         self.assertFalse([x for *_a, x in short if x == "voice"])                # 短い発言には声を出さない
+
+    def test_growth(self):
+        d = self.d
+        m = d.Memory(os.path.join(tempfile.mkdtemp(), "m.json"))
+        self.assertEqual(m.get("ずんだ")["talks"], 0)
+        P = d.PERSONAS
+        self.assertNotIn("これまでに", d.build_msgs("旅行", P, 0, [], mem=m.get("ずんだ"))[0]["content"])   # 初回は記憶なし
+        m.learn("ずんだ", "旅行", ["旅は計画より偶然が楽しい"], {"めたん": "理屈っぽいが頼れる"})
+        m.learn("ずんだ", "料理", ["料理は味見が大事"], {})
+        r = m.get("ずんだ")
+        self.assertEqual((r["talks"], r["views"][0], r["topics"][0]), (2, "料理は味見が大事", "料理"))
+        self.assertEqual(r["rel"]["めたん"], "理屈っぽいが頼れる")
+        sysmsg = d.build_msgs("旅行", P, 0, [], mem=r)[0]["content"]
+        self.assertIn("料理は味見が大事", sysmsg); self.assertIn("理屈っぽいが頼れる", sysmsg)
+        self.assertNotIn("理屈っぽいが頼れる", d.build_msgs("旅行", P, 1, [], mem=r)[0]["content"] if False else "")
+        for i in range(10):
+            m.learn("ずんだ", f"t{i}", [f"v{i}"], {})
+        r = m.get("ずんだ")
+        self.assertLessEqual(len(r["views"]), 6); self.assertLessEqual(len(r["topics"]), 8)   # 無限に増えない
+        self.assertEqual(d.Memory(m.path).get("ずんだ")["talks"], 12)                           # 保存されて再読み込みできる
+        v, rel = d.parse_reflect("学び: 旅は偶然が面白い\n印象 めたん: 鋭い\n印象 だれか: 無視", ["めたん", "つむぎ"])
+        self.assertEqual(v, ["旅は偶然が面白い"]); self.assertEqual(rel, {"めたん": "鋭い"})
+
+    def test_reflect_after_run(self):
+        class S:
+            def send(s, m): pass
+            def _send_pcm(s, pcm, caption="", lang=""): return 0.0
+        S_ = S()
+
+        class Hub:
+            ev = []
+            def by_id(s, i): return S_
+            def event(s, t): s.ev.append(t)
+
+        class Reg:
+            def all(s): return [{"id": i, "name": "N" + i} for i in "abc"]
+
+        class Eng:
+            n = 0
+            def translate(s, msgs):
+                if "振り返り" in msgs[0]["content"]:
+                    return "学び: 議論は楽しい\n印象 めたん: 鋭い", "x"
+                s.n += 1
+                return f"発言{s.n}です。", "x"
+            def speech_pcm_as(s, text, voice): return b""
+
+        mem = self.d.Memory(os.path.join(tempfile.mkdtemp(), "m.json"))
+        d = self.d.Discussion(Hub(), Reg(), lambda: Eng(), mem)
+        d.start("旅行", 4)
+        for _ in range(100):
+            if not d.on: break
+            time.sleep(0.1)
+        for _ in range(50):
+            if mem.get("ずんだ")["talks"]: break
+            time.sleep(0.1)
+        self.assertEqual(mem.get("ずんだ")["views"], ["議論は楽しい"])
+        self.assertTrue(d.snapshot()["grew"])
