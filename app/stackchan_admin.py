@@ -157,6 +157,61 @@ class Face(QWidget):
 
 
 # ---------------------------------------------------------------- 部品
+class RadarChart(QWidget):
+    """性格のレーダーチャート。実線=いま、点線=初期設定。"""
+
+    def __init__(self):
+        super().__init__()
+        self.setMinimumSize(210, 200)
+        self.axes: list = []
+        self.cur: dict = {}
+        self.base: dict = {}
+
+    def set_data(self, axes, cur, base):
+        self.axes, self.cur, self.base = list(axes), dict(cur), dict(base)
+        self.update()
+
+    def paintEvent(self, _e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        n = len(self.axes)
+        if not n:
+            return
+        cx, cy = self.width() / 2, self.height() / 2 + 2
+        R = min(self.width(), self.height()) / 2 - 26
+
+        def pt(i, r):
+            a = 2 * math.pi * i / n
+            return QPointF(cx + r * math.sin(a), cy - r * math.cos(a))
+        grid = QColor("#6f8aa6")
+        grid.setAlpha(90)
+        p.setPen(QPen(grid, 1))
+        p.setBrush(Qt.NoBrush)
+        for k in (0.25, 0.5, 0.75, 1.0):
+            p.drawPolygon([pt(i, R * k) for i in range(n)])
+        f = QFont(p.font())
+        f.setPointSize(9)
+        p.setFont(f)
+        for i, a in enumerate(self.axes):
+            p.setPen(QPen(grid, 1))
+            p.drawLine(QPointF(cx, cy), pt(i, R))
+            q = pt(i, R + 14)
+            p.setPen(QColor("#9fb4cc"))
+            p.drawText(QRectF(q.x() - 30, q.y() - 8, 60, 16), Qt.AlignCenter, a)
+        p.setPen(QPen(QColor(AM), 1, Qt.DashLine))
+        p.setBrush(Qt.NoBrush)
+        p.drawPolygon([pt(i, R * self.base.get(a, 50) / 100) for i, a in enumerate(self.axes)])
+        fill = QColor(CY)
+        fill.setAlpha(70)
+        p.setPen(QPen(QColor(CY), 2))
+        p.setBrush(fill)
+        pts = [pt(i, R * self.cur.get(a, 50) / 100) for i, a in enumerate(self.axes)]
+        p.drawPolygon(pts)
+        p.setBrush(QColor(CY))
+        for q in pts:
+            p.drawEllipse(q, 3, 3)
+
+
 class Card(QFrame):
     """角にブラケット(「」型)の飾りを付けたパネル。"""
 
@@ -1054,16 +1109,24 @@ class Win(QMainWindow):
         l.addWidget(self.d_stat)
         self.d_log = QListWidget()
         self.d_log.setWordWrap(True)
+        self.d_log.setMaximumHeight(170)
         l.addWidget(self.d_log, 1)
-        lay.addWidget(c)
-        c2, l2 = card("学んだこと", "会話のたびに、機器ごとのキャラが学びを覚えて成長します")
-        self.d_grow = QListWidget()
-        self.d_grow.setWordWrap(True)
-        l2.addWidget(self.d_grow, 1)
-        l2.addLayout(hrow(btn("↺ 選んだ機器をリセット", lambda: self.forget_growth(False), name="bad"),
-                          btn("↺ 全員をリセット", lambda: self.forget_growth(True), name="bad")))
-        self.d_gnames: list = []
-        lay.addWidget(c2, 1)
+        lay.addWidget(c, 1)
+        c2, l2 = card("プロフィール", "機器ごとのキャラの性格・感情・学び。レーダーは会話を重ねるほど実際の話し方に近づきます")
+        self.d_prof = QWidget()
+        self.d_prof_l = QVBoxLayout(self.d_prof)
+        self.d_prof_l.setContentsMargins(0, 0, 0, 0)
+        self.d_prof.setObjectName("profwrap")
+        self.d_prof.setStyleSheet("#profwrap{background:transparent}")
+        sa = QScrollArea()
+        sa.setWidgetResizable(True)
+        sa.setStyleSheet("QScrollArea{background:transparent;border:0}")
+        sa.viewport().setStyleSheet("background:transparent")
+        sa.setWidget(self.d_prof)
+        l2.addWidget(sa, 1)
+        l2.addLayout(hrow(btn("↺ 全員をリセット", lambda: self.forget_growth(None), name="bad")))
+        self.d_prof_key = ""
+        lay.addWidget(c2, 3)
         self.d_key = ""
         return w
 
@@ -1072,16 +1135,47 @@ class Win(QMainWindow):
         if t:
             self.act("discuss_start", {"topic": t, "turns": self.d_turns.currentData()}, "会話を始めます")
 
-    def forget_growth(self, everyone: bool):
-        row = self.d_grow.currentRow()
-        if not everyone and not (0 <= row < len(self.d_gnames)):
-            self.msg.setText("リセットする機器を、一覧から選んでください")
-            return
-        who = "" if everyone else self.d_gnames[row][0]
-        label = "全員" if everyone else self.d_gnames[row][1]
-        if QMessageBox.question(self, "確認", f"{label} の学んだことをすべて消しますか?") == QMessageBox.Yes:
-            self.act("discuss_forget", {"name": who}, "リセットしました")
+    def forget_growth(self, who):
+        """who=None で全員、名前(キャラ名)でその機器だけ。"""
+        label = "全員" if who is None else who[1]
+        if QMessageBox.question(self, "確認", f"{label} の学んだことと性格の育ちをすべて消しますか?") == QMessageBox.Yes:
+            self.act("discuss_forget", {"name": "" if who is None else who[0]}, "リセットしました")
             self.d_key = ""
+
+    def build_profiles(self, profs):
+        while self.d_prof_l.count():
+            it = self.d_prof_l.takeAt(0)
+            if it.widget():
+                it.widget().deleteLater()
+        if not profs:
+            self.d_prof_l.addWidget(muted("機器が接続されると、プロフィールが出ます"))
+        for g in profs:
+            fr = QFrame()
+            fr.setObjectName("profile")
+            fr.setStyleSheet("#profile{background:rgba(10,20,34,0.55);border:1px solid #1d3a55;border-radius:8px}"
+                             "#profile QLabel{background:transparent}")
+            row = QHBoxLayout(fr)
+            rc = RadarChart()
+            rc.set_data(g["axes"], g["radar"], g["radar_base"])
+            row.addWidget(rc)
+            lines = [f'<b>{g["dev_name"]}</b>({g["name"]}' + ("" if g.get("online", True) else "・オフライン") + f')　<span style="color:{AM}">{g["title"]}</span>',
+                     f'口ぐせ「{g["motto"]}」<br>好き: {g["likes"]}<br>苦手: {g["dislikes"]}',
+                     f'会話 {g["talks"]}回 ・ 発言 {g["utterances"]}回' + (f' ・ いま<b>{g["emo_now"]}</b>' if g.get("emo_now") else "")]
+            if g["emo_top"]:
+                lines.append("感情の傾向: " + " / ".join(f'{e["label"]} {e["n"]}' for e in g["emo_top"]))
+            lines.append("<b>学んだこと</b><br>" + ("<br>".join("・" + v for v in g["views"]) or "まだ学んでいません"))
+            lines += [f'{o}への印象: {t}' for o, t in g["rel"].items()]
+            if g["topics"]:
+                lines.append("話した議題: " + "、".join(g["topics"][:4]))
+            lab = QLabel("<br>".join(lines))
+            lab.setWordWrap(True)
+            lab.setTextFormat(Qt.RichText)
+            col = QVBoxLayout()
+            col.addWidget(lab)
+            col.addLayout(hrow(btn("↺ この機器をリセット", lambda _=False, w=(g["name"], g["dev_name"]): self.forget_growth(w), name="bad")))
+            row.addLayout(col, 1)
+            self.d_prof_l.addWidget(fr)
+        self.d_prof_l.addStretch(1)
 
     def discuss_me(self):
         t = self.d_me.text().strip()
@@ -1103,21 +1197,12 @@ class Win(QMainWindow):
         self.d_go.setEnabled(not d["on"])
         self.d_log.clear()
         for x in d["log"]:
-            self.d_log.addItem(f'{x["who"]}: {x["text"]}')
+            self.d_log.addItem(f'{x["who"]}' + (f'({x["emo"]})' if x.get("emo") else "") + f': {x["text"]}')
         self.d_log.scrollToBottom()
-        cur = self.d_grow.currentRow()
-        self.d_grow.clear()
-        self.d_gnames = [(g["name"], g["dev_name"]) for g in d.get("growth", [])]
-        for g in d.get("growth", []):
-            lines = [f'■ {g["dev_name"]}({g["name"]}・{g["talks"]}回の会話)'] + [f'　・{v}' for v in g["views"]] or []
-            if not g["views"]:
-                lines.append("　まだ学んでいません")
-            lines += [f'　{o}への印象: {t}' for o, t in g["rel"].items()]
-            if g["topics"]:
-                lines.append("　話した議題: " + "、".join(g["topics"][:4]))
-            self.d_grow.addItem("\n".join(lines))
-        if 0 <= cur < self.d_grow.count():
-            self.d_grow.setCurrentRow(cur)
+        pk = json.dumps(d.get("profiles", []), ensure_ascii=False)
+        if pk != self.d_prof_key:                          # プロフィールが変わったときだけ作り直す(ちらつき防止)
+            self.d_prof_key = pk
+            self.build_profiles(d.get("profiles", []))
 
     # ---------------- ページ: 会話
     def page_talk(self) -> QWidget:

@@ -181,6 +181,8 @@ static void setFace(const String &s) {
   else if (s == "thinking")  { zface::setEmotion(zface::THINK, 15000); setLamp(L_THINK); tiltHead(); }
   else if (s == "sad")       { zface::setEmotion(zface::SAD, 3500); setLamp(L_ERROR); untilt(); }
   else if (s == "happy")     { zface::setEmotion(zface::HAPPY, 2500); setLamp(L_IDLE); }
+  else if (s == "giggle")    { zface::setEmotion(zface::GIGGLE, 2500); setLamp(L_IDLE); }
+  else if (s == "surprise")  { zface::setEmotion(zface::SURPRISE, 2500); setLamp(L_IDLE); }
   else                       { zface::setEmotion(zface::NEUTRAL); setLamp(L_IDLE); untilt(); }
 }
 

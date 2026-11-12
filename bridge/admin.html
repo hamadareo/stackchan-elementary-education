@@ -419,17 +419,27 @@ const agoS=n=>n==null?'-':n<60?n+'秒前':n<3600?Math.floor(n/60)+'分前':Math.
 function usbLine(s){var u=s.usb||[];return u.map(function(x){return '<div class="dev"><div class="ln"><b>USB</b> '+(x.name||x.mac.slice(-6))+' — '+esc(x.msg||'確認中')+'</div></div>'}).join('')}
 
 let dKey='';
+function radarSvg(axes,v,b){const C=100,R=66,n=axes.length,pt=(i,r)=>[C+r*Math.sin(2*Math.PI*i/n),C-r*Math.cos(2*Math.PI*i/n)];
+  const poly=m=>axes.map((a,i)=>pt(i,R*m[a]/100).map(x=>x.toFixed(1)).join(',')).join(' ');
+  let g='';[.25,.5,.75,1].forEach(k=>{g+=`<polygon points="${axes.map((a,i)=>pt(i,R*k).map(x=>x.toFixed(1)).join(',')).join(' ')}" fill="none" stroke="var(--mute)" stroke-opacity=".3"/>`});
+  axes.forEach((a,i)=>{const [x,y]=pt(i,R),[lx,ly]=pt(i,R+17);g+=`<line x1="${C}" y1="${C}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" stroke="var(--mute)" stroke-opacity=".3"/><text x="${lx.toFixed(1)}" y="${(ly+4).toFixed(1)}" text-anchor="middle" font-size="11" fill="var(--mute)">${a}</text>`});
+  return `<svg viewBox="0 0 200 200" width="190" height="190">${g}<polygon points="${poly(b)}" fill="none" stroke="var(--am)" stroke-dasharray="3 3"/><polygon points="${poly(v)}" fill="var(--cy)" fill-opacity=".28" stroke="var(--cy)" stroke-width="2"/>${axes.map((a,i)=>{const [x,y]=pt(i,R*v[a]/100);return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.6" fill="var(--cy)"/>`}).join('')}</svg>`}
+function profCard(g){
+  return `<div class="dev" style="display:flex;gap:14px;flex-wrap:wrap;align-items:center"><div>${radarSvg(g.axes,g.radar,g.radar_base)}<div style="text-align:center"><small style="color:var(--mute)">━ いま　┅ 初期設定</small></div></div>
+  <div style="flex:1;min-width:210px"><div class="nm">${esc(g.dev_name)} <small>(${esc(g.name)}${g.online?'':'・オフライン'})</small> <button data-forget="${esc(g.name)}" data-dn="${esc(g.dev_name)}">↺ リセット</button></div>
+  <div class="ln"><b>${esc(g.title)}</b> · 口ぐせ「${esc(g.motto)}」<br>好き: ${esc(g.likes)}<br>苦手: ${esc(g.dislikes)}<br>
+  会話 ${g.talks}回 · 発言 ${g.utterances}回${g.emo_now?' · いま <b>'+esc(g.emo_now)+'</b>':''}${g.emo_top.length?'<br>感情の傾向: '+g.emo_top.map(e=>esc(e.label)+' '+e.n).join(' / '):''}<br>
+  <b>学んだこと</b><br>${g.views.length?g.views.map(v=>'・'+esc(v)).join('<br>'):'まだ学んでいません'}
+  ${Object.keys(g.rel).map(o=>`<br><small>${esc(o)}への印象: ${esc(g.rel[o])}</small>`).join('')}
+  ${g.topics.length?`<br><small>話した議題: ${g.topics.slice(0,4).map(esc).join('、')}</small>`:''}</div></div></div>`}
 function renderDiscuss(s){
   const d=s.discuss;if(!d)return;
   const k=JSON.stringify(d);if(k===dKey)return;dKey=k;
   $('dstat').textContent=d.on?`会話中: 「${d.topic}」 ${d.turn}/${d.max}`+(d.people.length?'  参加: '+d.people.map(p=>p.name+'('+p.dev_name+')').join('・'):''):(d.note||(d.log.length?'終了しました。':'待機中。話している間は、機器のマイクを止めます(お互いの声を翻訳しないように)。'));
   $('dgo').disabled=d.on;
-  $('dlog').innerHTML=d.log.map(x=>`<div><b>${esc(x.who)}</b>: ${esc(x.text)}</div>`).join('');
+  $('dlog').innerHTML=d.log.map(x=>`<div><b>${esc(x.who)}</b>${x.emo?` <small style="color:var(--mute)">(${esc(x.emo)})</small>`:''}: ${esc(x.text)}</div>`).join('');
   $('dlog').scrollTop=1e6;
-  $('dgrow').innerHTML=(d.growth||[]).map(g=>`<div class="dev"><div class="nm">${esc(g.dev_name)} <small>(${esc(g.name)} · ${g.talks}回の会話)</small> <button data-forget="${esc(g.name)}" data-dn="${esc(g.dev_name)}">↺ リセット</button></div><div class="ln">`+
-    (g.views.length?g.views.map(v=>'・'+esc(v)).join('<br>'):'まだ学んでいません')+
-    Object.keys(g.rel).map(o=>`<br><small>${esc(o)}への印象: ${esc(g.rel[o])}</small>`).join('')+
-    (g.topics.length?`<br><small>話した議題: ${g.topics.slice(0,4).map(esc).join('、')}</small>`:'')+`</div></div>`).join('');
+  $('dgrow').innerHTML=(d.profiles||[]).map(profCard).join('')||'<small>機器が接続されると、プロフィールが出ます</small>';
 }
 $('dgrow').onclick=async e=>{const b=e.target.closest('[data-forget]');if(!b)return;
   if(confirm(b.dataset.dn+' の学んだことをすべて消しますか?')){const j=await api('discuss_forget',{name:b.dataset.forget});toast(j&&j.ok?'リセットしました':(j&&j.error)||'失敗');dKey=''}};

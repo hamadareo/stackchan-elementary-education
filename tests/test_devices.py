@@ -249,3 +249,105 @@ class DiscussTests(unittest.TestCase):
             time.sleep(0.1)
         self.assertEqual(mem.get("ずんだ")["views"], ["議論は楽しい"])
         self.assertTrue(d.snapshot()["grew"])
+
+    def test_emotion(self):
+        d = self.d
+        self.assertEqual(d.split_emotion("【驚き】えっ、本当なのだ!"), ("surprise", "えっ、本当なのだ!"))
+        self.assertEqual(d.split_emotion("[怒り] それは違います")[0], "anger")
+        self.assertEqual(d.split_emotion("【興奮】やった!!")[0], "excited")
+        self.assertEqual(d.split_emotion("【謎】そうだね。", "joy")[1], "【謎】そうだね。")       # 未知のタグは本文のまま(推測にまわす)
+        self.assertEqual(d.split_emotion("残念ですね")[0], "sad")                                  # タグなしは言葉から推測
+        self.assertEqual(d.split_emotion("【平常】PASS")[1], "PASS")
+        for k, (_n, pr, face) in d.EMOTIONS.items():
+            self.assertTrue(set(pr) == {"speed", "pitch", "intonation", "volume"} and face)
+        P = d.PERSONAS
+        sysmsg = d.build_msgs("旅", P, 0, [], emos={"ずんだ": "joy", "めたん": "anger"})[0]["content"]
+        self.assertIn("いまの気持ちは「喜び」", sysmsg); self.assertIn("めたん=怒り", sysmsg)
+        self.assertGreater(d.EMOTIONS["sad"][1]["speed"], 0.5)
+        self.assertLess(d.EMOTIONS["sad"][1]["speed"], d.EMOTIONS["excited"][1]["speed"])
+
+    def test_emotion_voice_and_snapshot(self):
+        got = []
+
+        class S:
+            def send(s, m): got.append(m)
+            def _send_pcm(s, pcm, caption="", lang=""): return 0.0
+        S_ = S()
+
+        class Hub:
+            def by_id(s, i): return S_
+            def event(s, t): pass
+
+        class Reg:
+            def all(s): return [{"id": i, "name": "N" + i} for i in "abc"]
+
+        class Eng:
+            n = 0
+            prosodies = []
+            def translate(s, msgs):
+                if "振り返り" in msgs[0]["content"]:
+                    return "", "x"
+                s.n += 1
+                return ("【驚き】えっ" if s.n % 2 else "【悲しみ】そんな") + f"{s.n}。", "x"
+            def speech_pcm_as(s, text, voice, emotion=None): s.prosodies.append(emotion); return b""
+
+        d = self.d.Discussion(Hub(), Reg(), lambda: Eng(), self.d.Memory(os.path.join(tempfile.mkdtemp(), "m.json")))
+        d.start("旅", 3)
+        for _ in range(100):
+            if not d.on: break
+            time.sleep(0.1)
+        self.assertTrue(all(p and "speed" in p for p in Eng.prosodies))                  # 読み上げに感情の調子が渡る
+        faces = {m["state"] for m in got if m.get("t") == "face"}
+        self.assertTrue(faces & {"surprise", "sad"})                                     # 顔も感情に合わせる
+        snap = d.snapshot()
+        self.assertIn(snap["log"][0]["emo"], ("驚き", "悲しみ"))
+        self.assertTrue(snap["emos"])
+
+    def test_profile_radar(self):
+        d = self.d
+        base = d.PERSONAS[0]["radar"]
+        self.assertEqual(d.radar(base, {}), {a: base[a] for a in d.AXES})                  # 発言がなければ初期の性格のまま
+        st = {}
+        for _ in range(20):
+            st = d.observe_stats(st, "neutral", "そうですね。", False)
+        r = d.radar(base, st)
+        self.assertLess(r["元気"], base["元気"]); self.assertLess(r["感情表現"], base["感情表現"])   # 平坦に話し続けると下がる
+        st = {}
+        for _ in range(20):
+            st = d.observe_stats(st, "joy", "なぜ?たとえば、楽しいね!", False)
+        r2 = d.radar(base, st)
+        self.assertGreater(r2["好奇心"], r["好奇心"]); self.assertGreater(r2["論理"], r["論理"])
+        self.assertTrue(all(5 <= v <= 100 for v in r2.values()))
+        m = d.Memory(os.path.join(tempfile.mkdtemp(), "m.json"))
+        m.observe("ずんだ", "joy", "やった!", False)
+        self.assertEqual(d.Memory(m.path).get("ずんだ")["stats"]["n"], 1)
+        class H:
+            def by_id(s, i): return None
+        class R:
+            def all(s): return []
+        dd = d.Discussion(H(), R(), lambda: None, m)
+        self.assertEqual(dd.profiles(), [])
+
+    def test_mood(self):
+        d = self.d
+        Z, M, T = d.PERSONAS
+        m = {}
+        for _ in range(3):
+            m = d.mood_step(m, "いや、それは違う。しかし根拠が足りない!", "", M)
+        self.assertEqual(d.mood_emotion(m, M), "anger")                          # めたんは反論されると怒る
+        m = {}
+        for _ in range(3):
+            m = d.mood_step(m, "いや、それは違うよ。", "", Z)
+        self.assertEqual(d.mood_emotion(m, Z), "sad")                            # ずんだは落ち込む
+        m = {}
+        for _ in range(2):
+            m = d.mood_step(m, "そうだね、いいね!", "", T)
+        self.assertIn(d.mood_emotion(m, T), ("joy", "excited"))                   # 同意されると嬉しい
+        m = d.mood_step({}, "ふつうの話です。", "", M)
+        self.assertEqual(d.mood_emotion(m, M), "neutral")
+        for _ in range(12):                                                       # 時間がたつと平常に戻る
+            m = d.mood_step(m, "ふつうの話です。", "", M)
+        self.assertEqual(d.mood_emotion(m, M), "neutral")
+        self.assertGreater(d.similar("たけのこの里が未来を支える", "たけのこの里が未来を支えるのだ"), 0.35)
+        self.assertLess(d.similar("きのこの山", "宝くじの話"), 0.1)
+

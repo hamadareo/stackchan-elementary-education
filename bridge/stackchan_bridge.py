@@ -112,6 +112,7 @@ class Engine:
             print(f"[bridge] Sokutsu の声を読めません。macOS say を使います: {e}", flush=True)
         self._say_lock = threading.Lock()
         self._voice_lock = threading.Lock()
+        self.prosody = None                 # 感情の声の調子(読み上げの間だけ入る)
         self.face = Face()
         if self.tts is not None:                              # 最初の読み上げが遅くならないよう、声を一度温めておく
             try:
@@ -206,16 +207,47 @@ class Engine:
                 self._pcm_cache.popitem(last=False)
         return pcm
 
-    def speech_pcm_as(self, text: str, voice: "str | None", src_dur: float = 0.0, speed: "float | None" = None) -> np.ndarray:
+    def _install_prosody(self) -> None:
+        """VOICEVOX の合成を、感情の調子(話速・音高・抑揚・音量)つきにする。self.prosody が空ならいつもの声のまま。"""
+        t = self.tts
+        if t is None or not hasattr(t, "_voicevox_synth") or getattr(t, "_prosody_patched", False):
+            return
+        orig = t._voicevox_synth
+        eng = self
+
+        def synth(text, speaker, speed):
+            pr = eng.prosody
+            if not pr:
+                return orig(text, speaker, speed)
+            import requests
+            from urllib.parse import quote
+            base = t.voicevox_url
+            r = requests.post(f"{base}/audio_query?speaker={speaker}&text={quote(text)}", headers={"Content-Type": "text/plain"}, data=b"", timeout=(1.5, 30))
+            r.raise_for_status()
+            q = r.json()
+            q["speedScale"] = max(0.5, min(2.0, float(speed) * float(pr.get("speed", 1.0))))
+            q["pitchScale"] = max(-0.15, min(0.15, float(q.get("pitchScale", 0.0)) + float(pr.get("pitch", 0.0))))
+            q["intonationScale"] = max(0.0, min(2.0, float(q.get("intonationScale", 1.0)) * float(pr.get("intonation", 1.0))))
+            q["volumeScale"] = max(0.3, min(1.6, float(q.get("volumeScale", 1.0)) * float(pr.get("volume", 1.0))))
+            r2 = requests.post(f"{base}/synthesis?speaker={speaker}", json=q, headers={"Content-Type": "application/json"}, timeout=(1.5, 60))
+            r2.raise_for_status()
+            return r2.content
+        t._voicevox_synth = synth
+        t._prosody_patched = True
+
+    def speech_pcm_as(self, text: str, voice: "str | None", src_dur: float = 0.0, speed: "float | None" = None, emotion: "dict | None" = None) -> np.ndarray:
         """日本語を、指定した声で読む。声の切り替えは排他にし、終わったら必ず「いまの既定の声」へ戻す
         (切り替え中に管理画面で既定の声を変えても、古い声に巻き戻さない)。"""
         with self._voice_lock:
             if self.tts is None:
                 return self._speech_pcm(text, "ja", src_dur, speed)
             self.tts.voices["ja"] = voice or self.voice_ja
+            self._install_prosody()
+            self.prosody = emotion or None
             try:
                 return self._speech_pcm(text, "ja", src_dur, speed)
             finally:
+                self.prosody = None
                 self.tts.voices["ja"] = self.voice_ja
 
     def prewarm(self, items) -> None:

@@ -14,10 +14,130 @@ import threading
 import time
 
 PERSONAS = [
-    {"name": "ずんだ", "voice": "voicevox:3", "trait": "元気で好奇心いっぱい。素直に驚き、思いついたことをすぐ言う。語尾は「〜なのだ」「〜のだ」。"},
-    {"name": "めたん", "voice": "voicevox:2", "trait": "知的で少し皮肉屋。丁寧な言葉づかいで、論点を整理したり、鋭い指摘や反論をする。"},
-    {"name": "つむぎ", "voice": "voicevox:8", "trait": "おっとりして現実的。身近な具体例や体験談を出して、話をやわらかくまとめる。"},
+    {"name": "ずんだ", "voice": "voicevox:3", "base": "joy", "neg": "sad", "a0": 0.55, "title": "好奇心いっぱいの元気っこ", "motto": "〜なのだ!", "likes": "新しい発見・おやつ・冒険", "dislikes": "退屈・長くて難しい話",
+     "radar": {"元気": 85, "好奇心": 90, "論理": 35, "共感": 60, "負けん気": 45, "感情表現": 85}, "trait": "元気で好奇心いっぱい。素直に驚き、思いついたことをすぐ言う。語尾は「〜なのだ」「〜のだ」。"},
+    {"name": "めたん", "voice": "voicevox:2", "base": "neutral", "neg": "anger", "a0": 0.3, "title": "理屈と皮肉の知性派", "motto": "それは筋が通っていませんね", "likes": "整理された議論・紅茶・正論", "dislikes": "根拠のない決めつけ",
+     "radar": {"元気": 40, "好奇心": 65, "論理": 90, "共感": 35, "負けん気": 80, "感情表現": 40}, "trait": "知的で少し皮肉屋。丁寧な言葉づかいで、論点を整理したり、鋭い指摘や反論をする。"},
+    {"name": "つむぎ", "voice": "voicevox:8", "base": "neutral", "neg": "doubt", "a0": 0.2, "title": "おっとり現実派の聞き上手", "motto": "たとえばね…", "likes": "日常の工夫・お茶・体験談", "dislikes": "大げさな話",
+     "radar": {"元気": 50, "好奇心": 55, "論理": 60, "共感": 90, "負けん気": 25, "感情表現": 60}, "trait": "おっとりして現実的。身近な具体例や体験談を出して、話をやわらかくまとめる。"},
 ]
+# 感情: キー → (表示名, 声の調子(速さ・高さ・抑揚・音量の倍率/加算), 顔の状態)
+EMOTIONS = {
+    "neutral":  ("平常", {"speed": 1.0, "pitch": 0.0, "intonation": 1.0, "volume": 1.0}, "neutral"),
+    "joy":      ("喜び", {"speed": 1.07, "pitch": 0.04, "intonation": 1.25, "volume": 1.05}, "happy"),
+    "excited":  ("興奮", {"speed": 1.18, "pitch": 0.07, "intonation": 1.4, "volume": 1.1}, "giggle"),
+    "surprise": ("驚き", {"speed": 1.1, "pitch": 0.1, "intonation": 1.5, "volume": 1.1}, "surprise"),
+    "sad":      ("悲しみ", {"speed": 0.88, "pitch": -0.06, "intonation": 0.75, "volume": 0.9}, "sad"),
+    "anger":    ("怒り", {"speed": 1.1, "pitch": -0.03, "intonation": 1.35, "volume": 1.2}, "thinking"),
+    "doubt":    ("困惑", {"speed": 0.95, "pitch": 0.02, "intonation": 1.2, "volume": 1.0}, "thinking"),
+}
+EMO_WORDS = [("excited", ("興奮", "ワクワク", "わくわく")), ("joy", ("喜", "楽し", "嬉", "うれ", "幸")), ("surprise", ("驚", "びっくり")),
+             ("sad", ("悲", "哀", "寂", "しょんぼり", "落ち込")), ("anger", ("怒", "憤", "イライラ", "不満")), ("doubt", ("困", "疑", "不安", "迷", "戸惑")),
+             ("neutral", ("平常", "普通", "通常", "冷静", "平静", "落ち着"))]
+
+
+def emo_key(word: str) -> str:
+    """感情の言葉(日本語/英語キー)から、感情キー。分からなければ空。"""
+    w = (word or "").strip()
+    if w in EMOTIONS:
+        return w
+    for k, ws in EMO_WORDS:
+        if any(x in w for x in ws):
+            return k
+    return ""
+
+
+def split_emotion(text: str, prev: str = "neutral") -> "tuple[str, str]":
+    """LLM の出力「【喜び】本文」から (感情キー, 本文)。タグが無いときは、文末の記号と言葉から推測し、なければ前の感情を少し引き継ぐ。"""
+    t = re.sub(r"<think>.*?</think>", "", text or "", flags=re.S).strip()
+    m = re.match(r"^\s*[【\[［(（]\s*(?:感情\s*[:：]\s*)?([^】\]］)）\n]{1,8})\s*[】\]］)）]\s*", t)
+    if m:
+        k = emo_key(m.group(1))
+        if k:
+            return k, t[m.end():].strip()
+    return guess_emotion(t, prev), t
+
+
+def has_emotion_tag(text: str) -> bool:
+    t = re.sub(r"<think>.*?</think>", "", text or "", flags=re.S).strip()
+    m = re.match(r"^\s*[【\[［(（]\s*(?:感情\s*[:：]\s*)?([^】\]］)）\n]{1,8})\s*[】\]］)）]", t)
+    return bool(m and emo_key(m.group(1)))
+
+
+def emotion_msgs(name: str, prev: str, text: str, heard: str) -> list:
+    """発言の感情を 1 語で判定する短い問い合わせ(モデルが感情タグを付けなかったとき用)。"""
+    return [{"role": "system", "content": "会話の発言から、話し手の感情を判定します。【喜び】【興奮】【驚き】【怒り】【悲しみ】【困惑】【平常】のうち、"
+                                          "いちばん近いものを 1 つだけ、その言葉だけで答えてください。内容・口調・文脈から判断し、迷ったら平常ではなく少しでも強く出ている感情を選ぶ。"},
+            {"role": "user", "content": f"直前に聞いた発言: {heard or '(なし)'}\n{name}(直前の気持ち: {emo_label(prev)})の発言: {text}\n\n{name}の感情は?"}]
+
+
+def guess_emotion(t: str, prev: str = "neutral") -> str:
+    if re.search(r"[!！]{2,}|最高|すごい|やった|わくわく", t):
+        return "excited"
+    if re.search(r"えっ|まさか|本当に|びっくり|驚", t):
+        return "surprise"
+    if re.search(r"残念|悲し|寂し|つらい|切ない|しょんぼり", t):
+        return "sad"
+    if re.search(r"ありえない|許せない|ふざけ|納得できない|違う", t):
+        return "anger"
+    if re.search(r"[?？]\s*$|うーん|どうだろう|わからない|かな[…。]?$", t):
+        return "doubt"
+    if re.search(r"[!！]\s*$|楽しい|嬉しい|いいね|好き", t):
+        return "joy"
+    return prev if prev in ("neutral", "joy", "doubt") else "neutral"
+
+
+def _bigrams(t: str) -> set:
+    t = re.sub(r"[\s、。!?！？…「」]", "", t or "")
+    return {t[i:i + 2] for i in range(len(t) - 1)}
+
+
+def similar(a: str, b: str) -> float:
+    x, y = _bigrams(a), _bigrams(b)
+    return len(x & y) / max(1, len(x | y))
+
+
+_NEG = re.compile(r"でも|しかし|いや|違う|ちがう|とは限らない|じゃないか|ではない|べきだ|べき|甘い|問題|ありえない|ふざけ|納得できない|足りない")
+_POS = re.compile(r"そうだね|たしかに|確かに|いいね|わかる|なるほど|共感|同感|賛成|さすが|素敵|ありがとう|楽しい|嬉しい")
+
+
+def mood_step(m: dict, heard: str, same_speaker_prev: str, persona: dict) -> dict:
+    """聞いた発言への反応で気分(v: -1〜1 快・不快, a: 0〜1 高ぶり)を動かす。時間がたつと、そのキャラの平常に戻る。
+    反論された → 不快+高ぶり / 同意・ほめ → 快 / 同じ話の繰り返し → うんざり(不快・高ぶりが下がる) / 強い口調(!)→ 高ぶり。"""
+    v, a = float(m.get("v", 0.0)), float(m.get("a", persona.get("a0", 0.3)))
+    v *= 0.78
+    a = a * 0.78 + persona.get("a0", 0.3) * 0.22
+    if _NEG.search(heard or ""):
+        v -= 0.4; a += 0.28
+    if _POS.search(heard or ""):
+        v += 0.4; a += 0.12
+    if re.search(r"[!！]", heard or ""):
+        a += 0.12
+    if re.search(r"[?？]", heard or ""):
+        a += 0.05
+    if same_speaker_prev and similar(heard, same_speaker_prev) > 0.35:       # 同じ話を繰り返された
+        v -= 0.3; a -= 0.1
+    return {"v": max(-1.0, min(1.0, v)), "a": max(0.0, min(1.0, a))}
+
+
+def mood_emotion(m: dict, persona: dict) -> str:
+    v, a = m.get("v", 0.0), m.get("a", 0.3)
+    if v >= 0.25:
+        return "excited" if a >= 0.6 else "joy"
+    if v <= -0.25:
+        neg = persona.get("neg", "doubt")
+        return neg if (a >= 0.4 or neg != "anger") else "doubt"
+    if a >= 0.7:
+        return "surprise"
+    if v < -0.08 and a >= 0.35:
+        return "doubt"
+    return persona.get("base", "neutral") if (persona.get("base") == "joy" and v >= 0) else "neutral"
+
+
+def emo_label(k: str) -> str:
+    return EMOTIONS.get(k, EMOTIONS["neutral"])[0]
+
+
 BACKCHANNEL = ["うん", "なるほど", "へえ", "そっか", "たしかに", "ふむふむ"]    # 聞いている人の相槌
 MAX_CHARS = 70
 HISTORY = 14                      # LLM に渡す直近の発言数
@@ -85,6 +205,42 @@ def choose(people: list, last_speaker: "int | None", last_text: str, cands: dict
     return rnd.choices(pool, weights=w)[0]
 
 
+AXES = ["元気", "好奇心", "論理", "共感", "負けん気", "感情表現"]
+_LOGIC = re.compile(r"だから|なぜなら|つまり|たとえば|例えば|べき|確保|理由|根拠|結局|現実")
+_AGREE = re.compile(r"そうだね|たしかに|確かに|いいね|わかる|なるほど|共感|同感|賛成")
+_REBUT = re.compile(r"でも|しかし|いや|違う|とは限らない|疑問|どうかな|甘い")
+
+
+def observe_stats(st: dict, emo: str, text: str, addr: bool) -> dict:
+    """1 発言ぶんの行動を数える(レーダーチャートの伸びの元)。"""
+    st = dict(st or {})
+    st["n"] = st.get("n", 0) + 1
+    ec = dict(st.get("emo", {}))
+    ec[emo] = ec.get(emo, 0) + 1
+    st["emo"] = ec
+    for key, cond in (("q", re.search(r"[?？]|かな|だろう", text)), ("logic", _LOGIC.search(text)), ("agree", _AGREE.search(text) or addr),
+                      ("rebut", _REBUT.search(text) or emo == "anger")):
+        if cond:
+            st[key] = st.get(key, 0) + 1
+    return st
+
+
+def radar(base: dict, st: "dict | None") -> dict:
+    """初期の性格(base)に、実際の発言の傾向をなじませた 6 項目(0〜100)。発言が増えるほど実際の傾向が効く(20 発言で最大)。"""
+    st = st or {}
+    n = st.get("n", 0)
+    w = min(1.0, n / 20.0)
+    out = dict(base)
+    if n:
+        ec = st.get("emo", {})
+        f = lambda k: st.get(k, 0) / n            # noqa: E731
+        shares = {"元気": ((ec.get("joy", 0) + ec.get("excited", 0)) / n, 0.35, 60), "好奇心": (f("q"), 0.30, 60), "論理": (f("logic"), 0.15, 80),
+                  "共感": (f("agree"), 0.25, 60), "負けん気": (f("rebut"), 0.20, 70), "感情表現": (1 - ec.get("neutral", 0) / n, 0.50, 50)}
+        for ax, (v, ref, sc) in shares.items():
+            out[ax] = base.get(ax, 50) + w * sc * (v - ref)
+    return {ax: int(max(5, min(100, round(out.get(ax, 50))))) for ax in AXES}
+
+
 class Memory:
     """キャラごとの「育ち」。会話のたびに、学んだこと・意見・相手への印象・話した議題を覚え、次の会話の発言に反映する。
     ~/.sokutsu_persona.json(本人だけが読める)。会話の記録そのものではなく、LLM がまとめた短い要約だけを持つ。"""
@@ -112,7 +268,7 @@ class Memory:
         with self.lock:
             r = self.d.get(name) or {}
             return {"views": list(r.get("views", [])), "rel": dict(r.get("rel", {})),
-                    "topics": list(r.get("topics", [])), "talks": int(r.get("talks", 0))}
+                    "topics": list(r.get("topics", [])), "talks": int(r.get("talks", 0)), "stats": dict(r.get("stats", {}))}
 
     def learn(self, name: str, topic: str, views: list, rel: dict) -> None:
         with self.lock:
@@ -122,6 +278,12 @@ class Memory:
             r["rel"] = {**r.get("rel", {}), **{k: v for k, v in rel.items() if v}}
             r["topics"] = ([topic] + [t for t in r.get("topics", []) if t != topic])[:self.MAX_TOPICS]
             r["talks"] = int(r.get("talks", 0)) + 1
+            self.save()
+
+    def observe(self, name: str, emo: str, text: str, addr: bool) -> None:
+        with self.lock:
+            r = self.d.setdefault(name, {})
+            r["stats"] = observe_stats(r.get("stats"), emo, text, addr)
             self.save()
 
     def reset(self, name: "str | None" = None) -> None:
@@ -179,7 +341,7 @@ def parse_reflect(text: str, others: list) -> "tuple[list, dict]":
     return views[:2], rel
 
 
-def build_msgs(topic: str, people: list, idx: int, log: list, last: bool = False, force: bool = True, mem: "dict | None" = None) -> list:
+def build_msgs(topic: str, people: list, idx: int, log: list, last: bool = False, force: bool = True, mem: "dict | None" = None, emos: "dict | None" = None) -> list:
     me = people[idx]
     names = "・".join(p["name"] for p in people)
     sysmsg = (f"あなたは「{me['name']}」。{me['trait']}\n"
@@ -191,6 +353,13 @@ def build_msgs(topic: str, people: list, idx: int, log: list, last: bool = False
                  f"呼ばれていなくても、言いたいこと(反論・補足・共感・話題の転換)があれば割り込んで話してよいです。"
                  f"直前の発言に異論・補足があるときは、相手の名前を呼んで(例: 「{people[(idx + 1) % len(people)]['name']}、それは違うと思う」)話しかけると、その人が次に答えます。"
                  f"自分の考えが前と同じなら無理に話さず、{PASS} とだけ出力して黙ってよいです(黙るのは普通のことです)。"))
+    em = emos or {}
+    mine = em.get(me["name"], me.get("base", "neutral"))
+    others_e = "、".join(f"{p['name']}={emo_label(em.get(p['name'], 'neutral'))}" for k, p in enumerate(people) if k != idx)
+    sysmsg += (f"\n\nあなたには感情があります。いまの気持ちは「{emo_label(mine)}」。ほかの人の様子: {others_e}。"
+               "話の流れ、相手の言葉、自分の価値観に応じて、気持ちは自然に変わります(嬉しい、驚く、むっとする、しょげる、迷う、など)。"
+               "出力の先頭に、いまの気持ちを【喜び】【興奮】【驚き】【怒り】【悲しみ】【困惑】【平常】のどれか 1 つで付け、続けて発言を書く。"
+               "気持ちを言葉と口調にも込める(例: 【驚き】えっ、そんなことがあったのだ!)。")
     mt = memory_text(mem or {}, [p["name"] for k, p in enumerate(people) if k != idx])
     if mt:
         sysmsg += "\n\n" + mt
@@ -204,6 +373,9 @@ class Discussion:
         self.hub, self.reg, self.eng_getter = hub, reg, eng_getter
         self.memory = memory if memory is not None else Memory()
         self.grew = ""
+        self.emos: dict = {}            # キャラ名 → いまの感情キー
+        self.log_emo: list = []         # log と同じ並びの感情キー
+        self.mood: dict = {}            # キャラ名 → {"v","a"}(気分)
         self.on = False
         self.topic = ""
         self.turn = 0
@@ -226,6 +398,11 @@ class Discussion:
                 out.append((rec, s))
         return out[:3]
 
+    def persona_of(self, dev_id: str) -> int:
+        """機器が担当するキャラの番号。登録順で固定(誰がオンラインかで入れ替わらない)。"""
+        ids = [r["id"] for r in self.reg.all()]
+        return (ids.index(dev_id) if dev_id in ids else 0) % len(PERSONAS)
+
     def start(self, topic: str, turns: int = 12) -> "tuple[bool, str]":
         topic = (topic or "").strip()[:80]
         if not topic:
@@ -238,10 +415,13 @@ class Discussion:
         pk = self.pick()
         if len(pk) < 2:
             return False, "接続中の機器が 2 台以上必要です"
-        self.people = [{**PERSONAS[i], "dev": r["id"], "dev_name": r["name"]} for i, (r, _s) in enumerate(pk)]
+        self.people = [{**PERSONAS[self.persona_of(r["id"])], "dev": r["id"], "dev_name": r["name"]} for r, _s in pk]
         self.topic, self.turn, self.max_turns, self.log, self._inject, self.note = topic, 0, max(2, min(40, int(turns))), [], [], ""
         self.spoke_at = {}
         self.grew = ""
+        self.emos = {p["name"]: p.get("base", "neutral") for p in self.people}
+        self.mood = {p["name"]: {"v": 0.3 if p.get("base") == "joy" else 0.0, "a": p.get("a0", 0.3)} for p in self.people}
+        self.log_emo = []
         self._stop.clear()
         self.on = True
         self.hub.event(f"会話モード開始: {topic}({len(self.people)}人)")
@@ -285,19 +465,52 @@ class Discussion:
             except Exception:  # noqa: BLE001
                 pass
 
+    def _update_moods(self, i: int, text: str) -> None:
+        """話者 i の発言を、ほかの人が聞いて気分を動かす。その気分が次の発言の感情(声・顔)になる。"""
+        for k, p in enumerate(self.people):
+            if k == i:
+                continue
+            prev_same = next((t for w, t in reversed(self.log[:-1]) if w == self.people[i]["name"]), "")
+            self.mood[p["name"]] = mood_step(self.mood.get(p["name"], {}), text, prev_same, p)
+            self.emos[p["name"]] = mood_emotion(self.mood[p["name"]], p)
+
+    def _tts(self, eng, idx: int, text: str, emo: str):
+        """感情に合わせた声(速さ・高さ・抑揚・音量)で読む。感情に未対応のエンジンなら、ふつうの声で読む。"""
+        voice = self.people[idx]["voice"]
+        try:
+            return eng.speech_pcm_as(text, voice, emotion=EMOTIONS.get(emo, EMOTIONS["neutral"])[1])
+        except TypeError:
+            return eng.speech_pcm_as(text, voice)
+
     def _drain(self) -> None:
         with self.lock:
             while self._inject:
                 self.log.append(("私", self._inject.pop(0)))
+                self.log_emo.append("neutral")
 
-    def _gen(self, eng, idx: int, last: bool = False, force: bool = True) -> str:
-        """idx 番の人の発言を作る。force=False のときは、話さない(空)こともある。"""
-        out, _label = eng.translate(build_msgs(self.topic, self.people, idx, self.log, last, force, self.memory.get(self.people[idx]["name"])))
-        if not force and is_pass(out):
-            return ""
-        return clean_line(out, self.people[idx]["name"])
+    def _gen(self, eng, idx: int, last: bool = False, force: bool = True) -> "tuple[str, str]":
+        """idx 番の人の (感情, 発言) を作る。force=False のときは、話さない(発言が空)こともある。"""
+        name = self.people[idx]["name"]
+        out, _label = eng.translate(build_msgs(self.topic, self.people, idx, self.log, last, force, self.memory.get(name), dict(self.emos)))
+        prev = self.emos.get(name, "neutral")
+        emo, body = split_emotion(out, prev)
+        if not force and is_pass(body):
+            return emo, ""
+        line = clean_line(body, name)
+        if line and not has_emotion_tag(out):           # モデルがタグを付けなかったら、別に感情だけ判定する
+            try:
+                heard = self.log[-1][1] if self.log else ""
+                o2, _l = eng.translate(emotion_msgs(name, prev, line, heard))
+                k = emo_key(re.sub(r"<think>.*?</think>", "", o2 or "", flags=re.S).strip().strip("【】[] 。"))
+                if k:
+                    emo = k
+            except Exception:  # noqa: BLE001
+                pass
+        if emo == "neutral" and prev != "neutral":      # モデルが平常と言っても、聞いた発言で動いた気分は声と顔に出す
+            emo = prev
+        return emo, line
 
-    def _decide(self, eng, i: int, last: bool) -> "tuple[int | None, str]":
+    def _decide(self, eng, i: int, last: bool) -> "tuple[int | None, tuple]":
         """直前に話した i 以外の人が、それぞれ独立に「話すか黙るか」を決める(並列)。次に話す人と発言を返す。"""
         self._drain()
         others = [k for k in range(len(self.people)) if k != i]
@@ -310,22 +523,23 @@ class Discussion:
             try:
                 res[k] = self._gen(eng, k, False, False)
             except Exception:  # noqa: BLE001
-                res[k] = ""
+                res[k] = ("neutral", "")
         ts = [threading.Thread(target=one, args=(k,), daemon=True) for k in others]
         for t in ts:
             t.start()
         for t in ts:
             t.join(40)
-        cands = {k: t for k, t in res.items() if t}
+        cands = {k: et for k, et in res.items() if et[1]}
         self.spoke_at["now"] = self.turn
         who = choose(self.people, i, self.log[-1][1] if self.log else "", cands, self.spoke_at, self.rnd)
         if who is None:                                    # 全員が黙った
-            return None, ""
+            return None, ("neutral", "")
         return who, cands[who]
 
     def _run(self, eng) -> None:
         try:
-            i, text, quiet = 0, self._gen(eng, 0, False, True), 0
+            emo, text = self._gen(eng, 0, False, True)
+            i, quiet = 0, 0
             pcm = None
             if not text:
                 self.note = "発言を作れませんでした(LLM)。会話を終えます"
@@ -335,9 +549,19 @@ class Discussion:
                     self.note = "機器が切れたので会話を終えました"
                     break
                 if pcm is None:
-                    pcm = eng.speech_pcm_as(text, self.people[i]["voice"])
+                    pcm = self._tts(eng, i, text, emo)
                 with self.lock:
                     self.log.append((self.people[i]["name"], text))
+                    self.log_emo.append(emo)
+                    self.emos[self.people[i]["name"]] = emo
+                try:
+                    self._update_moods(i, text)
+                except Exception:  # noqa: BLE001
+                    pass
+                try:
+                    self.memory.observe(self.people[i]["name"], emo, text, addressed(self.people, i, text) is not None)
+                except Exception:  # noqa: BLE001
+                    pass
                 self.turn += 1
                 self.spoke_at[i] = self.turn
                 for k in range(len(self.people)):          # 話者は声と字幕、ほかは「聞いている」顔と字幕
@@ -345,28 +569,29 @@ class Discussion:
                     if sk is None:
                         continue
                     if k == i:
-                        sk.send({"t": "face", "state": "happy"})
+                        sk.send({"t": "face", "state": EMOTIONS.get(emo, EMOTIONS["neutral"])[2]})
                     else:
                         sk.send({"t": "face", "state": "listening"})
-                        sk.send({"t": "caption", "lang": "ja", "to": "ja", "orig": f"{self.people[i]['name']}: {text}", "trans": "", "final": True})
+                        sk.send({"t": "caption", "lang": "ja", "to": "ja", "orig": f"{self.people[i]['name']}({emo_label(emo)}): {text}", "trans": "", "final": True})
                 t0 = time.time()
                 threading.Thread(target=self._react, args=(eng, i, len(pcm) / 16000.0), daemon=True).start()   # 聞き手の頷き・相槌(16kHz のサンプル数から秒へ)
                 dur = s._send_pcm(pcm, caption=text, lang="ja")
-                nxt_i, nxt_text, nxt_pcm = None, "", None
+                nxt_i, nxt_text, nxt_pcm, nxt_emo = None, "", None, "neutral"
                 if self.turn < self.max_turns and not self._stop.is_set():
                     try:                                    # 再生している間に、ほかの人が独立に決める
-                        nxt_i, nxt_text = self._decide(eng, i, self.turn == self.max_turns - 1)
+                        nxt_i, (nxt_emo, nxt_text) = self._decide(eng, i, self.turn == self.max_turns - 1)
                         if nxt_i is None:                  # 全員黙った: 1 回だけ、いちばん話していない人に振る。続けて黙れば終わる
                             quiet += 1
                             if quiet >= 2:
                                 self.note = "話すことがなくなったので、会話を終えました"
                             else:
                                 k = min((k for k in range(len(self.people)) if k != i), key=lambda k: self.spoke_at.get(k, 0))
-                                nxt_i, nxt_text = k, self._gen(eng, k, False, True)
+                                nxt_i = k
+                                nxt_emo, nxt_text = self._gen(eng, k, False, True)
                         else:
                             quiet = 0
                         if nxt_i is not None and nxt_text:
-                            nxt_pcm = eng.speech_pcm_as(nxt_text, self.people[nxt_i]["voice"])
+                            nxt_pcm = self._tts(eng, nxt_i, nxt_text, nxt_emo)
                     except Exception:  # noqa: BLE001
                         nxt_i, nxt_text, nxt_pcm = None, "", None
                 rest = t0 + dur + 0.5 - time.time()
@@ -376,7 +601,7 @@ class Discussion:
                 s.send({"t": "face", "state": "neutral"})
                 if nxt_i is None or not nxt_text:
                     break
-                i, text, pcm = nxt_i, nxt_text, nxt_pcm
+                i, text, pcm, emo = nxt_i, nxt_text, nxt_pcm, nxt_emo
         except Exception as e:  # noqa: BLE001
             self.note = f"エラー: {type(e).__name__}"
         finally:
@@ -415,22 +640,35 @@ class Discussion:
             self.grew = " / ".join(f"{n}: {v}" for n, v in got.items() if v)
             self.hub.event(f"キャラが成長しました({len(got)}人が学びを記憶)")
 
-    def growth(self) -> list:
-        """機器ごとの「育ち」。機器は登録順に 1 人目・2 人目・3 人目のキャラを担当する(会話中は参加者のまま)。"""
-        if self.on and self.people:
-            who = [(p["name"], p["dev_name"]) for p in self.people]
-        else:
-            who = [(PERSONAS[i]["name"], r["name"]) for i, (r, _s) in enumerate(self.pick())]
+    def profiles(self) -> list:
+        """機器ごとのプロフィール(性格・口ぐせ・好き嫌い・レーダーチャート・感情の傾向・学び)。"""
+        on_ids = {r["id"] for r, _s in self.pick()}
+        who = [(self.persona_of(r["id"]), PERSONAS[self.persona_of(r["id"])]["name"], r["name"], r["id"] in on_ids) for r in self.reg.all()[:3]]
         out = []
-        for name, dev in who:
+        for i, name, dev, online in who:
+            P = PERSONAS[i]
             m = self.memory.get(name)
-            out.append({"name": name, "dev_name": dev, "talks": m["talks"], "views": m["views"], "rel": m["rel"], "topics": m["topics"]})
+            st = m["stats"]
+            ec = sorted(st.get("emo", {}).items(), key=lambda kv: -kv[1])
+            out.append({"name": name, "dev_name": dev, "title": P["title"], "motto": P["motto"], "likes": P["likes"], "dislikes": P["dislikes"],
+                        "trait": P["trait"], "voice": P["voice"], "talks": m["talks"], "utterances": st.get("n", 0),
+                        "radar": radar(P["radar"], st), "radar_base": dict(P["radar"]), "axes": AXES,
+                        "emo_top": [{"label": emo_label(k), "n": n} for k, n in ec[:3]],
+                        "emo_now": emo_label(self.emos.get(name, "neutral")) if self.on and name in self.emos else "", "online": online,
+                        "views": m["views"], "rel": m["rel"], "topics": m["topics"]})
         return out
+
+    def growth(self) -> list:
+        return [{"name": g["name"], "dev_name": g["dev_name"], "emo": g["emo_now"], "talks": g["talks"], "views": g["views"], "rel": g["rel"], "topics": g["topics"]}
+                for g in self.profiles()]
 
     def snapshot(self) -> dict:
         with self.lock:
             return {"on": self.on, "topic": self.topic, "turn": self.turn, "max": self.max_turns, "note": self.note,
                     "people": [{"name": p["name"], "dev_name": p["dev_name"], "trait": p["trait"]} for p in self.people],
                     "grew": self.grew,
+                    "profiles": self.profiles(),
                     "growth": self.growth(),
-                    "log": [{"who": w, "text": t} for w, t in self.log[-30:]]}
+                    "log": [{"who": w, "text": t, "emo": emo_label(self.log_emo[n]) if n < len(self.log_emo) and w != "私" else ""}
+                            for n, (w, t) in list(enumerate(self.log))[-30:]],
+                    "emos": {n: {"key": k, "label": emo_label(k)} for n, k in self.emos.items()}}
