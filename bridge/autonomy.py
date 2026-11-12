@@ -49,7 +49,7 @@ def clean_topic(text: str) -> str:
     t = (t.splitlines() or [""])[0].strip()
     t = re.sub(r"^(話題|議題)\s*[:：]\s*", "", t)
     t = t.strip().strip("「」『』\"'【】[]()（）・- ")
-    t = re.sub(r"(だろう|でしょう|かな|のか|だ)?(なの)?のだ[。!！]*$", lambda m: "だろう?" if m.group(1) == "だろう" else ("?" if m.group(1) in ("のか", "かな") else ""), t)   # キャラの語尾(のだ)は話題に持ち込まない
+    t = re.sub(r"(だろう|でしょう|かな|のか|だ)?な?のだ[。!！]*$", lambda m: "だろう?" if m.group(1) == "だろう" else ("?" if m.group(1) in ("のか", "かな") else ""), t)   # キャラの語尾(のだ)は話題に持ち込まない
     return t[:30]
 
 
