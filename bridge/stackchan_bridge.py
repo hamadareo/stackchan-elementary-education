@@ -717,6 +717,8 @@ class Session:
 
     def _on_wave(self, name: str, st: dict, now: float) -> None:
         H = admin.HUB
+        if getattr(H, "edu_on", False):                           # 教材モード: 手振りには反応しない(声も動きも出さない。遊びを選ぶまで話さない)
+            return
         H.wave_count += 1
         H.wave_t = now
         H.event(f"{self.name}: 手を振りました" + (f"({name}さん)" if name else ""))
