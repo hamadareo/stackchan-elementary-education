@@ -780,9 +780,6 @@ class Session:
         if now - st["seen"] > 8.0 and now - st["react"] > 30.0:      # 久しぶりに人を見つけた: 喜ぶ
             st["react"] = now
             self.send({"t": "face", "state": "happy"})
-            _k = getattr(admin.HUB, "kid", None)
-            if _k is not None:
-                _k.on_see(self, now)                                   # 子どもモード: ロボットから声をかける
         st["seen"] = now
         if now - st.get("look_t", 0.0) > 0.5:                          # 目線だけは常に顔へ(首が動かない範囲でも)
             st["look_t"] = now

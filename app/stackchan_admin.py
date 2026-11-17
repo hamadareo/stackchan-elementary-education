@@ -1186,12 +1186,12 @@ class Win(QMainWindow):
         self.g_kid.setChecked(True)
         self.g_kid.toggled.connect(lambda on: self.act("kid_set", {"on": on}))
         l.addWidget(self.g_kid)
-        self.g_kauto = QCheckBox("自分から話しかける: 子どもが黙ったら続きを質問し、しばらく静かなときは(教材モードで)ロボットから話しかける")
+        self.g_kauto = QCheckBox("自分から話しかける: 子どもが黙ったら続きを質問する(通常の子どもモードだけ。教材モードでは、遊びが選ばれるまで話しません)")
         self.g_kauto.setChecked(True)
         self.g_kauto.toggled.connect(lambda on: self.act("kid_auto_set", {"on": on}))
         l.addWidget(self.g_kauto)
         row = QHBoxLayout()
-        row.addWidget(QLabel("子どもに出す遊び(教材モード。これ以外は、おしゃべりせず、遊びを案内します):"))
+        row.addWidget(QLabel("子どもに出す遊び(教材モード。これ以外は話しません。「あそぼう」と言われたら案内します):"))
         self.g_acts = {}
         for key, label in (("shiritori", "しりとり"), ("janken", "じゃんけん"), ("riddle", "なぞなぞ"), ("quiz", "クイズ"), ("math", "さんすう"), ("english", "えいご")):
             cb = QCheckBox(label)

@@ -1019,47 +1019,22 @@ class KidChatTests(unittest.TestCase):
             def discussing(s): return False
         self.Eng, self.Sess, self.hub = Eng, Sess, Hub()
 
-    def test_guided_edu_mode_only_menu(self):
+    def test_guided_edu_mode_silent_unless_game(self):
         self.hub.edu_on = True
-        self.hub.menu_acts = ["shiritori", "janken", "riddle", "quiz", "math"]
+        self.hub.menu_acts = ["janken", "riddle"]
         kc, r = self.run_reply("きょうは、あめがふってたよ")
         self.assertTrue(r)
+        self.assertEqual(self.spoke, [])                          # 遊びを選んでいない声には話さない
+        kc2, r2 = self.run_reply("えいごしよう")                   # 出さない遊びも始めず、話さない
+        self.assertEqual(self.spoke, [])
+        kc3, r3 = self.run_reply("あそぼう")                       # 「あそぼう」だけは遊びを案内する
         self.assertEqual(len(self.spoke), 1)
-        self.assertIn("どれで あそぶ", self.spoke[0])             # おしゃべりはせず、遊びを案内する
         self.assertNotIn("えいご", self.spoke[0])
-        self.assertEqual(self.k.menu_text(["janken"]), "じゃんけんの、どれで あそぶ？ えらんでね！")
-        self.hub.menu_acts = ["janken"]
-        kc2, r2 = self.run_reply("えいごしよう")                   # 出さない遊びは始めず、案内する
-        self.assertTrue(r2)
-        self.assertNotIn("えいご", self.spoke[-1])
-
-    def test_greets_when_person_seen(self):
-        t = [1000.0]
-        kc = self.k.KidChat(self.hub, clock=lambda: t[0])
-        s = self.Sess(self, self.Eng("【喜び】いいね！"))
-        s.eng.last_voice = 0.0
-        self.hub.live = lambda: [s]
+        self.assertIn("どれで あそぶ", self.spoke[0])
+        kc4 = self.k.KidChat(self.hub, clock=lambda: 1e9)
+        s = self.Sess(self, self.Eng("x"))
         self.hub.kid_auto = True
-        self.hub.edu_on = True
-        kc.on_see(s, t[0])
-        self.assertEqual(kc.pending(s, t[0]), "greet")
-        self.assertTrue(kc.tick(t[0]))
-        for _ in range(100):
-            if not kc.speaking:
-                break
-            time.sleep(0.05)
-        self.assertEqual(len(self.spoke), 1)
-        self.assertIn("こんにちは", self.spoke[0])
-        t[0] += 30
-        t0 = t[0] - 30
-        kc.on_see(s, t[0])                                         # すぐにまた見つけても、あいさつし直さない
-        self.assertNotEqual(kc.pending(s, t[0]), "greet")
-        t[0] += 200
-        kc.on_see(s, t[0])                                         # しばらくして見つけたら、また声をかける
-        kc.last_kid["d1"] = 0.0
-        self.assertEqual(kc.pending(s, t[0]), "greet")
-        t[0] += self.k.GREET_WAIT + 1                              # 話せないまま待ちすぎたら、やめる
-        self.assertNotEqual(kc.pending(s, t[0]), "greet")
+        self.assertEqual(kc4.pending(s, 1e9), "")                 # ロボットから話しかけもしない
 
     def test_autonomous_nudge_and_idle(self):
         t = [1000.0]
@@ -1093,10 +1068,7 @@ class KidChatTests(unittest.TestCase):
         kc.nudges["d1"] = self.k.NUDGE_MAX
         self.assertEqual(kc.pending(s, t[0]), "")                 # 返事がないなら、静かに待つ
         t[0] += self.k.ENGAGED_S + 1
-        self.assertEqual(kc.pending(s, t[0]), "")                 # 教材モードでなければ、自分からは話さない
-        self.hub.edu_on = True
-        kc.next_idle["d1"] = t[0] - 1
-        self.assertEqual(kc.pending(s, t[0]), "idle")
+        self.assertEqual(kc.pending(s, t[0]), "")                 # しばらくたったら、自分からは話さない
         self.hub.kid_auto = False
         self.assertEqual(kc.pending(s, t[0]), "")                 # 設定でオフにできる
 
