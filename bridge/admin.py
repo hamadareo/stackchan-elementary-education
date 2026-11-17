@@ -38,7 +38,7 @@ class Hub:
         self.quiz = None                 # 子供たちの教材(なぞなぞ・クイズ・算数・えいご)
         self.kid = None                  # 子どもモード(子どもが話しかけたら、キャラが返事をする)
         self.kid_on = True
-        self.menu_acts = ["shiritori", "janken", "riddle", "quiz", "math", "english"]     # 教材モードで子どもに出す遊び(これ以外はしない)
+        self.menu_acts = ["shiritori", "janken", "riddle", "quiz", "math"]     # 教材モードで子どもに出す遊び(これ以外はしない)
         self.kid_auto = True             # 子どもモードで、ロボットが自分から話しかける
         self.hand_cache: dict = {}       # 機器ID → 手の確認の結果 {ts, src, jpeg, info}(管理画面が見ている機器だけ計算する)
         self.hand_lock = threading.Lock()

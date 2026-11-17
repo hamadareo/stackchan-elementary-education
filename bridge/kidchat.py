@@ -70,8 +70,8 @@ def clean_reply(out: str, prev: str = "neutral") -> "tuple[str, str]":
 
 ASOBO = re.compile(r"あそぼ|遊ぼ|あそびたい|遊びたい|なにしよう|何しよう|なにして遊|なにしてあそ")
 ACT_LABEL = {"shiritori": "しりとり", "janken": "じゃんけん", "riddle": "なぞなぞ", "quiz": "クイズ", "math": "さんすう", "english": "えいご"}
-ACT_DEFAULT = ["shiritori", "janken", "riddle", "quiz", "math", "english"]      # 子どもに出す遊びは、この6個だけ(ほかのことはしない)
-MENU = "しりとり、じゃんけん、なぞなぞ、クイズ、さんすう、えいごが、できるよ！やりたいのを、言ってね！"
+ACT_DEFAULT = ["shiritori", "janken", "riddle", "quiz", "math"]      # 子どもに出す遊びは、これだけ(ほかのことはしない)
+MENU = "しりとり、じゃんけん、なぞなぞ、クイズ、さんすうが、できるよ！やりたいのを、言ってね！"
 GUIDE_GAP = 7.0         # 遊びを選ぶ案内を、同じ機器でくり返すまでの最短の秒数
 
 
