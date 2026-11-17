@@ -246,3 +246,46 @@ class VoiceTuneTests(unittest.TestCase):
         self.assertEqual(b.tuned_prosody("voicevox:2", excited), excited)  # めたんは、そのまま
         self.assertIsNone(b.tuned_prosody("voicevox:2", None))
 
+
+
+class OfflineFallbackTest(unittest.TestCase):
+    """s109 が無い(翻訳が失敗する)とき、待たずにこのサーバーの翻訳へ落ち、しばらく s109 を飛ばす。"""
+
+    def test_translate_demotes_failed_candidate(self):
+        import stackchan_bridge as b
+        import tsuyaku.translate as tr
+        calls = []
+
+        def fake(base, model, msgs, on_delta=None, **kw):
+            calls.append(base)
+            if base == "http://s109":
+                raise ConnectionError("refused")
+            return "やあ"
+        orig = tr.translate_with_retry
+        tr.translate_with_retry = fake
+        try:
+            e = b.Engine.__new__(b.Engine)
+            e.llm = [("s109 GPU", "http://s109", "m"), ("このMac", "http://local", "m")]
+            self.assertEqual(e.translate([{"role": "user", "content": "x"}]), ("やあ", "このMac"))
+            self.assertEqual(calls, ["http://s109", "http://local"])
+            calls.clear()
+            self.assertEqual(e.translate([])[1], "このMac")               # 2回目は s109 を飛ばして直接ローカル
+            self.assertEqual(calls, ["http://local"])
+            e._llm_bad["s109 GPU"] = 0                                    # 期限が切れたら、また試す
+            e.translate([])
+            self.assertEqual(calls[1:], ["http://s109", "http://local"])
+        finally:
+            tr.translate_with_retry = orig
+
+    def test_all_failed_still_tries_everything(self):
+        import stackchan_bridge as b
+        import tsuyaku.translate as tr
+        orig = tr.translate_with_retry
+        tr.translate_with_retry = lambda *a, **k: ""
+        try:
+            e = b.Engine.__new__(b.Engine)
+            e.llm = [("a", "http://a", "m"), ("b", "http://b", "m")]
+            self.assertEqual(e.translate([]), ("", ""))
+            self.assertEqual(e.translate([]), ("", ""))                   # 全部失敗中でも、落ちずに全部試す
+        finally:
+            tr.translate_with_retry = orig

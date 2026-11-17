@@ -4,7 +4,7 @@
   "noise_rms_floor": 0.006,
   "tts_dir_kokoro": "/home/USER/stackchan/tsuyaku/models/kokoro-multi-lang-v1_0",
   "tts_voice": {
-    "ja": "voicevox:13",
+    "ja": "voicevox:3",
     "en": "kokoro:3",
     "zh": "kokoro:45",
     "ko": "say:Yuna"

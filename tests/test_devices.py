@@ -217,6 +217,79 @@ class HandViewTests(unittest.TestCase):
         self.assertIn("aa", h.hand_status())
 
 
+class UsbLinkTests(unittest.TestCase):
+    def test_multi_device_threads_and_replug(self):
+        import time as _t
+        import usblink
+        devs = [{"mac": "aa11", "port": "/dev/ttyACM0"}, {"mac": "bb22", "port": "/dev/ttyACM1"}]
+        started = []
+
+        def serve(port, alive):
+            started.append(port)
+            while alive():
+                _t.sleep(0.01)
+        u = usblink.UsbLinks(serve, scan=lambda: list(devs))
+        u.step(); _t.sleep(0.1)
+        self.assertEqual(sorted(started), ["/dev/ttyACM0", "/dev/ttyACM1"])
+        u.step(); _t.sleep(0.05)
+        self.assertEqual(len(started), 2)                         # 同じ機器の接続を二重に作らない
+        devs[0] = {"mac": "aa11", "port": "/dev/ttyACM2"}         # 挿し直し: ポート名が変わった(MAC は同じ)
+        u.step(); _t.sleep(0.2)                                   # 古いスレッドが終わる
+        u.step(); _t.sleep(0.1)
+        self.assertIn("/dev/ttyACM2", started)
+        devs.clear()                                              # 全部抜かれた
+        u.step(); _t.sleep(0.2)
+        self.assertFalse(any(t.is_alive() for _p, t in u.threads.values()))
+
+    def test_release_for_flashing(self):
+        import time as _t
+        import usblink
+        devs = [{"mac": "aa11", "port": "/dev/ttyACM0"}]
+        u = usblink.UsbLinks(lambda port, alive: [_t.sleep(0.01) for _ in iter(alive, False)] and None, scan=lambda: list(devs))
+        u.step(); _t.sleep(0.1)
+        u.release("aa11", wait=2)
+        self.assertFalse(u.threads["aa11"][1].is_alive())
+        u.step(); _t.sleep(0.05)
+        self.assertFalse(u.threads["aa11"][1].is_alive())         # 書き込み中は開き直さない
+        u.resume("aa11"); u.step(); _t.sleep(0.1)
+        self.assertTrue(u.threads["aa11"][1].is_alive())
+        devs.clear(); u.step(); _t.sleep(0.2)
+
+    def test_hub_prefers_usb(self):
+        import admin
+        h = admin.Hub()
+
+        class S:
+            def __init__(self, dev, ip): self.dev_id, self.ip, self.alive = dev, ip, True
+        usb, wifi = S("d1", "usb"), S("d1", "10.0.0.2")
+        h.sessions = [usb, wifi]
+        self.assertTrue(h.usb_live())
+        self.assertIs(h.usb_session("d1", wifi), usb)
+        self.assertIsNone(h.usb_session("d1", usb))
+        self.assertIsNone(h.usb_session("d2", wifi))
+        usb.alive = False
+        self.assertFalse(h.usb_live())
+
+    def test_watcher_waits_before_flashing(self):
+        import usbprov
+        class Hub:
+            def event(self, *_): pass
+            def by_id(self, _): return None
+        class Reg:
+            def get(self, _): return None
+        w = usbprov.Watcher(Hub(), Reg())
+        import os
+        old, old_acc, old_img = usbprov.scan, os.access, usbprov.IMAGE
+        usbprov.scan = lambda: [{"mac": "cc33", "port": "/dev/null", "product": ""}]
+        try:
+            os.access = lambda *a, **k: True
+            usbprov.IMAGE = __file__
+            w.step(now=1000.0)
+            self.assertEqual(w.state["cc33"]["status"], "waiting")   # 見つけた直後は書き込まない
+        finally:
+            usbprov.scan, os.access, usbprov.IMAGE = old, old_acc, old_img
+
+
 if __name__ == "__main__":
     unittest.main()
 

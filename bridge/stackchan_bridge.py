@@ -73,6 +73,9 @@ def tuned_prosody(voice: "str | None", emotion: "dict | None") -> "dict | None":
 class Engine:
     """Sokutsu の耳・翻訳・声を1か所に持つ。接続ごとの Session が使い回す。"""
 
+    EAR_TIMEOUT = 1.5          # s109 の耳の返事を待つ秒(GPU は 0.1〜0.3 秒。届かなければ、すぐこのサーバーの耳 SenseVoice に落ちる)
+    LLM_BAD_S = 30.0           # 翻訳が失敗した置き場所は、この秒数は飛ばして次(このサーバー)へ直接行く
+
     def __init__(self, engine: str = "auto"):
         import sherpa_onnx
         from tsuyaku.config import engine_candidates, load_settings
@@ -99,7 +102,7 @@ class Engine:
                 self.remote_ear = requests.get(s.stt_url.rstrip("/") + "/health", timeout=2).ok
             except Exception:  # noqa: BLE001
                 self.remote_ear = False
-        self.stt = RemoteSTT(s.stt_url, local) if self.remote_ear else local
+        self.stt = RemoteSTT(s.stt_url, local, timeout=self.EAR_TIMEOUT) if self.remote_ear else local
         print(f"[bridge] 耳: {'s109 GPU(落ちたらこのMac)' if self.remote_ear else 'このMac'}", flush=True)
 
         # 翻訳: s109 を先に試し、届かなければこのMac(engine_candidates の順)
@@ -148,8 +151,9 @@ class Engine:
         self._pcm_cache: "collections.OrderedDict" = collections.OrderedDict()
         self.speed_scale = 1.0                                 # 管理画面の「話速」(1.0 が標準)
 
-    def watch(self, every: float = 15.0) -> None:
-        """s109 が後から見つかったら(再起動直後でネットワークが未接続だったときなど)GPU に切り替える。"""
+    def watch(self, every: float = 3.0) -> None:
+        """s109 が後から見つかったら(再起動直後でネットワークが未接続だったときなど)GPU に切り替える。
+        逆に、s109 が落ちたら、すぐこのサーバーの耳(SenseVoice)に切り替える(次の発話を待たせない)。"""
         import requests
         from tsuyaku.config import engine_candidates
         from tsuyaku.stt import RemoteSTT
@@ -157,8 +161,23 @@ class Engine:
         while True:
             time.sleep(every)
             try:
-                if not self.remote_ear and self.s.stt_url and requests.get(self.s.stt_url.rstrip("/") + "/health", timeout=2).ok:
-                    self.stt = RemoteSTT(self.s.stt_url, self.local_stt)
+                if self.remote_ear and self.s.stt_url:
+                    try:
+                        up = requests.get(self.s.stt_url.rstrip("/") + "/health", timeout=1.0).ok
+                    except Exception:  # noqa: BLE001
+                        up = False
+                    if not up:
+                        self.stt = self.local_stt                      # s109 が落ちた: このサーバーの耳へ(戻ってきたら、下で GPU に戻す)
+                        self.remote_ear = False
+                        print("[bridge] 耳: s109 に届かないので、このサーバー(SenseVoice)に切り替えました", flush=True)
+                back = False
+                if not self.remote_ear and self.s.stt_url:
+                    try:
+                        back = requests.get(self.s.stt_url.rstrip("/") + "/health", timeout=1.0).ok
+                    except Exception:  # noqa: BLE001 - 届かないのは普通(オフライン)。翻訳側の見張りは続ける
+                        back = False
+                if back:
+                    self.stt = RemoteSTT(self.s.stt_url, self.local_stt, timeout=self.EAR_TIMEOUT)
                     self.remote_ear = True
                     po = getattr(self, "pair_override", None)
                     if po:
@@ -192,17 +211,33 @@ class Engine:
     def stt_name(self) -> str:
         return "faster-whisper large-v3-turbo" if self.remote_ear else "SenseVoice-Small"
 
+    def llm_order(self) -> list:
+        """翻訳を試す順。直前に失敗した置き場所(s109 が無いときなど)は、少しの間飛ばして、すぐこのサーバーへ。全部失敗中なら全部試す。"""
+        now = time.time()
+        bad = self.__dict__.setdefault("_llm_bad", {})
+        return [c for c in self.llm if bad.get(c[0], 0) <= now] or list(self.llm)
+
+    def llm_failed(self, label: str) -> None:
+        self.__dict__.setdefault("_llm_bad", {})[label] = time.time() + self.LLM_BAD_S
+
+    def llm_ok(self, label: str) -> None:
+        self.__dict__.setdefault("_llm_bad", {}).pop(label, None)
+
     def translate(self, msgs: list, on_delta=None) -> "tuple[str, str]":
         from tsuyaku.translate import translate_with_retry
         last = ""
-        for label, base, model in self.llm:
+        order = self.llm_order()
+        for label, base, model in order:
             try:
                 out = translate_with_retry(base, model, msgs, on_delta)
                 if out:
                     self.last_model = model                  # 上部バーに出す(どのモデルで訳したか)
+                    self.llm_ok(label)
                     return out, label
             except Exception as e:  # noqa: BLE001
                 last = str(e)
+            if len(order) > 1:
+                self.llm_failed(label)
         print(f"[bridge] 翻訳失敗: {last}", flush=True)
         return "", ""
 
@@ -1167,15 +1202,19 @@ class Session:
                 first = False
 
         trans, where = "", ""
-        for label, base, model in self.eng.llm:
+        order = self.eng.llm_order()
+        for label, base, model in order:
             try:
                 parts.clear(); buf = ""; first = True
                 trans = translate_stream(base, model, msgs, on_delta)
                 if trans:
                     where = label
+                    self.eng.llm_ok(label)
                     break
             except Exception as e:  # noqa: BLE001
                 print(f"[bridge] 翻訳失敗({label}): {str(e)[:100]}", flush=True)
+                if len(order) > 1:
+                    self.eng.llm_failed(label)
                 if parts:                                      # 一部は読み上げ済み: 続きを別サーバーで訳すと重複するので打ち切る
                     trans = " ".join(parts)
                     where = label
@@ -1318,7 +1357,14 @@ async def serve(host: str, port: int, eng: Engine) -> None:
 
         sess = Session(eng, send)
         print(f"[bridge] 接続: {ws.remote_address}", flush=True)
-        send({"t": "hello_ack", "pair": list(sess.pair), "ear": "s109" if eng.remote_ear else "mac"})
+        acked = False
+
+        def ack():
+            nonlocal acked
+            acked = True
+            send({"t": "hello_ack", "pair": list(sess.pair), "ear": "s109" if eng.remote_ear else "mac"})
+        if not admin.HUB.usb_live():                       # USB でつながっている機器があるときは、Wi-Fi への即答はしない(機器を特定してから決める)
+            ack()
         sess.hello()
         try:
             async for m in ws:
@@ -1332,6 +1378,12 @@ async def serve(host: str, port: int, eng: Engine) -> None:
                             sess.resend(int(j["seq"]))
                     if j.get("t") == "hello" and not sess.dev_id:
                         sess.identify(j, (ws.remote_address or ("", 0))[0])
+                    if j.get("t") == "hello" and not acked:
+                        if admin.HUB.usb_session(sess.dev_id, sess):       # この機器は USB でつながっている: USB を優先し、Wi-Fi 側は使わない(二重にならない)
+                            sess.alive = False
+                            print(f"[bridge] {sess.name}: USB 接続を優先します(Wi-Fi 側は閉じます)", flush=True)
+                            break
+                        ack()
                     if j.get("t") == "hello":
                         sess.hello()
                     if j.get("t") == "hello" or j.get("t") == "config":
@@ -1364,11 +1416,13 @@ async def serve(host: str, port: int, eng: Engine) -> None:
 
 
 # ---------------------------------------------------------------- USB シリアル(有線)
-def serve_serial(port: str, eng: Engine) -> None:
+def serve_serial(port: str, eng: Engine, alive=None) -> None:
     """フレーム A5 5A | 種別(1=テキスト,2=バイナリ) | 長さ u32 LE | 本体。WebSocket 版と同じ中身。"""
     import serial  # pyserial
     warned = False
     while True:
+        if alive is not None and not alive():               # 自動検出: この機器の USB が抜かれた/書き込み中なら、この接続は終わり
+            return
         try:
             ser = serial.Serial(None, 921600, timeout=0.2)
             ser.port = port
@@ -1398,6 +1452,8 @@ def serve_serial(port: str, eng: Engine) -> None:
         buf = bytearray()                                  # ack は端末の hello に答える(ポートを開くと端末は再起動する)
         try:
             while True:
+                if alive is not None and not alive():
+                    break
                 buf += ser.read(4096)
                 while True:
                     i = buf.find(b"\xa5\x5a")
@@ -1481,6 +1537,15 @@ def main() -> None:
     threading.Thread(target=eng.watch, daemon=True).start()          # s109 が後から使えるようになったら切り替える
     if a.serial:                                    # USB は別スレッド。Wi-Fi(WebSocket)も同時に待ち受ける
         threading.Thread(target=serve_serial, args=(a.serial, eng), daemon=True).start()
+    if os.environ.get("SC_USB_AUTO", "1") != "0":   # USB に挿した機器(何台でも)を自動で見つけて、機器ごとに別の接続として扱う
+        import usblink
+        admin.HUB.usblinks = usblink.UsbLinks(lambda port, alive: serve_serial(port, eng, alive), watcher=getattr(admin.HUB, "usb", None))
+        if getattr(admin.HUB, "usb", None) is not None:
+            admin.HUB.usb.release, admin.HUB.usb.resume = admin.HUB.usblinks.release, admin.HUB.usblinks.resume
+        threading.Thread(target=admin.HUB.usblinks.run, daemon=True).start()
+    if os.environ.get("SC_NO_WS") == "1":          # Wi-Fi(WebSocket)の受付を止める(Wi-Fi が無い現場の再現・検証用)
+        print("[bridge] Wi-Fi(WebSocket)の受付は止めています(SC_NO_WS=1)。USB だけで動作", flush=True)
+        threading.Event().wait()
     asyncio.run(serve(a.host, a.port, eng))
 
 

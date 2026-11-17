@@ -280,6 +280,16 @@ def draw_overlay(img: np.ndarray, palm, lm, text: str) -> np.ndarray:
     return out
 
 
+def overlay_jpeg(jpeg: bytes, info: dict) -> "bytes | None":
+    """検出はせず、前に見つけた枠・線(info)を新しい画像に重ねるだけ(軽い)。映像を滑らかに見せるため。"""
+    import cv2 as cv
+    img = cv.imdecode(np.frombuffer(jpeg, np.uint8), cv.IMREAD_COLOR)
+    if img is None:
+        return None
+    ok, buf = cv.imencode(".jpg", draw_overlay(img, info.get("_palm"), info.get("_lm"), info.get("text", "")), [cv.IMWRITE_JPEG_QUALITY, 80])
+    return bytes(buf) if ok else None
+
+
 def analyze_jpeg(jpeg: bytes) -> "tuple[bytes | None, dict]":
     """カメラの JPEG → (重ね描き済み JPEG, {"hand","n_palm","text"})。モデルが無ければ元の画像のまま hand=None。"""
     import cv2 as cv
@@ -304,5 +314,6 @@ def analyze_jpeg(jpeg: bytes) -> "tuple[bytes | None, dict]":
             except Exception:  # noqa: BLE001
                 pass
     info["text"] = status_text(True, info["n_palm"], info["hand"])
+    info["_palm"], info["_lm"] = palm, lm                 # 次の新しい画像に、同じ枠・線を重ねるため(状態には出さない)
     ok, buf = cv.imencode(".jpg", draw_overlay(img, palm, lm, info["text"]), [cv.IMWRITE_JPEG_QUALITY, 80])
     return (bytes(buf) if ok else None), info

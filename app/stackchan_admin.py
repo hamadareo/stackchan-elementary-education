@@ -1067,7 +1067,7 @@ class Win(QMainWindow):
                 info = f"オフライン  ·  最後 {ago}"
             html = (f'<span style="color:{GR if d["online"] else "#6f8aa6"}">●</span> <b style="font-size:15px">{d["name"]}</b>'
                     + (f' <span style="color:{GR}">[自動登録]</span>' if d.get("auto") else "")
-                    + f'<br><span style="color:#6f8aa6">{info}<br>{d.get("ip", "")}   fw {d.get("fw", "-")}</span>')
+                    + f'<br><span style="color:#6f8aa6">{info}<br>{(d.get("via") + "  ") if d.get("via") else ""}{d.get("ip", "")}   fw {d.get("fw", "-")}</span>')
             self._set(w["lab"], html)
             fc = w.get("face")
             if fc is not None and d.get("face") is not None and fc.currentIndex() != d["face"] and not fc.view().isVisible():
@@ -1241,7 +1241,7 @@ class Win(QMainWindow):
         v.addWidget(self.h_box)
         self.h_timer = QTimer(self)
         self.h_timer.timeout.connect(self.hand_tick)
-        self.h_timer.start(1000)
+        self.h_timer.start(250)
         self.jk_page = w
         self.jk_stat = muted("")
         v.addWidget(self.jk_stat)
@@ -1307,9 +1307,14 @@ class Win(QMainWindow):
             return
         devs = [(d["id"], d["name"]) for d in (self.h_devs or []) if d.get("online") and (self.h_chk.isChecked() or d["id"] in playing)]
         self.hand_cells(devs)
+        busy = self.__dict__.setdefault("h_busy", set())
         for did, _n in devs:
+            if did in busy:                                       # 前の取得がまだなら、重ねて取りに行かない
+                continue
+            busy.add(did)
             img, txt = self.h_cells[did]
             def cb(ok, data, img=img, txt=txt, did=did):
+                busy.discard(did)
                 pm = QPixmap()
                 if ok and pm.loadFromData(data):
                     img.setPixmap(pm.scaledToWidth(230, Qt.SmoothTransformation))

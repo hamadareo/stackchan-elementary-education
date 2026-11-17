@@ -178,6 +178,21 @@ class Hub:
         if len(raw) > 16000 * 2 * 15:
             del raw[: len(raw) - 16000 * 2 * 15]
 
+    def usb_live(self) -> bool:
+        """USB でつながっている機器の接続があるか。"""
+        with self.lock:
+            return any(x.alive and getattr(x, "ip", "") == "usb" for x in self.sessions)
+
+    def usb_session(self, dev: str, me=None):
+        """この機器 ID で、生きている USB の接続(me 以外)。なければ None。"""
+        if not dev:
+            return None
+        with self.lock:
+            for x in self.sessions:
+                if x is not me and x.alive and getattr(x, "dev_id", "") == dev and getattr(x, "ip", "") == "usb":
+                    return x
+        return None
+
     def replace_dups(self, sess) -> None:
         """同じ機器 ID の古い接続(切れたのに残っているもの)を閉じる。"""
         with self.lock:
@@ -229,8 +244,9 @@ class Hub:
             d = {"id": rec["id"], "name": rec.get("name", ""), "ip": rec.get("ip", ""), "fw": rec.get("fw", ""),
                  "first": rec.get("first"), "voice": rec.get("voice", ""), "face": self._face_of(rec), "seen_age": int(now - rec["seen"]) if rec.get("seen") else None,
                  "auto": bool(rec.get("auto")), "setup": rec.get("setup"), "online": bool(x),
-                 "lang": rec.get("lang"), "topic": rec.get("topic", "")}
+                 "lang": rec.get("lang"), "topic": rec.get("topic", ""), "via": ""}
             if x:
+                d["via"] = "USB 有線" if getattr(x, "ip", "") == "usb" else "Wi-Fi"
                 d.update({"pair": list(x.pair), "batt": getattr(x, "batt", None), "vol": getattr(x, "vol", None),
                           "rssi": (getattr(x, "dbg", None) or {}).get("rssi"),
                           "level": round(min(1.0, self.mics.get(rec["id"], (0.0, 0))[0] * 6), 2),
@@ -328,7 +344,7 @@ class Hub:
         with self.lock:
             self.sessions = [x for x in self.sessions if x.alive] + [s]
 
-    HAND_EVERY = 1.5                     # 手の確認の計算は、機器ごとに 1.5 秒に 1 回まで(重い処理)
+    HAND_EVERY = 0.6                     # 手の検出は、機器ごとに 0.6 秒に 1 回まで(重い処理)。画像はそのつど新しいものに、直前の枠・線を重ねる
 
     def hand_view(self, dev: str):
         """管理画面「手の確認」用: その機器の最新のカメラ画像に手の検出を重ねた JPEG と結果。画像が無ければ None。
@@ -340,9 +356,14 @@ class Hub:
         now = time.time()
         with self.hand_lock:
             c = self.hand_cache.get(dev)
-            if c and (now - c["ts"] < self.HAND_EVERY or c["src"] is src):
+            if c and c["src"] is src:
                 return c
             import hand as _hand
+            if c and now - c["ts"] < self.HAND_EVERY:        # 検出は間引き、新しい画像には直前の枠・線を重ねて返す(映像を滑らかに)
+                jpg = _hand.overlay_jpeg(src, c["info"])
+                c = {**c, "src": src, "jpeg": jpg or src, "frame_ts": getattr(x, "last_jpeg_ts", 0.0)}
+                self.hand_cache[dev] = c
+                return c
             jpg, info = _hand.analyze_jpeg(src)
             c = {"ts": time.time(), "src": src, "jpeg": jpg or src, "info": info,
                  "frame_ts": getattr(x, "last_jpeg_ts", 0.0)}

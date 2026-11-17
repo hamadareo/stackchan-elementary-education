@@ -20,6 +20,7 @@ SYSFS = os.environ.get("SC_SYSFS_USB", "/sys/bus/usb/devices")
 IMAGE = os.environ.get("SC_FW_IMAGE", os.path.expanduser("~/stackchan/firmware/stackchan-factory.bin"))
 RETRY_S = 180.0                    # 書き込みに失敗したら、この秒数あけてやり直す
 MAX_TRIES = 3
+GRACE_S = 25.0                    # 見つけてから、この秒数は書き込まない(USB で動いている機器の hello を待つ)
 
 
 def scan() -> list:
@@ -65,6 +66,8 @@ class Watcher:
         self.state: dict = {}                       # mac → {"mac","port","status","msg","tries","t"}
         self.lock = threading.Lock()
         self._busy: set = set()
+        self.release = None                          # 書き込む前に、その機器のシリアル接続を手放す(usblink が設定)
+        self.resume = None
 
     def registered(self, mac: str) -> bool:
         return bool(self.reg.get(mac)) or self.hub.by_id(mac) is not None
@@ -81,7 +84,7 @@ class Watcher:
             with self.lock:
                 st = self.state.get(mac)
                 if st is None:
-                    st = self.state[mac] = {"mac": mac, "port": d["port"], "status": "", "msg": "", "tries": 0, "t": 0.0}
+                    st = self.state[mac] = {"mac": mac, "port": d["port"], "status": "", "msg": "", "tries": 0, "t": 0.0, "seen": now}
                     known = self.registered(mac)
                     self.hub.event(f"USB に機器を検出: {mac[-6:]}({'登録済み' if known else '新しい機器'})")
                 st["port"] = d["port"]
@@ -91,6 +94,8 @@ class Watcher:
                 status, msg = decide(d, self.registered(mac), access, os.path.exists(IMAGE), st["tries"], st["t"], now)
                 if st["status"] == "flashed" and status != "registered":
                     status, msg = "flashed", "書き込み完了。再起動して Wi-Fi につながると登録されます"
+                if status == "ready" and now - st.get("seen", now) < GRACE_S:   # USB ですでに動いている機器が、自分で名乗る(hello)のを少し待つ(動いている機器を書き換えない)
+                    status, msg = "waiting", "機器の応答を待っています"
                 st["status"], st["msg"] = status, msg
                 if status == "ready":
                     self._busy.add(mac)
@@ -100,6 +105,11 @@ class Watcher:
                     threading.Thread(target=self._flash, args=(mac, d["port"]), daemon=True).start()
 
     def _flash(self, mac: str, port: str) -> None:
+        try:
+            if self.release:
+                self.release(mac)
+        except Exception:  # noqa: BLE001
+            pass
         self.hub.event(f"新しい機器を書き込みます: {mac[-6:]}")
         ok, tail = False, ""
         try:
@@ -117,6 +127,11 @@ class Watcher:
                 st["t"] = time.time()
         self.hub.event(f"{mac[-6:]}: " + ("書き込み完了" if ok else "書き込みに失敗"))
         self._busy.discard(mac)
+        try:
+            if self.resume:
+                self.resume(mac)
+        except Exception:  # noqa: BLE001
+            pass
 
     def snapshot(self) -> list:
         with self.lock:

@@ -1,7 +1,7 @@
 [Unit]
 Description=Translation LLM (llama.cpp, CPU)
 [Service]
-ExecStart=%h/stackchan/llm/llama-b12302/llama-server -m %h/stackchan/llm/q4b.gguf --host 127.0.0.1 --port 1234 -t 12 -c 4096 --alias qwen3-4b-instruct -np 1
+ExecStart=%h/stackchan/llm/llama-b12302/llama-server -m %h/stackchan/llm/q4b.gguf --host 127.0.0.1 --port 1234 -t 12 -c 4096 --alias qwen3-4b-instruct -np 1 --cache-reuse 128
 Restart=always
 RestartSec=3
 [Install]
