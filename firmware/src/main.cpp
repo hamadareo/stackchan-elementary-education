@@ -435,11 +435,11 @@ static void onTouch() {
   zface::setCaption(lines[k++ % 4]);
   wiggle();
   lastActivity = millis();
-  smileAt = millis() + 520;                            // びっくりのあとに笑う
+  smileAt = millis() + 520;                            // びっくりのあとに笑う(なでなで: うれしい顔)
 }
 
 #ifndef TOUCH_REACT
-#define TOUCH_REACT 0   // 頭タッチへの反応は無効(センサーが誤検出するため)
+#define TOUCH_REACT 1   // 頭のてっぺんを撫でると反応する(誤検出対策は touchStep にある)
 #endif
 // 誤検出対策: 感度を下げ、首が動いている間・再生中は無視し、強さ2以上を0.25秒以上続けて触られたときだけ反応する
 static void touchStep() {

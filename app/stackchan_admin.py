@@ -1179,6 +1179,10 @@ class Win(QMainWindow):
         for label, v in (("やさしい(続けやすい文字で答える)", "easy"), ("ふつう", "normal"), ("つよい(続けにくい文字で答える)", "hard")):
             self.g_level.addItem(label, v)
         l.addLayout(hrow(self.g_first, self.g_level, btn("▶ 全台であそぶ", lambda: self.game_go(None)), btn("■ 全部やめる", lambda: self.act("game_stop"), name="bad")))
+        self.g_kid = QCheckBox("子どもモード: 子どもが話しかけたら、その機器のキャラがやさしく返事をする(オフにすると、ふつうの通訳に戻ります)")
+        self.g_kid.setChecked(True)
+        self.g_kid.toggled.connect(lambda on: self.act("kid_set", {"on": on}))
+        l.addWidget(self.g_kid)
         self.g_stat = muted("")
         l.addWidget(self.g_stat)
         self.g_wrap = QWidget()
@@ -1735,6 +1739,8 @@ class Win(QMainWindow):
         self.render_auto(s.get("auto"))
         self.render_journal(s.get("journal"))
         self.render_game(s.get("game"), s.get("devices"))
+        if s.get("kid_on") is not None and self.g_kid.isChecked() != s["kid_on"] and not self.g_kid.hasFocus():
+            self.g_kid.blockSignals(True); self.g_kid.setChecked(bool(s["kid_on"])); self.g_kid.blockSignals(False)
         self.render_phrases()
         self.render_people(s.get("people"))
         self.render_turns()

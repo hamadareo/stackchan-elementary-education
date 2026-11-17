@@ -749,3 +749,60 @@ class GameHubTests(unittest.TestCase):
         self.assertTrue(self._wait(lambda: not gh.on))
         self.assertFalse(gh.start("kid", "easy", ["zzz"])[0])
 
+
+
+class KidChatTests(unittest.TestCase):
+    def setUp(self):
+        import kidchat
+        self.k = kidchat
+        self.sent, self.spoke = [], []
+
+        class Eng:
+            def __init__(s, out): s.out = out
+            def translate(s, m): return s.out, "x"
+            def speech_pcm_as(s, text, voice, emotion=None): return b"\0" * 480
+
+        class Sess:
+            dev_id, voice = "d1", None
+            def __init__(s, outer, eng): s.o, s.eng = outer, eng
+            def send(s, j): s.o.sent.append(j)
+            def _send_pcm(s, pcm, caption="", lang="ja"): s.o.spoke.append(caption); return 0.0
+
+        class Hub:
+            kid_on = True; game = None; discuss = type("D", (), {"persona_of": lambda s, i: 0})()
+            def discussing(s): return False
+        self.Eng, self.Sess, self.hub = Eng, Sess, Hub()
+
+    def run_reply(self, text, out="【喜び】こんにちは、げんきだね！", lang="ja"):
+        kc = self.k.KidChat(self.hub, clock=lambda: 1e9)
+        s = self.Sess(self, self.Eng(out))
+        r = kc.hear(s, text, lang)
+        for _ in range(100):
+            if not kc.speaking:
+                break
+            time.sleep(0.05)
+        return kc, r
+
+    def test_replies_in_japanese(self):
+        kc, r = self.run_reply("こんにちは、ぼくはたろうだよ")
+        self.assertTrue(r)
+        self.assertEqual(self.spoke, ["こんにちは、げんきだね！"])
+        self.assertIn("thinking", [x.get("state") for x in self.sent])
+
+    def test_ignores_other_cases(self):
+        self.assertFalse(self.run_reply("Hello there", lang="en")[1])         # 日本語以外は翻訳へ
+        self.assertFalse(self.run_reply("あー")[1])                              # あいづち・雑音
+        self.hub.kid_on = False
+        self.assertFalse(self.run_reply("こんにちは")[1])                        # オフ
+        self.hub.kid_on = True
+        self.hub.game = type("G", (), {"on": True})()
+        self.assertFalse(self.run_reply("こんにちは")[1])                        # しりとり中
+        self.assertEqual(self.spoke, [])
+
+    def test_sensitive_gets_safe_answer_and_reply_is_trimmed(self):
+        self.run_reply("おばけってこわい話してよ")
+        self.assertIn(self.spoke[-1], self.k.SAFE)
+        emo, line = self.k.clean_reply("<think>x</think>【驚き】「すごいね！」ほんとう？やったね！まだまだつづくよ。" + "あ" * 80)
+        self.assertEqual(emo, "surprise")
+        self.assertLessEqual(len(line), 61)
+        self.assertEqual(line.count("！") + line.count("？"), 2)

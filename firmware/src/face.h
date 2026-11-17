@@ -5,6 +5,7 @@
 #include <Avatar.h>
 #include <faces/FaceTemplates.hpp>   // M5Stack-Avatar 同梱の顔(MIT ライセンス): まる目・ガーリー・小悪魔・わんこ など
 #include <faces/DogFace.h>
+#include "zunda_image_face.h"      // ずんだもんのイラストの顔(口が動く)
 
 namespace m5avatar { extern void (*avatarPostDraw)(); extern char avatarCaption[512]; extern volatile uint32_t avatarCaptionSeq; }   // lib/M5Stack-Avatar に追加したフック(顔の描画タスクから呼ばれる)
 
@@ -29,8 +30,8 @@ static void apply(Emo e) {
 }
 
 // ---- 顔の種類(M5Stack-Avatar に同梱されている MIT ライセンスの顔と、その色)。ブリッジから {"t":"faceStyle","id":N} で切り替える ----
-static const int STYLE_N = 7;
-static const char *STYLE_NAME[STYLE_N] = {"標準", "まる目(OωO)", "ガーリー", "ガーリー(リボン)", "ピンクの小悪魔", "わんこ", "シンプル(o_o)"};
+static const int STYLE_N = 8;
+static const char *STYLE_NAME[STYLE_N] = {"標準", "まる目(OωO)", "ガーリー", "ガーリー(リボン)", "ピンクの小悪魔", "わんこ", "シンプル(o_o)", "ずんだもん(イラスト)"};
 static m5avatar::Face *styleFace[STYLE_N] = {nullptr};   // 一度作ったら使い回す(切り替えるたびに作らない)
 static int styleNow = 0;
 static void setStyle(int id) {
@@ -45,14 +46,16 @@ static void setStyle(int id) {
       case 4: styleFace[id] = new PinkDemonFace(); break;
       case 5: styleFace[id] = new DogFace(); break;
       case 6: styleFace[id] = new SimpleFace(); break;
+      case 7: styleFace[id] = new ZundaArtFace(); break;
       default: styleFace[id] = styleFace[0]; break;
     }
   }
-  static const uint8_t RGB[STYLE_N][3] = {{255, 255, 255}, {150, 235, 150}, {255, 150, 200}, {200, 160, 255}, {255, 100, 170}, {255, 190, 110}, {120, 220, 255}};
+  static const uint8_t RGB[STYLE_N][3] = {{255, 255, 255}, {150, 235, 150}, {255, 150, 200}, {200, 160, 255}, {255, 100, 170}, {255, 190, 110}, {120, 220, 255}, {255, 255, 255}};
   ColorPalette cp;
   cp.set(COLOR_PRIMARY, M5.Display.color565(RGB[id][0], RGB[id][1], RGB[id][2]));
-  cp.set(COLOR_BACKGROUND, 0x0000);
+  cp.set(COLOR_BACKGROUND, id == 7 ? M5.Display.color565(ZART_BG[0], ZART_BG[1], ZART_BG[2]) : 0x0000);   // イラストの顔は背景も緑
   avatar.setColorPalette(cp);
+  avatar.setColorDepth(id == 7 ? 16 : 1);                  // イラストはカラー、ほかは白黒の顔(色はパレット)
   avatar.setFace(styleFace[id]);
   styleNow = id;
 }

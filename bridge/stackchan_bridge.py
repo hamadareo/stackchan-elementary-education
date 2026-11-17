@@ -42,6 +42,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import admin  # noqa: E402  管理画面
+import kidchat  # noqa: E402  子どもモード
 import devices as _devices  # noqa: E402  機器台帳(顔の種類の表)
 
 sys.path.insert(0, os.environ.get("TSUYAKU_SRC", "/Users/work/tsuyaku/src"))
@@ -833,6 +834,31 @@ class Session:
                 print(f"[bridge] 電池 {j.get('v')}V ({j.get('pct')}%{' 充電中' if j.get('chg') else ''})", flush=True)
         elif t == "event":
             print(f"[bridge] 端末イベント: {j}", flush=True)
+            if j.get("name") == "touch":
+                self.on_pat()
+
+    PAT_LINES = {                                   # 頭を撫でられたときの一言(キャラごと)。子どもにやさしい言葉だけ
+        0: ["えへへ、くすぐったいのだ", "なでなで、うれしいのだ", "もっとなでてほしいのだ"],
+        1: ["あら、ありがとう。うれしいわ", "ふふ、くすぐったいわ", "なでてくれて、ありがとう"],
+        2: ["えへへ、うれしいな", "わあ、なでなでだ！", "くすぐったいよ〜"],
+    }
+
+    def on_pat(self) -> None:
+        """頭を撫でられた: 話し中・しりとり中・会話中でなければ、キャラの声で一言返す(10秒に1回まで)。"""
+        now = time.time()
+        if now - getattr(self, "_pat_at", 0.0) < 10.0 or "ja" not in self.pair:
+            return
+        g = getattr(admin.HUB, "game", None)
+        if (g is not None and g.snapshot().get("on")) or admin.HUB.discussing():
+            return
+        self._pat_at = now
+        try:
+            k = admin.HUB.discuss.persona_of(self.dev_id) % 3
+        except Exception:  # noqa: BLE001
+            k = 0
+        ls = self.PAT_LINES[k]
+        self._pat_n = getattr(self, "_pat_n", 0) + 1
+        threading.Thread(target=lambda: self.say(ls[self._pat_n % len(ls)], "ja", "happy"), daemon=True).start()
 
     def resend(self, seq: int) -> None:
         """端末が「欠けた」と知らせた音声を、1回だけ送り直す。"""
@@ -1013,6 +1039,9 @@ class Session:
                     if _g is not None and _g.hear(text, lang, getattr(self, "dev_id", "")):   # この機器がしりとり中なら、子どもの声を教材へ(翻訳しない)
                         continue
                     if self._voice_cmd(text):                  # 「音量上げて」などは翻訳せず端末を操作する
+                        continue
+                    _k = getattr(admin.HUB, "kid", None)
+                    if _k is not None and _k.hear(self, text, lang):        # 子どもが話しかけた: キャラが返事をする(翻訳しない)
                         continue
                     units = self.ep.push(seg, lo, hi, text, lang, now=time.time() - self.t0, pre=pre)
                 for u in units:
@@ -1424,6 +1453,7 @@ def main() -> None:
     admin.HUB.discuss = discuss.Discussion(admin.HUB, admin.REG, lambda: eng)
     import shiritori
     admin.HUB.game = shiritori.GameHub(admin.HUB, admin.REG, admin.HUB.discuss, lambda: eng)
+    admin.HUB.kid = kidchat.KidChat(admin.HUB)
     admin.HUB.auto = autonomy.Autonomy(admin.HUB, admin.REG, admin.HUB.discuss, lambda: eng)
     threading.Thread(target=admin.HUB.auto.run, daemon=True).start()
     try:                                                              # Ubuntu の USB に挿した機器を認識し、新品なら書き込む

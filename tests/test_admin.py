@@ -67,7 +67,7 @@ class HubTests(unittest.TestCase):
         self.assertTrue(h.act("face_style", {"id": "aabbccddeeff", "style": 4})["ok"])
         self.assertEqual(admin.REG.get("aabbccddeeff")["face"], 4)
         self.assertEqual(h._face_of(admin.REG.get("aabbccddeeff")), 4)
-        self.assertEqual(len(devices.FACE_STYLES), 7)
+        self.assertEqual(len(devices.FACE_STYLES), 8)
         self.assertTrue(all(0 <= i < len(devices.FACE_STYLES) for i in devices.DEFAULT_FACE))
 
     def test_stop_command_stops_autonomy(self):

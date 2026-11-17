@@ -34,6 +34,8 @@ class Hub:
         self.discuss = None              # 3人会話モード(ブリッジが起動時に設定)
         self.auto = None                 # 完全自立モード(自分たちで話題を決めて話し始める)
         self.game = None                 # 子供たちの教材(しりとり)
+        self.kid = None                  # 子どもモード(子どもが話しかけたら、キャラが返事をする)
+        self.kid_on = True
         self.usb = None                  # USB 監視(同上)
         self.sessions: list = []
         self.turns: list = []            # 直近の通訳(新しい順に最大 40)
@@ -81,7 +83,7 @@ class Hub:
     # ---- 設定の保存と復元(再起動しても声・話速などを覚える) ----
     def save(self) -> None:
         e = self.engine
-        d = {"wave_on": self.wave_on, "wave_voice": self.wave_voice, "gate": self.gate_mult, "mode": self.mode, "track": self.track, "listen": self.listen, "phrases": self.phrases}
+        d = {"wave_on": self.wave_on, "wave_voice": self.wave_voice, "gate": self.gate_mult, "mode": self.mode, "track": self.track, "listen": self.listen, "phrases": self.phrases, "kid_on": self.kid_on}
         if e is not None:
             d["speed"] = getattr(e, "speed_scale", 1.0)
             d["voice"] = getattr(e, "voice_ja", None)
@@ -105,6 +107,7 @@ class Hub:
         self.gate_mult = max(1.0, min(4.0, float(d.get("gate", 1.5))))
         self.wave_on, self.wave_voice = bool(d.get("wave_on", True)), bool(d.get("wave_voice", True))
         self.track, self.listen = bool(d.get("track", True)), bool(d.get("listen", True))
+        self.kid_on = bool(d.get("kid_on", True))
         if isinstance(d.get("phrases"), list):
             self.phrases = d["phrases"][:12]
         for name, body in (("speed", {"scale": d.get("speed")}), ("vad", {"threshold": d.get("vad")}),
@@ -385,6 +388,7 @@ class Hub:
         st["devices"] = self.devices_state()
         st["discuss"] = self.discuss.snapshot() if self.discuss else None
         st["auto"] = self.auto.snapshot() if self.auto else None
+        st["kid_on"] = self.kid_on
         st["game"] = self.game.snapshot() if self.game else None
         st["face_styles"] = list(_devices.FACE_STYLES)
         st["journal"] = {"summary": self.discuss.journal.summary(), "items": self.discuss.journal.recent(20)} if self.discuss else None
@@ -445,7 +449,7 @@ class Hub:
 
     def act(self, name: str, body: dict, persist: bool = True) -> dict:
         r = self._act(name, body)
-        if persist and r.get("ok") and name in ("speed", "voice", "vad", "engine", "track", "listen", "phrases", "lang", "topic", "gate", "wave"):
+        if persist and r.get("ok") and name in ("speed", "voice", "vad", "engine", "track", "listen", "phrases", "lang", "topic", "gate", "wave", "kid_set"):
             self.save()
         return r
 
@@ -575,6 +579,17 @@ class Hub:
             if not self.game or not self.game.say(str(body.get("text", "")).strip()[:40], str(body.get("id", ""))):
                 return {"ok": False, "error": "いまは子どもの番ではありません"}
             return {"ok": True}
+        if name == "kid_set":                             # 子どもモードのオン・オフ
+            self.kid_on = bool(body.get("on", True))
+            self.event("子どもモード: " + ("オン(話しかけると返事をします)" if self.kid_on else "オフ"))
+            return {"ok": True}
+        if name == "kid_say":                             # 先生が、子どもの代わりに話しかける(声が聞き取れないとき・動作確認)
+            x = self.by_id(str(body.get("id", ""))) or (self.live()[0] if self.live() else None)
+            if x is None or not self.kid:
+                return {"ok": False, "error": "機器がありません"}
+            if self.kid.hear(x, str(body.get("text", "")), "ja"):
+                return {"ok": True}
+            return {"ok": False, "error": "いまは返事できません(子どもモードがオフ・会話中・しりとり中・話し中)"}
         if name == "auto_set":
             if not self.auto:
                 return {"ok": False, "error": "未対応"}

@@ -70,6 +70,7 @@ class Avatar {
   void setColorPalette(ColorPalette cp);
   void setFace(Face *face);
   void init(int colorDepth = 1);
+  void setColorDepth(int d) { colorDepth = d; }   // 顔によって白黒(1)とカラー(16)を切り替える(描画のたびに反映される)
   // expression i/o
   Expression getExpression();
   void setExpression(Expression exp);
