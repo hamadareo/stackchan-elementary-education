@@ -254,7 +254,7 @@ class Shiritori:
             pass
 
     # ---- 開始・終了
-    def start(self, first: str = "kid", level: str = "easy", dev_id: "str | None" = None) -> "tuple[bool, str]":
+    def start(self, first: str = "robot", level: str = "easy", dev_id: "str | None" = None) -> "tuple[bool, str]":
         if self.on:
             return False, "すでに遊んでいます(やめてから始めてください)"
         if self.discuss is not None and self.discuss.on:
@@ -518,7 +518,7 @@ class GameHub:
     def _guard_for(self, me):
         return lambda: any(g is not me and (g.speaking or g.clock() < g.quiet_until) for g in self.games.values())
 
-    def start(self, first: str = "kid", level: str = "easy", dev_ids: "list | None" = None) -> "tuple[bool, str]":
+    def start(self, first: str = "robot", level: str = "easy", dev_ids: "list | None" = None) -> "tuple[bool, str]":
         """dev_ids の機器それぞれで、独立にしりとりを始める(省略なら、接続中の全機器)。"""
         if self.discuss is not None and self.discuss.on:
             return False, "いまロボットが会話中です(止めてから始めてください)"

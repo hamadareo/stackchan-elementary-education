@@ -112,7 +112,7 @@ class KidChat:
             if getattr(h, "auto", None):
                 h.auto.set(enabled=False)
             h.listen = True
-            ok, _err = g.start("kid", "easy", [dev])
+            ok, _err = g.start("robot", "easy", [dev])
         except Exception as e:  # noqa: BLE001
             print(f"[bridge] しりとり開始失敗: {type(e).__name__}: {e}", flush=True)
             return False

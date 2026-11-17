@@ -1173,8 +1173,8 @@ class Win(QMainWindow):
         lay.setContentsMargins(0, 0, 0, 0)
         c, l = card("しりとり", "ロボット対子供たち。各機器が、自分の前にいる子供たちと、それぞれ独立にしりとりをします(3台は連携しません)。「ん」がついたら負け、同じ言葉は使えません")
         self.g_first = QComboBox()
-        self.g_first.addItem("子どもから始める", "kid")
         self.g_first.addItem("ロボットから始める", "robot")
+        self.g_first.addItem("子どもから始める", "kid")
         self.g_level = QComboBox()
         for label, v in (("やさしい(続けやすい文字で答える)", "easy"), ("ふつう", "normal"), ("つよい(続けにくい文字で答える)", "hard")):
             self.g_level.addItem(label, v)

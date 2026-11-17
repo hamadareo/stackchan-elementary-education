@@ -569,7 +569,7 @@ class Hub:
                     time.sleep(0.2)
             self.listen = True                            # 子どもの声を聞き取る(マイクがオフなら入れる)
             ids = body.get("devices")
-            ok, err = self.game.start(str(body.get("first", "kid")), str(body.get("level", "easy")), list(ids) if isinstance(ids, list) and ids else None)
+            ok, err = self.game.start(str(body.get("first", "robot")), str(body.get("level", "easy")), list(ids) if isinstance(ids, list) and ids else None)
             return {"ok": True} if ok else {"ok": False, "error": err}
         if name == "game_stop":
             if self.game:
