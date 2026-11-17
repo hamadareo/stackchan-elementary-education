@@ -12,7 +12,7 @@ static volatile size_t jpgLen = 0;
 static volatile bool ready = false;
 static volatile bool enabled = false;
 static volatile uint32_t frames = 0, failures = 0;
-static volatile uint32_t periodMs = 120;        // 撮影間隔(短いほど管理画面の映像・手の認識が滑らか。画像の送信は前の1枚が済んでから)
+static volatile uint32_t periodMs = 250;        // 撮影間隔(120ms にしても送られる枚数は増えず、負荷だけ増えたので 250ms)
 
 static bool initCam() {
   camera_config_t c = {};
