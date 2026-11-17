@@ -79,6 +79,11 @@ OPENERS = ["ねえねえ、きょうの きゅうしょくは なんだった？
            "すきな たべものを おしえて！", "おおきくなったら、なにに なりたい？", "さいきん、たのしかったことは ある？", "すきな いろは なにいろ？",
            "どんな おうちに すんでるの？", "いちばん とくいな ことは なあに？", "すきな うたは ある？", "きのうの よるは、なにを したの？"]
 NUDGES = ["ねえ、ほかにも おはなし しよう！", "ぼくは、もっと きいてみたいな。なにか おしえて！", "つぎは、なんの おはなしを する？", "しりとりか じゃんけんも できるよ！"]
+# 人(子ども)が見えたときの、ロボットからのあいさつ。{n} はそのキャラの名前。名前をたずねて、会話のきっかけにする
+GREETS = ["こんにちは！ぼくは{n}だよ。きみの なまえを おしえて！", "あっ、こんにちは！{n}だよ。いっしょに あそぼう！", "やあ、こんにちは！きょうは、なにして あそんだの？",
+          "こんにちは！{n}だよ。なぞなぞか、しりとりか、じゃんけんを しようよ！"]
+GREET_COOLDOWN = 120.0   # 同じ機器で、あいさつし直すまでの最短の秒数
+GREET_WAIT = 20.0        # 見つけてから、この秒数のうちに話せなければ、あいさつはやめる
 NUDGE_S = 9.0           # 子どもの返事が止まってから、自分から続きを話すまでの秒数
 ENGAGED_S = 120.0       # 子どもが最後に話してから、この間は「会話中」とみなす
 NUDGE_MAX = 2           # 返事がないとき、続けて話しかける回数(超えたら静かに待つ)
@@ -135,6 +140,8 @@ class KidChat:
         self.next_idle: dict = {}         # 機器 → 次に自分から話しかける時刻
         self.used: dict = {}              # 機器 → 使った話しかけ(重ならないように)
         self.rnd = __import__("random").Random()
+        self.greet_req: dict = {}         # 機器 → 人を見つけた時刻(あいさつ待ち)
+        self.last_greet: dict = {}        # 機器 → 最後にあいさつした時刻
 
     @property
     def enabled(self) -> bool:
@@ -334,6 +341,13 @@ class KidChat:
     def auto_on(self) -> bool:
         return bool(getattr(self.hub, "kid_auto", True))
 
+    def on_see(self, sess, now: "float | None" = None) -> None:
+        """カメラが「久しぶりに人を見つけた」。あいさつの順番を待たせる(話せる状態になったら、ロボットから声をかける)。"""
+        dev = getattr(sess, "dev_id", "")
+        now = self.clock() if now is None else now
+        if dev and now - self.last_greet.get(dev, -1e9) >= GREET_COOLDOWN:
+            self.greet_req[dev] = now
+
     def pending(self, sess, now: float) -> str:
         """この機器が、いま自分から話しかけるべきか。"nudge"(子どもが黙った) / "idle"(しばらく静か) / ""。"""
         dev = getattr(sess, "dev_id", "")
@@ -345,6 +359,12 @@ class KidChat:
         if any(getattr(getattr(self.hub, n, None), "on", False) for n in ("janken", "quiz")):
             return ""
         kid_t, end_t = self.last_kid.get(dev, 0.0), self.last_end.get(dev, 0.0)
+        req = self.greet_req.get(dev)
+        if req is not None:
+            if now - req > GREET_WAIT or now - kid_t < 30.0:
+                self.greet_req.pop(dev, None)                   # 待ちすぎ・もう話している: あいさつはしない
+            elif getattr(self.hub, "edu_on", False):
+                return "greet"
         if kid_t and now - kid_t < ENGAGED_S and self.nudges.get(dev, 0) < NUDGE_MAX:
             return "nudge" if now - max(kid_t, end_t) >= NUDGE_S else ""
         if kid_t and now - kid_t < ENGAGED_S:
@@ -366,6 +386,10 @@ class KidChat:
                 dev = getattr(sess, "dev_id", "")
                 if kind == "nudge":
                     self.nudges[dev] = self.nudges.get(dev, 0) + 1
+                if kind == "greet":
+                    self.greet_req.pop(dev, None)
+                    self.last_greet[dev] = now
+                    self.last_kid[dev], self.nudges[dev] = now, 0        # あいさつしたら会話中にして、返事がなければ続きを質問する
                 self.next_idle[dev] = now + self.rnd.uniform(*IDLE_S)
                 threading.Thread(target=self._initiate, args=(sess, kind), daemon=True).start()
                 return True
@@ -391,7 +415,7 @@ class KidChat:
                 if line and (SENSITIVE.search(line) or any(line == r or (len(line) > 6 and line[:8] == r[:8]) for r in recent)):
                     line = ""                                       # 危ない話題・さっきと同じ話しかけは使わず、決まった質問にする
             if not line:
-                pool = OPENERS if kind == "idle" else NUDGES
+                pool = [g.format(n=name) for g in GREETS] if kind == "greet" else OPENERS if kind == "idle" else NUDGES
                 used = self.used.setdefault(dev, [])
                 left = [t for t in pool if t not in used] or pool
                 line = self.rnd.choice(left)

@@ -1019,6 +1019,34 @@ class KidChatTests(unittest.TestCase):
             def discussing(s): return False
         self.Eng, self.Sess, self.hub = Eng, Sess, Hub()
 
+    def test_greets_when_person_seen(self):
+        t = [1000.0]
+        kc = self.k.KidChat(self.hub, clock=lambda: t[0])
+        s = self.Sess(self, self.Eng("【喜び】いいね！"))
+        s.eng.last_voice = 0.0
+        self.hub.live = lambda: [s]
+        self.hub.kid_auto = True
+        self.hub.edu_on = True
+        kc.on_see(s, t[0])
+        self.assertEqual(kc.pending(s, t[0]), "greet")
+        self.assertTrue(kc.tick(t[0]))
+        for _ in range(100):
+            if not kc.speaking:
+                break
+            time.sleep(0.05)
+        self.assertEqual(len(self.spoke), 1)
+        self.assertIn("こんにちは", self.spoke[0])
+        t[0] += 30
+        t0 = t[0] - 30
+        kc.on_see(s, t[0])                                         # すぐにまた見つけても、あいさつし直さない
+        self.assertNotEqual(kc.pending(s, t[0]), "greet")
+        t[0] += 200
+        kc.on_see(s, t[0])                                         # しばらくして見つけたら、また声をかける
+        kc.last_kid["d1"] = 0.0
+        self.assertEqual(kc.pending(s, t[0]), "greet")
+        t[0] += self.k.GREET_WAIT + 1                              # 話せないまま待ちすぎたら、やめる
+        self.assertNotEqual(kc.pending(s, t[0]), "greet")
+
     def test_autonomous_nudge_and_idle(self):
         t = [1000.0]
         kc = self.k.KidChat(self.hub, clock=lambda: t[0])

@@ -718,6 +718,13 @@ class Hub:
             self.kid_auto = bool(body.get("on", True))
             self.event("自分から話しかける: " + ("オン" if self.kid_auto else "オフ(話しかけられたときだけ返事)"))
             return {"ok": True}
+        if name == "kid_greet":                           # 先生が、ロボットから声をかけさせる(人を見つけたときと同じ動き)
+            x = self.by_id(str(body.get("id", ""))) or (self.live()[0] if self.live() else None)
+            if x is None or not self.kid:
+                return {"ok": False, "error": "機器がありません"}
+            self.kid.last_greet.pop(getattr(x, "dev_id", ""), None)
+            self.kid.on_see(x)
+            return {"ok": True}
         if name == "kid_say":                             # 先生が、子どもの代わりに話しかける(声が聞き取れないとき・動作確認)
             x = self.by_id(str(body.get("id", ""))) or (self.live()[0] if self.live() else None)
             if x is None or not self.kid:
