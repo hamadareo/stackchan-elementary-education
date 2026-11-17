@@ -183,6 +183,17 @@ class Engine:
                     if po:
                         self.stt.langs = po
                     print("[bridge] 耳: s109 GPU に切り替えました", flush=True)
+                bad = self.__dict__.setdefault("_llm_bad", {})
+                if len(self.llm) > 1:                                  # 翻訳の置き場所を先に確かめる: 届くなら s109 を使い、届かないなら最初からこのサーバーへ
+                    for label, base, _m in self.llm:
+                        try:
+                            ok = requests.get(base.rstrip("/") + "/v1/models", timeout=1.0).ok
+                        except Exception:  # noqa: BLE001
+                            ok = False
+                        if ok:
+                            bad.pop(label, None)
+                        else:
+                            bad[label] = time.time() + every + 2.0
                 have = {c[0] for c in self.llm_all}
                 found = []
                 for label, base, pref in engine_candidates(self.engine_arg, self.s.host, None, None):
