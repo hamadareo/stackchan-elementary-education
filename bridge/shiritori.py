@@ -85,6 +85,24 @@ WORDS = """
 ぷーる ぷらむ
 ぺこぺこ ぺったんこ
 ぽすと ぽけっと ぽっけ
+るーる るびー るーれっと るーぺ
+ずがこうさく ずんぐり ずっこけ ずぶぬれ
+げっぷ げんきもの げらげら げきじょう
+ぞろぞろ ぞうげ ぞうに
+ぷりぷり ぷかぷか ぷろぺら
+ぺらぺら ぺたぺた ぺーじ
+ぎんが ぎゃく ぎざぎざ
+ぐるぐる ぐあい ぐらうんど
+ざぶざぶ ざいりょう
+ぜんぶ ぜいたく
+だんす だいどころ だっこ だいず
+でこぼこ でんち でんき
+ぱらそる ぱずる ぱれーど
+びーる びっくり びんぼう
+ぴかぴか ぴくにっく
+べんきょう べらんだ べろ
+ぼたもち ぼうえんきょう ぼやぼや
+ぽかぽか ぽてと ぽりぽり
 """.split()
 
 # 子どもが漢字・かたかなで言いそうな言葉(STT の出力)→ よみ
@@ -165,10 +183,12 @@ def choose_word(need: str, used: set, level: str, rnd) -> "str | None":
     cands = available(need, used) if need else [w for w in WORDS if w not in used and last_char(w) != "ん"]
     if not cands:
         return None
+    # 次の人が使える言葉の数(多い=続けやすい)。行き止まりに近い文字で終わる言葉は、どのレベルでも避ける(ロボットが先に詰まらないように)
+    score = {w: len(available(last_char(w), used | {w})) for w in cands}
+    floor = 2 if level == "hard" else 3
+    cands = [w for w in cands if score[w] >= floor] or cands
     if level == "normal":
         return rnd.choice(cands)
-    # 次の人が使える言葉の数(多い=続けやすい)で並べる
-    score = {w: len(available(last_char(w), used | {w})) for w in cands}
     ordered = sorted(cands, key=lambda w: score[w], reverse=(level == "easy"))
     top = ordered[:max(2, len(ordered) // 3)]
     return rnd.choice(top)

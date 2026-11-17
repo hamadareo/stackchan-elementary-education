@@ -568,6 +568,8 @@ class ShiritoriTests(unittest.TestCase):
         self.assertFalse([w for w in W if s.last_char(w) == "ん"])                    # ロボットは「ん」で負けない
         self.assertEqual(len(W), len(set(W)))
         self.assertFalse([w for w in W if not s.available(s.last_char(w), {w})])     # 行き止まりの言葉が無い
+        for c, ws in s.INDEX.items():
+            self.assertGreaterEqual(len([w for w in ws if s.last_char(w) != "ん"]), 4, c)     # どの文字から始まる言葉も、4 語以上
         import random
         r = random.Random(1)
         for lv in ("easy", "normal", "hard"):
