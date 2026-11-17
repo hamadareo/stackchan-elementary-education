@@ -55,6 +55,9 @@ def clean_reply(out: str, prev: str = "neutral") -> "tuple[str, str]":
     return emo, body
 
 
+SHIRITORI = re.compile(r"しりとり|尻取り|しりとろ|しり取り")
+
+
 class KidChat:
     """機器ごとの短い会話の記憶と、返事の発話。全機器で同時には 1 人しか話さない。"""
 
@@ -86,6 +89,8 @@ class KidChat:
         """この機器で聞き取った言葉。返事をする(別スレッド)なら True。しないなら、ふつうの翻訳に任せる(False)。"""
         if lang != "ja" or not worth_answering(text) or self.blocked():
             return False
+        if SHIRITORI.search(text) and self._start_shiritori(sess):      # 「しりとりしよう」: その機器でしりとりを始める
+            return True
         if not self.busy.acquire(blocking=False):
             return True                                      # 返事を考え中の子どもの声は、翻訳せず捨てる
         self.speaking = True
@@ -95,6 +100,25 @@ class KidChat:
             pass
         threading.Thread(target=self._reply, args=(sess, text.strip()), daemon=True).start()
         return True
+
+    def _start_shiritori(self, sess) -> bool:
+        """子どもの「しりとりしよう」で、この機器だけしりとりを始める(自律モードは止める)。始められなければ False。"""
+        h = self.hub
+        g = getattr(h, "game", None)
+        dev = getattr(sess, "dev_id", "")
+        if g is None or not dev:
+            return False
+        try:
+            if getattr(h, "auto", None):
+                h.auto.set(enabled=False)
+            h.listen = True
+            ok, _err = g.start("kid", "easy", [dev])
+        except Exception as e:  # noqa: BLE001
+            print(f"[bridge] しりとり開始失敗: {type(e).__name__}: {e}", flush=True)
+            return False
+        if ok:
+            print("[bridge] 子どもの声でしりとりを始めました", flush=True)
+        return bool(ok)
 
     def _reply(self, sess, text: str) -> None:
         try:

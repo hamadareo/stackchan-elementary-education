@@ -44,6 +44,14 @@ class RegistryTest(unittest.TestCase):
         self.assertEqual(q.touch("c", "")[0]["name"], "StackChan-1")   # 空いた番号を使う
 
 
+class KidShiritoriTriggerTests(unittest.TestCase):
+    def test_trigger_words(self):
+        import kidchat
+        for w in ("しりとりしよう", "しりとりやろう", "尻取りしたい"):
+            self.assertTrue(kidchat.SHIRITORI.search(w), w)
+        self.assertFalse(kidchat.SHIRITORI.search("こんにちは"))
+
+
 if __name__ == "__main__":
     unittest.main()
 
@@ -806,3 +814,4 @@ class KidChatTests(unittest.TestCase):
         self.assertEqual(emo, "surprise")
         self.assertLessEqual(len(line), 61)
         self.assertEqual(line.count("！") + line.count("？"), 2)
+
