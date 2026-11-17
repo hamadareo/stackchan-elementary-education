@@ -55,6 +55,7 @@ def clean_reply(out: str, prev: str = "neutral") -> "tuple[str, str]":
     return emo, body
 
 
+JANKEN = re.compile(r"じゃんけん|ジャンケン|じゃん拳")
 SHIRITORI = re.compile(r"しりとり|尻取り|しりとろ|しり取り")
 
 
@@ -89,6 +90,8 @@ class KidChat:
         """この機器で聞き取った言葉。返事をする(別スレッド)なら True。しないなら、ふつうの翻訳に任せる(False)。"""
         if lang != "ja" or not worth_answering(text) or self.blocked():
             return False
+        if JANKEN.search(text) and self._start_janken(sess):            # 「じゃんけんしよう」: その機器でじゃんけんを始める
+            return True
         if SHIRITORI.search(text) and self._start_shiritori(sess):      # 「しりとりしよう」: その機器でしりとりを始める
             return True
         if not self.busy.acquire(blocking=False):
@@ -100,6 +103,24 @@ class KidChat:
             pass
         threading.Thread(target=self._reply, args=(sess, text.strip()), daemon=True).start()
         return True
+
+    def _start_janken(self, sess) -> bool:
+        h = self.hub
+        j = getattr(h, "janken", None)
+        dev = getattr(sess, "dev_id", "")
+        if j is None or not dev:
+            return False
+        try:
+            if getattr(h, "auto", None):
+                h.auto.set(enabled=False)
+            h.listen = True
+            ok, _err = j.start("robot", "easy", [dev])
+        except Exception as e:  # noqa: BLE001
+            print(f"[bridge] じゃんけん開始失敗: {type(e).__name__}: {e}", flush=True)
+            return False
+        if ok:
+            print("[bridge] 子どもの声でじゃんけんを始めました", flush=True)
+        return bool(ok)
 
     def _start_shiritori(self, sess) -> bool:
         """子どもの「しりとりしよう」で、この機器だけしりとりを始める(自律モードは止める)。始められなければ False。"""

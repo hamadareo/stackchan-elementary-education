@@ -487,6 +487,10 @@ class Shiritori:
 
 
 class GameHub:
+    CLS = None                                  # 1 台ぶんのゲームのクラス(省略時は Shiritori)。じゃんけんなどが差し替える
+    SKEY = ""                                   # 記録ファイルの中の置き場所(空なら最上位の best/plays)
+    KEYS = ("best", "plays")
+    LABEL = "しりとり"
     """機器ごとに、独立したしりとりを持つ管理役。実際の現場は「ロボット対子どもたち」なので、3 台は連携せず、
     各機器が自分のマイク・スピーカーで、自分の前にいる子どもたちとだけ遊ぶ。ただし、ほかの機器が話している間は、
     その声の回り込みを聞き取らないよう、どの機器も聞き取りを止める。"""
@@ -497,24 +501,46 @@ class GameHub:
         self.rnd = rnd
         self.games: dict = {}
         self.lock = threading.Lock()
-        self.stats = {"best": 0, "plays": 0}
+        self.peer = None                        # もう一つの教材(しりとり↔じゃんけん)。同じ機器で 2 つ同時に動かさないために見る
+        self.stats = {k: 0 for k in self.KEYS}
         try:
-            self.stats.update({k: int(v) for k, v in json.load(open(self.path)).items() if k in ("best", "plays")})
-        except (OSError, ValueError):
+            d = json.load(open(self.path))
+            d = d.get(self.SKEY, {}) if self.SKEY else d
+            self.stats.update({k: int(v) for k, v in d.items() if k in self.KEYS})
+        except (OSError, ValueError, AttributeError):
             pass
 
     def save(self) -> None:
+        """記録ファイルは、ほかの教材と共有する。自分の分だけ書き換える。"""
         try:
+            try:
+                allv = json.load(open(self.path))
+                if not isinstance(allv, dict):
+                    allv = {}
+            except (OSError, ValueError):
+                allv = {}
+            if self.SKEY:
+                allv[self.SKEY] = dict(self.stats)
+            else:
+                allv.update(self.stats)
             fd = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
             with os.fdopen(fd, "w") as f:
-                json.dump(self.stats, f)
+                json.dump(allv, f)
         except OSError:
             pass
 
     @property
-    def on(self) -> bool:
+    def own_on(self) -> bool:
         return any(g.on for g in self.games.values())
 
+    @property
+    def on(self) -> bool:
+        """教材がどれか動いているか(会話・自律・子どもモードが、ぶつからないように見る)。"""
+        return self.own_on or bool(self.peer is not None and self.peer.own_on)
+
+    def dev_busy(self, dev_id: str) -> bool:
+        g = self.games.get(dev_id)
+        return bool(g and g.on)
     def _guard_for(self, me):
         return lambda: any(g is not me and (g.speaking or g.clock() < g.quiet_until) for g in self.games.values())
 
@@ -528,9 +554,12 @@ class GameHub:
             return False, "接続中の機器がありません"
         started, err = [], ""
         for i in ids:
+            if self.peer is not None and self.peer.dev_busy(i):
+                err = f"この機器は、いま{self.peer.LABEL}で遊んでいます"
+                continue
             g = self.games.get(i)
             if g is None:
-                g = self.games[i] = Shiritori(self.hub, self.reg, self.discuss, self.eng_getter, self.path, self.rnd, stats=self.stats, save_cb=self.save)
+                g = self.games[i] = (self.CLS or Shiritori)(self.hub, self.reg, self.discuss, self.eng_getter, self.path, self.rnd, stats=self.stats, save_cb=self.save)
                 g.guard = self._guard_for(g)
             ok, e = g.start(first, level, dev_id=i)
             if ok:
@@ -559,4 +588,4 @@ class GameHub:
 
     def snapshot(self) -> dict:
         gs = [g.snapshot() for g in self.games.values() if g.robots]
-        return {"on": self.on, "games": gs, "best": self.stats["best"], "plays": self.stats["plays"]}
+        return {"on": self.own_on, "games": gs, "best": self.stats.get("best", 0), "plays": self.stats.get("plays", 0)}

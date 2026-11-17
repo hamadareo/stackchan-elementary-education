@@ -34,6 +34,7 @@ class Hub:
         self.discuss = None              # 3人会話モード(ブリッジが起動時に設定)
         self.auto = None                 # 完全自立モード(自分たちで話題を決めて話し始める)
         self.game = None                 # 子供たちの教材(しりとり)
+        self.janken = None               # 子供たちの教材(じゃんけん)
         self.kid = None                  # 子どもモード(子どもが話しかけたら、キャラが返事をする)
         self.kid_on = True
         self.edu_on = False              # 教材モード(オンの間は、翻訳・3人会話・自律会話など教材と関係ないものを止める)
@@ -393,6 +394,7 @@ class Hub:
         st["kid_on"] = self.kid_on
         st["edu_on"] = self.edu_on
         st["game"] = self.game.snapshot() if self.game else None
+        st["janken"] = self.janken.snapshot() if self.janken else None
         st["face_styles"] = list(_devices.FACE_STYLES)
         st["journal"] = {"summary": self.discuss.journal.summary(), "items": self.discuss.journal.recent(20)} if self.discuss else None
         st["usb"] = self.usb.snapshot() if getattr(self, "usb", None) else []
@@ -574,6 +576,28 @@ class Hub:
             ids = body.get("devices")
             ok, err = self.game.start(str(body.get("first", "robot")), str(body.get("level", "easy")), list(ids) if isinstance(ids, list) and ids else None)
             return {"ok": True} if ok else {"ok": False, "error": err}
+        if name == "janken_start":                        # じゃんけんを始める(しりとりと同じ: 会話・自律は止める。機器ごとに独立)
+            if not self.janken:
+                return {"ok": False, "error": "未対応"}
+            if self.auto:
+                self.auto.set(enabled=False)
+            if self.discuss and self.discuss.on:
+                self.discuss.stop()
+                t0 = time.time()
+                while self.discuss.on and time.time() - t0 < 8:
+                    time.sleep(0.2)
+            self.listen = True
+            ids = body.get("devices")
+            ok, err = self.janken.start("robot", "easy", list(ids) if isinstance(ids, list) and ids else None)
+            return {"ok": True} if ok else {"ok": False, "error": err}
+        if name == "janken_stop":
+            if self.janken:
+                self.janken.stop(str(body.get("id", "")) or None)
+            return {"ok": True}
+        if name == "janken_say":                          # 先生が、子どもの代わりに手(ぐー/ちょき/ぱー)を入れる
+            if not self.janken or not self.janken.say(str(body.get("text", "")).strip()[:40], str(body.get("id", ""))):
+                return {"ok": False, "error": "いまは子どもの番ではありません"}
+            return {"ok": True}
         if name == "game_stop":
             if self.game:
                 self.game.stop(str(body.get("id", "")) or None)
@@ -591,8 +615,11 @@ class Hub:
                     self.discuss.stop()
                 self.kid_on = True
                 self.listen = True
-            elif self.game:
-                self.game.stop(None)
+            else:
+                if self.game:
+                    self.game.stop(None)
+                if self.janken:
+                    self.janken.stop(None)
             self.event("教材モード: " + ("オン(翻訳・3人会話・自律会話はオフ)" if self.edu_on else "オフ(ふつうの通訳に戻ります)"))
             return {"ok": True}
         if name == "kid_set":                             # 子どもモードのオン・オフ

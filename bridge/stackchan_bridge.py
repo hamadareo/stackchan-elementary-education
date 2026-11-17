@@ -1038,6 +1038,9 @@ class Session:
                     _g = getattr(admin.HUB, "game", None)
                     if _g is not None and _g.hear(text, lang, getattr(self, "dev_id", "")):   # この機器がしりとり中なら、子どもの声を教材へ(翻訳しない)
                         continue
+                    _j = getattr(admin.HUB, "janken", None)
+                    if _j is not None and _j.hear(text, lang, getattr(self, "dev_id", "")):   # この機器がじゃんけん中なら、手を教材へ(翻訳しない)
+                        continue
                     if self._voice_cmd(text):                  # 「音量上げて」などは翻訳せず端末を操作する
                         continue
                     _k = getattr(admin.HUB, "kid", None)
@@ -1455,6 +1458,9 @@ def main() -> None:
     admin.HUB.discuss = discuss.Discussion(admin.HUB, admin.REG, lambda: eng)
     import shiritori
     admin.HUB.game = shiritori.GameHub(admin.HUB, admin.REG, admin.HUB.discuss, lambda: eng)
+    import janken
+    admin.HUB.janken = janken.JankenHub(admin.HUB, admin.REG, admin.HUB.discuss, lambda: eng)
+    admin.HUB.game.peer, admin.HUB.janken.peer = admin.HUB.janken, admin.HUB.game          # 同じ機器で 2 つの教材を同時に動かさない
     admin.HUB.kid = kidchat.KidChat(admin.HUB)
     admin.HUB.auto = autonomy.Autonomy(admin.HUB, admin.REG, admin.HUB.discuss, lambda: eng)
     threading.Thread(target=admin.HUB.auto.run, daemon=True).start()

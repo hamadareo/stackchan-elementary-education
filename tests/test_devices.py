@@ -1,3 +1,4 @@
+import json
 import os, sys, tempfile, time, unittest
 os.environ["SC_JOURNAL"] = os.path.join(tempfile.mkdtemp(), "journal.json")      # 実際の活動記録に触れない
 os.environ["SC_PERSONA"] = os.path.join(tempfile.mkdtemp(), "persona.json")
@@ -815,3 +816,71 @@ class KidChatTests(unittest.TestCase):
         self.assertLessEqual(len(line), 61)
         self.assertEqual(line.count("！") + line.count("？"), 2)
 
+
+class JankenTests(unittest.TestCase):
+    def test_judge_all_nine(self):
+        import janken as j
+        want = {("gu", "gu"): "draw", ("gu", "choki"): "kid_win", ("gu", "pa"): "robot_win",
+                ("choki", "gu"): "robot_win", ("choki", "choki"): "draw", ("choki", "pa"): "kid_win",
+                ("pa", "gu"): "kid_win", ("pa", "choki"): "robot_win", ("pa", "pa"): "draw"}
+        for (k, r), res in want.items():
+            self.assertEqual(j.judge(k, r), res, (k, r))
+
+    def test_parse_hand(self):
+        import janken as j
+        ok = {"ぐー": "gu", "グー": "gu", "ぐう": "gu", "石": "gu", "いし": "gu", "ぐー！": "gu", "ぐーだよ": "gu",
+              "ちょき": "choki", "チョキ": "choki", "はさみ": "choki", "ちょ": "choki", "ハサミ": "choki",
+              "ぱー": "pa", "パー": "pa", "ぱあ": "pa", "紙": "pa", "かみ": "pa", "パーだよ！": "pa", "ぱ": "pa"}
+        for t, h in ok.items():
+            self.assertEqual(j.parse_hand(t), h, t)
+        for t in ("", "こんにちは", "ぐーちょきぱー", "ちょっと待って", "あしたはれるかな"):
+            self.assertIsNone(j.parse_hand(t), t)
+
+    def test_robot_hand_no_triple(self):
+        import janken as j, random
+        r = random.Random(1)
+        hist = []
+        for _ in range(400):
+            hist.append(j.pick_robot_hand(r, hist))
+        self.assertTrue(all(not (hist[i] == hist[i + 1] == hist[i + 2]) for i in range(len(hist) - 2)))
+        self.assertEqual(set(hist), set(j.HANDS))
+
+    def test_stats_saved_and_coexist(self):
+        import janken as j, shiritori as s
+        path = os.path.join(tempfile.mkdtemp(), "g.json")
+        json.dump({"best": 5, "plays": 7}, open(path, "w"))
+        jh = j.JankenHub(None, None, None, lambda: None, path)
+        jh.stats["wins"] = 3
+        jh.stats["streak_best"] = 2
+        jh.save()
+        d = json.load(open(path))
+        self.assertEqual((d["best"], d["plays"]), (5, 7))               # しりとりの記録は消えない
+        self.assertEqual(d["janken"]["wins"], 3)
+        sh = s.GameHub(None, None, None, lambda: None, path)           # しりとり側が保存しても、じゃんけんの記録は消えない
+        sh.stats["best"] = 9
+        sh.save()
+        d = json.load(open(path))
+        self.assertEqual((d["best"], d["janken"]["wins"]), (9, 3))
+        self.assertEqual(j.JankenHub(None, None, None, lambda: None, path).stats["streak_best"], 2)
+
+
+class JankenGameTests(GameHubTests):
+    def test_play_round_and_exclusive(self):
+        import janken as j, random
+        hub, said = self._mk()
+        jh = j.JankenHub(hub.hub, hub.reg, hub.discuss, hub.eng_getter, hub.path, random.Random(3))
+        hub.peer, jh.peer = jh, hub
+        self.assertTrue(jh.start("robot", "easy", ["a"])[0])
+        self.assertFalse(hub.start("robot", "easy", ["a"])[0])           # 同じ機器では、しりとりを同時に始めない
+        self.assertTrue(hub.on and jh.on)                                  # 片方が動けば、会話・自律などは「教材中」と見る
+        g = jh.games["a"]
+        self.assertTrue(self._wait(lambda: g.turn == "kid"))
+        time.sleep(1.6)
+        self.assertTrue(jh.say("ぐー", "a"))
+        self.assertTrue(self._wait(lambda: len(g.hands) == 1))
+        self.assertEqual(g.hands[0]["kid"], "gu")
+        self.assertEqual(g.wins + g.losses + g.draws, 1)
+        self.assertTrue(any("ぼく" in c or "わたし" in c for _n, c in said))
+        jh.stop()
+        self.assertTrue(self._wait(lambda: not g.on))
+        self.assertEqual(json.load(open(hub.path))["janken"]["plays"], 1)

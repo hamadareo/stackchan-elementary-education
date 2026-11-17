@@ -1178,7 +1178,6 @@ class Win(QMainWindow):
         self.g_level = QComboBox()
         for label, v in (("やさしい(続けやすい文字で答える)", "easy"), ("ふつう", "normal"), ("つよい(続けにくい文字で答える)", "hard")):
             self.g_level.addItem(label, v)
-        l.addLayout(hrow(self.g_first, self.g_level, btn("▶ 全台であそぶ", lambda: self.game_go(None)), btn("■ 全部やめる", lambda: self.act("game_stop"), name="bad")))
         self.g_edu = QCheckBox("教材モード: オンの間は、翻訳・3人会話・自律会話をすべて止めて、教材(話しかけの返事・しりとり)だけにします")
         self.g_edu.setStyleSheet("font-size:15px;font-weight:700;color:#ffb347;padding:4px")
         self.g_edu.toggled.connect(lambda on: self.act("edu_set", {"on": on}, "教材モードをオンにしました" if on else "教材モードをオフにしました"))
@@ -1188,7 +1187,6 @@ class Win(QMainWindow):
         self.g_kid.toggled.connect(lambda on: self.act("kid_set", {"on": on}))
         l.addWidget(self.g_kid)
         self.g_stat = muted("")
-        l.addWidget(self.g_stat)
         self.g_wrap = QWidget()
         self.g_wrap.setObjectName("gwrap")
         self.g_wrap.setStyleSheet("#gwrap{background:transparent}")
@@ -1199,13 +1197,130 @@ class Win(QMainWindow):
         sa.setStyleSheet("QScrollArea{background:transparent;border:0}")
         sa.viewport().setStyleSheet("background:transparent")
         sa.setWidget(self.g_wrap)
-        l.addWidget(sa, 1)
-        l.addWidget(muted("子どもの声は、その機器のマイクだけで聞き取ります。聞き取れないときは、各カードの「先生の入力」に言葉を入れてください。ほかの教材は、これから追加します。"))
+        sub = QTabWidget()
+        sh = QWidget()
+        shl = QVBoxLayout(sh)
+        shl.setContentsMargins(0, 6, 0, 0)
+        shl.addLayout(hrow(self.g_first, self.g_level, btn("▶ 全台であそぶ", lambda: self.game_go(None)), btn("■ 全部やめる", lambda: self.act("game_stop"), name="bad")))
+        shl.addWidget(self.g_stat)
+        shl.addWidget(sa, 1)
+        sub.addTab(sh, "しりとり")
+        sub.addTab(self.page_janken(), "じゃんけん")
+        l.addWidget(sub, 1)
+        l.addWidget(muted("子どもの声は、その機器のマイクだけで聞き取ります。聞き取れないときは、各カードの「先生の入力」に言葉を入れてください。同じ機器で、しりとりとじゃんけんは同時にできません。"))
         lay.addWidget(c, 1)
         self.g_key = ""
         self.g_struct = ""
         self.g_w: dict = {}
         return w
+
+    # ---------------- じゃんけん
+    def page_janken(self) -> QWidget:
+        w = QWidget()
+        v = QVBoxLayout(w)
+        v.setContentsMargins(0, 6, 0, 0)
+        v.addWidget(muted("ロボット対子供たち。各機器が、自分の前にいる子供たちと、独立にじゃんけんをします。「ぐー・ちょき・ぱー」を声で言ってもらいます。「やめる」で終わります"))
+        v.addLayout(hrow(btn("▶ 全台であそぶ", lambda: self.janken_go(None)), btn("■ 全部やめる", lambda: self.act("janken_stop"), name="bad")))
+        self.j_stat = muted("")
+        v.addWidget(self.j_stat)
+        self.j_wrap = QWidget()
+        self.j_wrap.setObjectName("jwrap")
+        self.j_wrap.setStyleSheet("#jwrap{background:transparent}")
+        self.j_l = QVBoxLayout(self.j_wrap)
+        self.j_l.setContentsMargins(0, 0, 0, 0)
+        sa = QScrollArea()
+        sa.setWidgetResizable(True)
+        sa.setStyleSheet("QScrollArea{background:transparent;border:0}")
+        sa.viewport().setStyleSheet("background:transparent")
+        sa.setWidget(self.j_wrap)
+        v.addWidget(sa, 1)
+        self.j_key = ""
+        self.j_struct = ""
+        self.j_w: dict = {}
+        return w
+
+    def janken_go(self, dev_id):
+        self.act("janken_start", {"devices": [dev_id]} if dev_id else {}, "じゃんけんを始めます(自律モードはオフにしました)")
+
+    def render_janken(self, g, devices):
+        if not g:
+            return
+        devs = [d for d in (devices or []) if d.get("online")]
+        k = json.dumps([g, [(d["id"], d["name"]) for d in devs]], ensure_ascii=False)
+        if k == self.j_key:
+            return
+        self.j_key = k
+        by = {x["dev_id"]: x for x in g.get("games", [])}
+        struct = json.dumps([(d["id"], d["name"]) for d in devs])
+        if struct != self.j_struct:                          # 台数・名前が変わったときだけカードを作り直す
+            self.j_struct = struct
+            self.j_w = {}
+            while self.j_l.count():
+                it = self.j_l.takeAt(0)
+                if it.widget():
+                    it.widget().deleteLater()
+            for d in devs:
+                fr = QFrame()
+                fr.setObjectName("jcard")
+                fr.setStyleSheet("#jcard{background:rgba(10,20,34,0.55);border:1px solid #1d3a55;border-radius:8px}#jcard QLabel{background:transparent}")
+                v = QVBoxLayout(fr)
+                head = QLabel()
+                head.setTextFormat(Qt.RichText)
+                big = QLabel("ボタンをおして、はじめよう!")
+                big.setAlignment(Qt.AlignCenter)
+                big.setWordWrap(True)
+                big.setStyleSheet(f"font-size:26px;font-weight:700;color:{CY};padding:6px 4px")
+                msg = muted("")
+                msg.setAlignment(Qt.AlignCenter)
+                rec = QLabel("")
+                rec.setAlignment(Qt.AlignCenter)
+                rec.setTextFormat(Qt.RichText)
+                rec.setStyleSheet("font-size:16px;padding:2px")
+                hist = QLabel("")
+                hist.setWordWrap(True)
+                hist.setTextFormat(Qt.RichText)
+                hist.setStyleSheet("font-size:14px;padding:4px")
+                typ = QLineEdit()
+                typ.setPlaceholderText("先生の入力(聞き取れないとき): ぐー / ちょき / ぱー と入れて Enter")
+                typ.returnPressed.connect(lambda i=d["id"], e=typ: self.janken_type(i, e))
+                v.addLayout(hrow(head, btn("▶ あそぶ", lambda i=d["id"]: self.janken_go(i)), btn("■ やめる", lambda i=d["id"]: self.act("janken_stop", {"id": i}), name="bad")))
+                v.addWidget(big)
+                v.addWidget(msg)
+                v.addWidget(rec)
+                v.addWidget(hist)
+                v.addWidget(typ)
+                self.j_l.addWidget(fr)
+                self.j_w[d["id"]] = {"head": head, "big": big, "msg": msg, "rec": rec, "hist": hist}
+            if not devs:
+                self.j_l.addWidget(muted("接続中の機器がありません"))
+            self.j_l.addStretch(1)
+        self.j_stat.setText(f'ぜんぶの記録: 子どもの勝ち {g.get("wins", 0)}　ロボットの勝ち {g.get("losses", 0)}　れんしょうのベスト {g.get("best", 0)}　あそんだ回数 {g.get("plays", 0)}')
+        for d in devs:
+            w = self.j_w.get(d["id"])
+            if not w:
+                continue
+            x = by.get(d["id"])
+            persona = (x or {}).get("persona", "")
+            w["head"].setText(f'<b>{d["name"]}</b>' + (f' <span style="color:{AM}">({persona})</span>' if persona else ""))
+            if x is None:
+                w["big"].setText("ボタンをおして、はじめよう!"); w["msg"].setText(""); w["rec"].setText(""); w["hist"].setText("")
+                continue
+            if x["on"]:
+                big = "きみの番!  ぐー・ちょき・ぱー!" if x["turn"] == "kid" else (f'{x["turn"]}が答えるよ…' if x["turn"] else "じゃんけん、はじまるよ!")
+            else:
+                big = "おしまい。またあそぼうね" if x["result"] else "ボタンをおして、はじめよう!"
+            w["big"].setText(big)
+            w["msg"].setText(x["msg"])
+            w["rec"].setText(f'<span style="color:{GR}">きみの勝ち {x["wins"]}</span>　<span style="color:{AM}">ロボットの勝ち {x["losses"]}</span>　あいこ {x["draws"]}　れんしょう {x["streak"]}')
+            col = {"kid_win": GR, "robot_win": AM, "draw": "#6f8aa6"}
+            lab = {"kid_win": "きみの勝ち", "robot_win": "ロボットの勝ち", "draw": "あいこ"}
+            w["hist"].setText("<br>".join(f'きみ <b>{h["kid"]}</b> ・ ロボット <b>{h["robot"]}</b> → <span style="color:{col[h["res"]]}">{lab[h["res"]]}</span>' for h in reversed(x["hands"])) or '<span style="color:#6f8aa6">ここに、じゃんけんの結果が出ます</span>')
+
+    def janken_type(self, dev_id, edit):
+        t = edit.text().strip()
+        if t:
+            self.act("janken_say", {"text": t, "id": dev_id})
+            edit.clear()
 
     def game_go(self, dev_id):
         body = {"first": self.g_first.currentData(), "level": self.g_level.currentData()}
@@ -1743,6 +1858,7 @@ class Win(QMainWindow):
         self.render_auto(s.get("auto"))
         self.render_journal(s.get("journal"))
         self.render_game(s.get("game"), s.get("devices"))
+        self.render_janken(s.get("janken"), s.get("devices"))
         if s.get("edu_on") is not None and self.g_edu.isChecked() != s["edu_on"] and not self.g_edu.hasFocus():
             self.g_edu.blockSignals(True); self.g_edu.setChecked(bool(s["edu_on"])); self.g_edu.blockSignals(False)
         if s.get("kid_on") is not None and self.g_kid.isChecked() != s["kid_on"] and not self.g_kid.hasFocus():
