@@ -33,6 +33,7 @@ class Hub:
     def __init__(self):
         self.discuss = None              # 3人会話モード(ブリッジが起動時に設定)
         self.auto = None                 # 完全自立モード(自分たちで話題を決めて話し始める)
+        self.game = None                 # 子供たちの教材(しりとり)
         self.usb = None                  # USB 監視(同上)
         self.sessions: list = []
         self.turns: list = []            # 直近の通訳(新しい順に最大 40)
@@ -375,6 +376,7 @@ class Hub:
         st["devices"] = self.devices_state()
         st["discuss"] = self.discuss.snapshot() if self.discuss else None
         st["auto"] = self.auto.snapshot() if self.auto else None
+        st["game"] = self.game.snapshot() if self.game else None
         st["journal"] = {"summary": self.discuss.journal.summary(), "items": self.discuss.journal.recent(20)} if self.discuss else None
         st["usb"] = self.usb.snapshot() if getattr(self, "usb", None) else []
         st["target"] = self.target
@@ -527,6 +529,27 @@ class Hub:
             if svc not in ("sc-bridge", "sc-voicevox", "sc-llm", "sc-s109"):
                 return {"ok": False, "error": "不明なサービス"}
             subprocess.Popen(["systemctl", "--user", "restart", svc])
+            return {"ok": True}
+        if name == "game_start":                          # 教材を始める。会話中・自律モードは先に止める(教材とぶつからないように)
+            if not self.game:
+                return {"ok": False, "error": "未対応"}
+            if self.auto:
+                self.auto.set(enabled=False)
+            if self.discuss and self.discuss.on:
+                self.discuss.stop()
+                t0 = time.time()
+                while self.discuss.on and time.time() - t0 < 8:
+                    time.sleep(0.2)
+            self.listen = True                            # 子どもの声を聞き取る(マイクがオフなら入れる)
+            ok, err = self.game.start(str(body.get("first", "kid")), str(body.get("level", "easy")))
+            return {"ok": True} if ok else {"ok": False, "error": err}
+        if name == "game_stop":
+            if self.game:
+                self.game.stop()
+            return {"ok": True}
+        if name == "game_say":                            # 先生が、子どもの代わりに言葉を入力する
+            if not self.game or not self.game.say(str(body.get("text", "")).strip()[:40]):
+                return {"ok": False, "error": "いまは子どもの番ではありません"}
             return {"ok": True}
         if name == "auto_set":
             if not self.auto:

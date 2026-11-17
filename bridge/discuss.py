@@ -509,6 +509,8 @@ class Discussion:
             return False, "議題が空です"
         if self.on:
             return False, "すでに会話中です(止めてから始めてください)"
+        if getattr(getattr(self.hub, "game", None), "on", False):
+            return False, "いま教材(しりとり)で遊んでいます"
         eng = self.eng_getter()
         if eng is None:
             return False, "エンジンの準備中です"

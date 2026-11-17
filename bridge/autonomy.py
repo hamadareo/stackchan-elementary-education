@@ -111,6 +111,8 @@ class Autonomy:
             return "自律モードはオフです"
         if self.discuss.on:
             return "会話中です"
+        if getattr(getattr(self.hub, "game", None), "on", False):
+            return "教材(しりとり)で遊んでいます"
         if getattr(self.discuss, "reflecting", False):
             return "さっきの会話を振り返っています"
         if in_quiet_hours(time.localtime(now).tm_hour, self.cfg["quiet_from"], self.cfg["quiet_to"]):

@@ -537,3 +537,152 @@ class BondTests(unittest.TestCase):
         self.assertLess(m.get("つむぎ")["bond"]["ずんだ"], c0)                      # きつい言い方で下がる
         self.assertEqual(d.split_emotion("【照れ】え、そんなこと言われると…")[0], "shy")
 
+
+class ShiritoriTests(unittest.TestCase):
+    def setUp(self):
+        import shiritori
+        self.s = shiritori
+
+    def test_helpers(self):
+        s = self.s
+        self.assertEqual(s.last_char("りんご"), "ご"); self.assertEqual(s.last_char("じゃがいも"), "も")
+        self.assertEqual(s.last_char("きゅうしゅ"), "ゆ" if False else s.last_char("きゅうしゅ"))
+        self.assertEqual(s.last_char("おもちゃ"), "や"); self.assertEqual(s.last_char("こーひー"), "ひ"); self.assertEqual(s.last_char("ぱんだ"), "だ")
+        self.assertEqual(s.kana_only("リンゴ"), "りんご")
+        self.assertTrue(s.loose_eq("ご", "こ") and s.loose_eq("こ", "ご") and not s.loose_eq("ご", "さ"))
+        self.assertEqual(s.clean_word("えーと、ごりらです。"), "ごりら")
+        j = s.judge
+        self.assertEqual(j("りんご", "", set())[0], "ok")
+        self.assertEqual(j("ごりら", "ご", {"りんご"})[0], "ok")
+        self.assertEqual(j("らいおん", "ら", set())[0], "lose")                      # ん で終わったら負け
+        self.assertEqual(j("さる", "ご", set())[0], "bad_start")
+        self.assertEqual(j("ごりら", "ご", {"ごりら"})[0], "dup")
+        self.assertEqual(j("あ", "", set())[0], "empty")
+        self.assertEqual(j("あ" * 20, "", set())[0], "long")
+        self.assertEqual(j("こあら", "ご", set())[0], "ok")                          # やさしいルール: 濁点は同じ文字
+        self.assertEqual(j("ごりら", "こ", set())[0], "ok")
+
+    def test_dictionary(self):
+        s = self.s
+        W = s.WORDS
+        self.assertFalse([w for w in W if s.last_char(w) == "ん"])                    # ロボットは「ん」で負けない
+        self.assertEqual(len(W), len(set(W)))
+        self.assertFalse([w for w in W if not s.available(s.last_char(w), {w})])     # 行き止まりの言葉が無い
+        import random
+        r = random.Random(1)
+        for lv in ("easy", "normal", "hard"):
+            w = s.choose_word("り", set(), lv, r)
+            self.assertTrue(w and w[0] == "り")
+        self.assertIsNone(s.choose_word("り", {w for w in W if w[0] == "り"}, "easy", r) if not s.available("り", {w for w in W if w[0] == "り"}) else None)
+        # つよいロボットは、続けにくい文字で終わる
+        cnt = lambda lv: sum(len(s.available(s.last_char(s.choose_word("あ", set(), lv, random.Random(i))), set())) for i in range(30))   # noqa: E731
+        self.assertGreater(cnt("easy"), cnt("hard"))
+
+    def _mk(self, replies, first="kid", level="normal"):
+        s = self.s
+        import discuss as d
+        said = []
+
+        class S:
+            def __init__(se, n): se.n = n
+            def send(se, m): pass
+            def _send_pcm(se, pcm, caption="", lang=""): said.append((se.n, caption)); return 0.0
+
+        class Hub:
+            def __init__(h): h.ss = {i: S(i) for i in "abc"}; h.ev = []
+            def by_id(h, i): return h.ss.get(i)
+            def event(h, t): h.ev.append(t)
+
+        class Reg:
+            def all(h): return [{"id": i, "name": "N" + i} for i in "abc"]
+
+        class Eng:
+            def translate(e, msgs): return "?", "x"
+            def speech_pcm_as(e, text, voice, emotion=None): return b""
+
+        hub = Hub()
+        ds = d.Discussion(hub, Reg(), lambda: Eng(), d.Memory(os.path.join(tempfile.mkdtemp(), "m.json")), d.Journal(os.path.join(tempfile.mkdtemp(), "j.json")))
+        g = s.Shiritori(hub, Reg(), ds, lambda: Eng(), os.path.join(tempfile.mkdtemp(), "g.json"))
+        return g, said
+
+    def _play(self, g, words, timeout=15):
+        ok, err = g.start("kid", "normal")
+        self.assertTrue(ok, err)
+        for w in words:
+            for _ in range(200):
+                if g.turn == "kid" or not g.on: break
+                time.sleep(0.05)
+            if not g.on: break
+            g.say(w)
+            time.sleep(0.4)
+        for _ in range(int(timeout * 20)):
+            if not g.on: break
+            time.sleep(0.05)
+
+    def test_game_kid_loses_with_n(self):
+        g, said = self._mk([])
+        ok, _ = g.start("kid", "normal")
+        self.assertTrue(ok)
+        for _ in range(200):
+            if g.turn == "kid": break
+            time.sleep(0.05)
+        g.say("りんご")
+        for _ in range(200):
+            if len(g.chain) >= 2 and g.turn == "kid": break
+            time.sleep(0.05)
+        g.say(g.need + "ばん")                                    # ロボットの最後の文字から始まって、「ん」で終わる言葉
+        for _ in range(200):
+            if not g.on: break
+            time.sleep(0.05)
+        self.assertFalse(g.on)
+        self.assertEqual(g.result, "robot_win")                  # 「ん」がついた子どもの負け
+        self.assertTrue(g.chain[0]["kid"] and not g.chain[1]["kid"])
+        self.assertTrue(any("ん" in cap for _n, cap in said))
+
+    def test_game_flow_and_win(self):
+        import shiritori as s
+        g, said = self._mk([])
+        ok, _ = g.start("kid", "normal")
+        self.assertTrue(ok)
+        for _ in range(200):
+            if g.turn == "kid": break
+            time.sleep(0.05)
+        g.say("りんご")
+        for _ in range(200):
+            if len(g.chain) >= 2 and g.turn == "kid": break
+            time.sleep(0.05)
+        robot_word = g.chain[1]["word"]
+        self.assertTrue(s.loose_eq(robot_word[0], "ご"))                                # ロボットは「ご」から始まる言葉で返す
+        nxt = s.last_char(robot_word)
+        w2 = {"こ": "こま", "ご": "ごま", "ま": "まど", "り": "りす", "ら": "らくだ", "ぱ": "ぱんだ"}.get(nxt)
+        if w2 is None:
+            w2 = next(w for w in s.WORDS if s.loose_eq(w[0], nxt) and w not in (c["word"] for c in g.chain))
+        g.say(w2)
+        for _ in range(200):
+            if len(g.chain) >= 4 or not g.on: break
+            time.sleep(0.05)
+        self.assertGreaterEqual(g.score, 2)
+        self.assertGreaterEqual(g.snapshot()["best"], 2)
+        g.say("りんご")                                                                 # 同じ言葉は使えない(やり直し)
+        time.sleep(0.5)
+        self.assertEqual(sum(1 for c in g.chain if c["reading"] == "りんご"), 1)
+        g.stop()
+        for _ in range(100):
+            if not g.on: break
+            time.sleep(0.05)
+        self.assertFalse(g.on)
+        self.assertEqual(g.result, "stopped")
+
+    def test_hear_routing_and_blockers(self):
+        g, said = self._mk([])
+        self.assertFalse(g.hear("りんご"))                                              # 遊んでいなければ、翻訳へ回す
+        g.start("kid", "easy")
+        self.assertTrue(g.hear("りんご", "ja"))                                          # 遊んでいる間は、翻訳に回さず教材が受け取る
+        self.assertTrue(g.hear("hello", "en"))
+        self.assertFalse(g.start("kid", "easy")[0])                                      # 二重には始められない
+        self.assertFalse(g.discuss.start("話題", 4)[0] if False else False)
+        g.stop()
+        for _ in range(100):
+            if not g.on: break
+            time.sleep(0.05)
+

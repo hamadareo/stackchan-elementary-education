@@ -682,6 +682,7 @@ class Win(QMainWindow):
         self.tabs.addTab(self.page_discuss(), "3人会話")
         self.tabs.addTab(self.page_profile(), "プロフィール")
         self.tabs.addTab(self.page_journal(), "活動記録")
+        self.tabs.addTab(self.page_edu(), "子供たちの教材")
         self.tabs.addTab(self.page_talk(), "会話")
 
         self.msg = muted()
@@ -1156,6 +1157,80 @@ class Win(QMainWindow):
         if t:
             self.act("discuss_start", {"topic": t, "turns": self.d_turns.currentData()}, "会話を始めます")
 
+    # ---------------- ページ: 子供たちの教材(しりとり)
+    def page_edu(self) -> QWidget:
+        w = QWidget()
+        lay = QVBoxLayout(w)
+        lay.setContentsMargins(0, 0, 0, 0)
+        c, l = card("しりとり", "子供たちとロボットがしりとりであそびます。ルール判定はプログラムが行い、「ん」がついたら負け、同じ言葉は使えません")
+        self.g_first = QComboBox()
+        self.g_first.addItem("子どもから始める", "kid")
+        self.g_first.addItem("ロボットから始める", "robot")
+        self.g_level = QComboBox()
+        for label, v in (("やさしい(続けやすい文字で答える)", "easy"), ("ふつう", "normal"), ("つよい(続けにくい文字で答える)", "hard")):
+            self.g_level.addItem(label, v)
+        self.g_go = btn("▶ あそぶ", self.game_go)
+        l.addLayout(hrow(self.g_first, self.g_level, self.g_go, btn("■ やめる", lambda: self.act("game_stop"), name="bad")))
+        self.g_big = QLabel("ボタンをおして、はじめよう!")
+        self.g_big.setAlignment(Qt.AlignCenter)
+        self.g_big.setWordWrap(True)
+        self.g_big.setStyleSheet(f"font-size:34px;font-weight:700;color:{CY};padding:18px 8px")
+        l.addWidget(self.g_big)
+        self.g_msg = muted("")
+        self.g_msg.setAlignment(Qt.AlignCenter)
+        l.addWidget(self.g_msg)
+        self.g_chain = QLabel("")
+        self.g_chain.setWordWrap(True)
+        self.g_chain.setTextFormat(Qt.RichText)
+        self.g_chain.setStyleSheet("font-size:17px;padding:8px")
+        l.addWidget(self.g_chain, 1)
+        self.g_stat = muted("")
+        l.addWidget(self.g_stat)
+        self.g_type = QLineEdit()
+        self.g_type.setPlaceholderText("先生の入力: 子どもの声が聞き取れないとき、ここに言葉を入れて「送る」(例: りんご)")
+        self.g_type.returnPressed.connect(self.game_type)
+        l.addLayout(hrow(self.g_type, btn("送る", self.game_type)))
+        l.addWidget(muted("ロボットは、接続中の機器が順番に答えます。話している間は、自分たちの声を拾わないようにしています。ほかの教材は、これから追加します。"))
+        lay.addWidget(c, 1)
+        self.g_key = ""
+        return w
+
+    def game_go(self):
+        self.act("game_start", {"first": self.g_first.currentData(), "level": self.g_level.currentData()}, "しりとりを始めます(自律モードはオフにしました)")
+
+    def game_type(self):
+        t = self.g_type.text().strip()
+        if t:
+            self.act("game_say", {"text": t})
+            self.g_type.clear()
+
+    def render_game(self, g):
+        if not g:
+            return
+        k = json.dumps(g, ensure_ascii=False)
+        if k == self.g_key:
+            return
+        self.g_key = k
+        self.g_go.setEnabled(not g["on"])
+        if g["on"]:
+            if g["turn"] == "kid":
+                big = f'きみの番!  「{g["need"]}」から' if g["need"] else "すきな言葉から、はじめてね!"
+            elif g["turn"]:
+                big = f'{g["turn"]}が答えるよ…'
+            else:
+                big = "しりとり、はじまるよ!"
+        else:
+            big = {"kid_win": "🎉 きみの勝ち!", "robot_win": "ロボットの勝ち! また挑戦してね", "stopped": "おしまい。またあそぼうね"}.get(g["result"], "ボタンをおして、はじめよう!")
+        self.g_big.setText(big)
+        self.g_msg.setText(g["msg"])
+        parts = []
+        for c in g["chain"]:
+            col = GR if c["kid"] else AM
+            parts.append(f'<span style="color:{col}"><b>{c["word"]}</b></span><span style="color:#6f8aa6">({c["who"]})</span>')
+        self.g_chain.setText("　→　".join(parts) if parts else '<span style="color:#6f8aa6">ここに、つながった言葉が出ます</span>')
+        rb = "・".join(f'{r["name"]}({r["dev_name"]})' for r in g["robots"])
+        self.g_stat.setText(f'つないだ数 {g["score"]}　ベスト {g["best"]}　あそんだ回数 {g["plays"]}' + (f'　参加: {rb}' if rb else ""))
+
     def page_journal(self) -> QWidget:
         w = QWidget()
         lay = QVBoxLayout(w)
@@ -1607,6 +1682,7 @@ class Win(QMainWindow):
         self.render_discuss(s.get("discuss"))
         self.render_auto(s.get("auto"))
         self.render_journal(s.get("journal"))
+        self.render_game(s.get("game"))
         self.render_phrases()
         self.render_people(s.get("people"))
         self.render_turns()

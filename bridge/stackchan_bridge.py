@@ -981,6 +981,10 @@ class Session:
                     if not text or not lang:
                         continue
                     self.eng.last_voice = time.time()
+                    _g = getattr(admin.HUB, "game", None)
+                    if _g is not None and _g.on:               # しりとり中は、子どもの声を教材へ(翻訳しない)
+                        _g.hear(text, lang)
+                        continue
                     if self._voice_cmd(text):                  # 「音量上げて」などは翻訳せず端末を操作する
                         continue
                     units = self.ep.push(seg, lo, hi, text, lang, now=time.time() - self.t0, pre=pre)
@@ -1391,6 +1395,8 @@ def main() -> None:
     import autonomy
     import discuss
     admin.HUB.discuss = discuss.Discussion(admin.HUB, admin.REG, lambda: eng)
+    import shiritori
+    admin.HUB.game = shiritori.Shiritori(admin.HUB, admin.REG, admin.HUB.discuss, lambda: eng)
     admin.HUB.auto = autonomy.Autonomy(admin.HUB, admin.REG, admin.HUB.discuss, lambda: eng)
     threading.Thread(target=admin.HUB.auto.run, daemon=True).start()
     try:                                                              # Ubuntu の USB に挿した機器を認識し、新品なら書き込む
