@@ -35,6 +35,7 @@ class Hub:
         self.auto = None                 # 完全自立モード(自分たちで話題を決めて話し始める)
         self.game = None                 # 子供たちの教材(しりとり)
         self.janken = None               # 子供たちの教材(じゃんけん)
+        self.quiz = None                 # 子供たちの教材(なぞなぞ・クイズ・算数・えいご)
         self.kid = None                  # 子どもモード(子どもが話しかけたら、キャラが返事をする)
         self.kid_on = True
         self.kid_auto = True             # 子どもモードで、ロボットが自分から話しかける
@@ -451,6 +452,7 @@ class Hub:
         st["janken_cam"] = self.janken_cam
         st["game"] = self.game.snapshot() if self.game else None
         st["janken"] = self.janken.snapshot() if self.janken else None
+        st["quiz"] = self.quiz.snapshot() if self.quiz else None
         st["face_styles"] = list(_devices.FACE_STYLES)
         st["journal"] = {"summary": self.discuss.journal.summary(), "items": self.discuss.journal.recent(20)} if self.discuss else None
         st["usb"] = self.usb.snapshot() if getattr(self, "usb", None) else []
@@ -676,7 +678,33 @@ class Hub:
                     self.game.stop(None)
                 if self.janken:
                     self.janken.stop(None)
+                if self.quiz:
+                    self.quiz.stop(None)
             self.event("教材モード: " + ("オン(翻訳・3人会話・自律会話はオフ)" if self.edu_on else "オフ(ふつうの通訳に戻ります)"))
+            return {"ok": True}
+        if name == "quiz_start":                          # なぞなぞ・クイズ・算数・えいごを始める(機器ごとに独立。会話・自律は先に止める)
+            if not self.quiz:
+                return {"ok": False, "error": "未対応"}
+            if self.auto:
+                self.auto.set(enabled=False)
+            if self.discuss and self.discuss.on:
+                self.discuss.stop()
+                t0 = time.time()
+                while self.discuss.on and time.time() - t0 < 8:
+                    time.sleep(0.2)
+            self.listen = True
+            ids = body.get("devices")
+            if not ids and body.get("id"):
+                ids = [str(body.get("id"))]
+            ok, err = self.quiz.start(str(body.get("kind", "riddle")), "", list(ids) if isinstance(ids, list) and ids else None)
+            return {"ok": True} if ok else {"ok": False, "error": err}
+        if name == "quiz_stop":
+            if self.quiz:
+                self.quiz.stop(str(body.get("id", "")) or None)
+            return {"ok": True}
+        if name == "quiz_say":                            # 先生が、子どもの代わりに答えを入れる
+            if not self.quiz or not self.quiz.say(str(body.get("text", "")).strip()[:40], str(body.get("id", ""))):
+                return {"ok": False, "error": "いまは子どもの番ではありません"}
             return {"ok": True}
         if name == "janken_cam_set":                      # じゃんけんのカメラ認識のオン・オフ
             self.janken_cam = bool(body.get("on", True))

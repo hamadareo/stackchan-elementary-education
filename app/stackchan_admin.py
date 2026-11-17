@@ -1210,8 +1210,9 @@ class Win(QMainWindow):
         shl.addWidget(sa, 1)
         sub.addTab(sh, "しりとり")
         sub.addTab(self.page_janken(), "じゃんけん")
+        sub.addTab(self.page_quiz(), "クイズ")
         l.addWidget(sub, 1)
-        l.addWidget(muted("子どもの声は、その機器のマイクだけで聞き取ります。聞き取れないときは、各カードの「先生の入力」に言葉を入れてください。同じ機器で、しりとりとじゃんけんは同時にできません。"))
+        l.addWidget(muted("子どもの声は、その機器のマイクだけで聞き取ります。聞き取れないときは、各カードの「先生の入力」に言葉を入れてください。同じ機器で、しりとり・じゃんけん・クイズは同時にできません。"))
         lay.addWidget(c, 1)
         self.g_key = ""
         self.g_struct = ""
@@ -1435,6 +1436,137 @@ class Win(QMainWindow):
             col = {"kid_win": GR, "robot_win": AM, "draw": "#6f8aa6"}
             lab = {"kid_win": "きみの勝ち", "robot_win": "ロボットの勝ち", "draw": "あいこ"}
             w["hist"].setText("<br>".join(f'きみ <b>{h["kid"]}</b>{"(カメラ)" if h.get("via") == "camera" else ""} ・ ロボット <b>{h["robot"]}</b> → <span style="color:{col[h["res"]]}">{lab[h["res"]]}</span>' for h in reversed(x["hands"])) or '<span style="color:#6f8aa6">ここに、じゃんけんの結果が出ます</span>')
+
+    # ---------------- クイズ(なぞなぞ・クイズ・さんすう・えいご)
+    QZ_KINDS = [("riddle", "なぞなぞ"), ("quiz", "クイズ"), ("math", "さんすう"), ("english", "えいご")]
+
+    def page_quiz(self) -> QWidget:
+        w = QWidget()
+        v = QVBoxLayout(w)
+        v.setContentsMargins(0, 6, 0, 0)
+        v.addWidget(muted("ロボット対子供たち。各機器が、自分の前にいる子供たちと、独立に なぞなぞ・クイズ(○× と 3たく)・さんすう・えいご を出します(5問で1ラウンド)。問題はすべて内蔵で、ネットがなくても動きます。「ヒント」「わからない」で ヒント→答え。「やめる」で終わります"))
+        row = [btn(f"▶ 全台で {lab}", lambda k=kd: self.quiz_go(None, k)) for kd, lab in self.QZ_KINDS]
+        row.append(btn("■ 全部やめる", lambda: self.act("quiz_stop"), name="bad"))
+        v.addLayout(hrow(*row))
+        self.qz_stat = muted("")
+        v.addWidget(self.qz_stat)
+        self.qz_wrap = QWidget()
+        self.qz_wrap.setObjectName("qzwrap")
+        self.qz_wrap.setStyleSheet("#qzwrap{background:transparent}")
+        self.qz_l = QVBoxLayout(self.qz_wrap)
+        self.qz_l.setContentsMargins(0, 0, 0, 0)
+        sa = QScrollArea()
+        sa.setWidgetResizable(True)
+        sa.setStyleSheet("QScrollArea{background:transparent;border:0}")
+        sa.viewport().setStyleSheet("background:transparent")
+        sa.setWidget(self.qz_wrap)
+        v.addWidget(sa, 1)
+        self.qz_key = ""
+        self.qz_struct = ""
+        self.qz_w: dict = {}
+        self.qz_on: set = set()
+        return w
+
+    def quiz_go(self, dev_id, kind):
+        body = {"kind": kind}
+        if dev_id:
+            body["devices"] = [dev_id]
+        self.act("quiz_start", body, "はじめます(自律モードはオフにしました)")
+
+    def quiz_type(self, dev_id, edit):
+        t = edit.text().strip()
+        if t:
+            self.act("quiz_say", {"text": t, "id": dev_id})
+            edit.clear()
+
+    def render_quiz(self, g, devices):
+        if not g:
+            return
+        devs = [d for d in (devices or []) if d.get("online")]
+        now_on = {x["dev_id"] for x in g.get("games", []) if x.get("on")}
+        if now_on - self.qz_on:                                   # 始まった: クイズの画面に切り替える
+            try:
+                self.edu_sub.setCurrentIndex(2)
+            except Exception:  # noqa: BLE001
+                pass
+        self.qz_on = now_on
+        k = json.dumps([g, [(d["id"], d["name"]) for d in devs]], ensure_ascii=False)
+        if k == self.qz_key:
+            return
+        self.qz_key = k
+        by = {x["dev_id"]: x for x in g.get("games", [])}
+        struct = json.dumps([(d["id"], d["name"]) for d in devs])
+        if struct != self.qz_struct:                              # 台数・名前が変わったときだけカードを作り直す
+            self.qz_struct = struct
+            self.qz_w = {}
+            while self.qz_l.count():
+                it = self.qz_l.takeAt(0)
+                if it.widget():
+                    it.widget().deleteLater()
+            for d in devs:
+                fr = QFrame()
+                fr.setObjectName("qzcard")
+                fr.setStyleSheet("#qzcard{background:rgba(10,20,34,0.55);border:1px solid #1d3a55;border-radius:8px}#qzcard QLabel{background:transparent}")
+                v = QVBoxLayout(fr)
+                head = QLabel()
+                head.setTextFormat(Qt.RichText)
+                row = [head] + [btn(lab, lambda i=d["id"], kd=kd: self.quiz_go(i, kd)) for kd, lab in self.QZ_KINDS] + [btn("■ やめる", lambda i=d["id"]: self.act("quiz_stop", {"id": i}), name="bad")]
+                big = QLabel("ボタンをおして、はじめよう!")
+                big.setAlignment(Qt.AlignCenter)
+                big.setWordWrap(True)
+                big.setStyleSheet(f"font-size:24px;font-weight:700;color:{CY};padding:6px 4px")
+                ques = QLabel("")
+                ques.setAlignment(Qt.AlignCenter)
+                ques.setWordWrap(True)
+                ques.setTextFormat(Qt.RichText)
+                ques.setStyleSheet("font-size:20px;padding:4px")
+                msg = muted("")
+                msg.setAlignment(Qt.AlignCenter)
+                msg.setWordWrap(True)
+                rec = QLabel("")
+                rec.setAlignment(Qt.AlignCenter)
+                rec.setTextFormat(Qt.RichText)
+                rec.setStyleSheet("font-size:16px;padding:2px")
+                hist = QLabel("")
+                hist.setWordWrap(True)
+                hist.setTextFormat(Qt.RichText)
+                hist.setStyleSheet("font-size:14px;padding:4px")
+                typ = QLineEdit()
+                typ.setPlaceholderText("先生の入力(聞き取れないとき): 答えを入れて Enter(○× は まる / ばつ、3たくは 1 / 2 / 3)")
+                typ.returnPressed.connect(lambda i=d["id"], e=typ: self.quiz_type(i, e))
+                v.addLayout(hrow(*row))
+                v.addWidget(big)
+                v.addWidget(ques)
+                v.addWidget(msg)
+                v.addWidget(rec)
+                v.addWidget(hist)
+                v.addWidget(typ)
+                self.qz_l.addWidget(fr)
+                self.qz_w[d["id"]] = {"head": head, "big": big, "ques": ques, "msg": msg, "rec": rec, "hist": hist}
+            if not devs:
+                self.qz_l.addWidget(muted("接続中の機器がありません"))
+            self.qz_l.addStretch(1)
+        self.qz_stat.setText(f'ぜんぶの記録: あそんだ回数 {g.get("plays", 0)}　ラウンド {g.get("rounds", 0)}　せいかい {g.get("correct", 0)} / {g.get("answered", 0)}問　ぜんぶせいかい {g.get("perfect", 0)}回')
+        for d in devs:
+            w = self.qz_w.get(d["id"])
+            if not w:
+                continue
+            x = by.get(d["id"])
+            persona = (x or {}).get("persona", "")
+            w["head"].setText(f'<b>{d["name"]}</b>' + (f' <span style="color:{AM}">({persona})</span>' if persona else ""))
+            if x is None:
+                w["big"].setText("ボタンをおして、はじめよう!"); w["ques"].setText(""); w["msg"].setText(""); w["rec"].setText(""); w["hist"].setText("")
+                continue
+            if x["on"]:
+                big = f'{x["kind_label"]}: きみの番!  こたえてね' if x["turn"] == "kid" else (f'{x["persona"]}が話しているよ…' if x["qno"] else "はじまるよ!")
+            else:
+                big = "おしまい。またあそぼうね" if x["result"] else "ボタンをおして、はじめよう!"
+            w["big"].setText(big)
+            w["ques"].setText((f'<b>{x["qno"]}もんめ</b>　{x["question"]}<br><span style="color:#6f8aa6;font-size:15px">こたえ(先生用): {x["answer"]}</span>') if x["on"] and x["question"] else "")
+            w["msg"].setText(x["msg"])
+            lv = f'　レベル {x["level"]}' if x.get("level") else ""
+            w["rec"].setText(f'<span style="color:{GR}">このラウンド: {x["score"]} / {x["rounds"]}</span>　{x["qno"]}もんめ{lv}')
+            w["hist"].setText("<br>".join(f'<span style="color:{GR if h["ok"] else AM}">{"○" if h["ok"] else "×"}</span> {h["q"]}' for h in reversed(x["history"])) or '<span style="color:#6f8aa6">ここに、問題の結果が出ます</span>')
 
     def janken_type(self, dev_id, edit):
         t = edit.text().strip()
@@ -1979,6 +2111,7 @@ class Win(QMainWindow):
         self.render_journal(s.get("journal"))
         self.render_game(s.get("game"), s.get("devices"))
         self.render_janken(s.get("janken"), s.get("devices"))
+        self.render_quiz(s.get("quiz"), s.get("devices"))
         self.h_devs = s.get("devices") or self.h_devs
         self.h_hand = s.get("hand") or {}
         if s.get("janken_cam") is not None and self.jk_cam.isChecked() != s["janken_cam"] and not self.jk_cam.hasFocus():

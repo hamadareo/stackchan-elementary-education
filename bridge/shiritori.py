@@ -501,7 +501,7 @@ class GameHub:
         self.rnd = rnd
         self.games: dict = {}
         self.lock = threading.Lock()
-        self.peer = None                        # もう一つの教材(しりとり↔じゃんけん)。同じ機器で 2 つ同時に動かさないために見る
+        self.peers: list = []                   # ほかの教材(しりとり・じゃんけん・クイズ)。同じ機器で 2 つ同時に動かさないために見る
         self.stats = {k: 0 for k in self.KEYS}
         try:
             d = json.load(open(self.path))
@@ -530,13 +530,22 @@ class GameHub:
             pass
 
     @property
+    def peer(self):
+        """(互換)相手が 1 つのときの書き方。peers の先頭。"""
+        return self.peers[0] if self.peers else None
+
+    @peer.setter
+    def peer(self, v) -> None:
+        self.peers = [v] if v is not None else []
+
+    @property
     def own_on(self) -> bool:
         return any(g.on for g in self.games.values())
 
     @property
     def on(self) -> bool:
         """教材がどれか動いているか(会話・自律・子どもモードが、ぶつからないように見る)。"""
-        return self.own_on or bool(self.peer is not None and self.peer.own_on)
+        return self.own_on or any(p.own_on for p in self.peers)
 
     def dev_busy(self, dev_id: str) -> bool:
         g = self.games.get(dev_id)
@@ -554,8 +563,9 @@ class GameHub:
             return False, "接続中の機器がありません"
         started, err = [], ""
         for i in ids:
-            if self.peer is not None and self.peer.dev_busy(i):
-                err = f"この機器は、いま{self.peer.LABEL}で遊んでいます"
+            busy = next((p for p in self.peers if p.dev_busy(i)), None)
+            if busy is not None:
+                err = f"この機器は、いま{busy.LABEL}で遊んでいます"
                 continue
             g = self.games.get(i)
             if g is None:

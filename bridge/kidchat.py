@@ -69,7 +69,7 @@ def clean_reply(out: str, prev: str = "neutral") -> "tuple[str, str]":
 
 
 ASOBO = re.compile(r"あそぼ|遊ぼ|あそびたい|遊びたい|なにしよう|何しよう|なにして遊|なにしてあそ")
-MENU = "しりとりと、じゃんけんが、できるよ！「しりとりしよう」か「じゃんけんしよう」って、言ってね！"
+MENU = "しりとり、じゃんけん、なぞなぞ、クイズ、さんすう、えいごが、できるよ！やりたいのを、言ってね！"
 JANKEN = re.compile(r"じゃんけん|ジャンケン|じゃん拳")
 SHIRITORI = re.compile(r"しりとり|尻取り|しりとろ|しり取り")
 
@@ -97,6 +97,26 @@ def nudge_msgs(k: int, name: str, hist: list) -> list:
         msgs.append({"role": "user" if who == "kid" else "assistant", "content": line})
     msgs.append({"role": "user", "content": "(子どもは黙っています。続きを話しかけてください)"})
     return msgs
+
+
+# 「なぞなぞしよう」「クイズしよう」…(短く言うか、しよう・やろう などの言葉つきのとき)。通訳の指示(「えいごにして」)とは区別する
+PLAY = re.compile(r"しよう|しよ|やろう|やろ|あそぼ|遊ぼ|したい|やりたい|やって|出して|だして|おしえて|ちょうだい|しましょう|やりましょう|やる|して$")
+NOT_PLAY = re.compile(r"にして|に翻訳|に訳|通訳|で言って|でいって|で話|でしゃべ|ほんやく")
+KIND_PAT = [("riddle", re.compile(r"なぞなぞ|ナゾナゾ|謎々|謎謎")), ("quiz", re.compile(r"クイズ|くいず")),
+            ("add", re.compile(r"たしざん|足し算|たし算")), ("sub", re.compile(r"ひきざん|引き算|ひき算")), ("kuku", re.compile(r"九九|くく|かけざん|掛け算|かけ算")),
+            ("math", re.compile(r"さんすう|算数|けいさん|計算")), ("english", re.compile(r"えいご|英語|えいたんご|英単語|イングリッシュ"))]
+
+
+def quiz_kind(text: str) -> "str | None":
+    """子どもの言葉から、始めたい遊び(quiz.py の種類)を決める。なければ None。"""
+    t = (text or "").strip()
+    if NOT_PLAY.search(t):
+        return None
+    short = len(re.sub(r"[\s、。,.!！?？]", "", t)) <= 10
+    for kind, pat in KIND_PAT:
+        if pat.search(t) and (PLAY.search(t) or short):
+            return kind
+    return None
 
 
 class KidChat:
@@ -136,6 +156,22 @@ class KidChat:
         """この機器で聞き取った言葉。返事をする(別スレッド)なら True。しないなら、ふつうの翻訳に任せる(False)。"""
         if lang != "ja" or not worth_answering(text) or self.blocked():
             return False
+        k_name = None
+        try:
+            import quiz as _quiz
+            if getattr(self.hub, "quiz", None) is not None:
+                dev0 = getattr(sess, "dev_id", "")
+                kp = self.hub.discuss.persona_of(dev0) if getattr(self.hub, "discuss", None) else 0
+                k_name = PERSONAS[kp % len(PERSONAS)]["name"]
+                tl = _quiz.today_reply(text, k_name)
+                if tl:                                              # 「きょうは何日？」「いま何時？」: 決まった返事
+                    self._say_once(sess, tl, "happy")
+                    return True
+                kind = quiz_kind(text)
+                if kind and self._start_quiz(sess, kind):           # 「なぞなぞしよう」など: その機器で始める
+                    return True
+        except Exception as e:  # noqa: BLE001
+            print(f"[bridge] クイズの判定に失敗: {type(e).__name__}: {e}", flush=True)
         if ASOBO.search(text) and not (JANKEN.search(text) or SHIRITORI.search(text)):   # 「あそぼう」: できる遊びを教える
             self._menu(sess)
             return True
@@ -154,6 +190,47 @@ class KidChat:
         self.last_kid[dev], self.nudges[dev] = self.clock(), 0          # 子どもが話した: 会話中にして、話しかけの回数を数え直す
         threading.Thread(target=self._reply, args=(sess, text.strip()), daemon=True).start()
         return True
+
+    def _start_quiz(self, sess, kind: str) -> bool:
+        h = self.hub
+        q = getattr(h, "quiz", None)
+        dev = getattr(sess, "dev_id", "")
+        if q is None or not dev:
+            return False
+        try:
+            if getattr(h, "auto", None):
+                h.auto.set(enabled=False)
+            h.listen = True
+            ok, _err = q.start(kind, "", [dev])
+        except Exception as e:  # noqa: BLE001
+            print(f"[bridge] クイズ開始失敗: {type(e).__name__}: {e}", flush=True)
+            return False
+        if ok:
+            print(f"[bridge] 子どもの声で{kind}を始めました", flush=True)
+        return bool(ok)
+
+    def _say_once(self, sess, text: str, face: str = "happy") -> None:
+        """決まった一言を、その機器の声で話す(返事中は何もしない)。"""
+        if not self.busy.acquire(blocking=False):
+            return
+        self.speaking = True
+
+        def go():
+            try:
+                eng = sess.eng
+                voice = getattr(sess, "voice", None) or PERSONAS[0]["voice"]
+                sess.send({"t": "face", "state": face})
+                pcm = eng.speech_pcm_as(text, voice)
+                dur = sess._send_pcm(pcm, caption=text, lang="ja")
+                time.sleep((dur or 0) + 0.3)
+            except Exception as e:  # noqa: BLE001
+                print(f"[bridge] 一言の読み上げに失敗: {type(e).__name__}: {e}", flush=True)
+            finally:
+                self.speaking = False
+                self.quiet_until = self.clock() + 1.4
+                self.last_end[getattr(sess, "dev_id", "")] = self.clock()
+                self.busy.release()
+        threading.Thread(target=go, daemon=True).start()
 
     def _start_janken(self, sess) -> bool:
         h = self.hub
@@ -265,7 +342,7 @@ class KidChat:
         eng = getattr(sess, "eng", None)
         if now - getattr(eng, "last_voice", 0.0) < 4.0:            # 誰かが話している最中は、話しかけない
             return ""
-        if getattr(getattr(self.hub, "janken", None), "on", False):
+        if any(getattr(getattr(self.hub, n, None), "on", False) for n in ("janken", "quiz")):
             return ""
         kid_t, end_t = self.last_kid.get(dev, 0.0), self.last_end.get(dev, 0.0)
         if kid_t and now - kid_t < ENGAGED_S and self.nudges.get(dev, 0) < NUDGE_MAX:

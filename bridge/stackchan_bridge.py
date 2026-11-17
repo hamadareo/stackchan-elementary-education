@@ -903,7 +903,7 @@ class Session:
         if now - getattr(self, "_pat_at", 0.0) < 10.0 or "ja" not in self.pair:
             return
         g = getattr(admin.HUB, "game", None)
-        if (g is not None and g.snapshot().get("on")) or admin.HUB.discussing():
+        if (g is not None and g.on) or admin.HUB.discussing():
             return
         self._pat_at = now
         try:
@@ -1094,6 +1094,9 @@ class Session:
                         continue
                     _j = getattr(admin.HUB, "janken", None)
                     if _j is not None and _j.hear(text, lang, getattr(self, "dev_id", "")):   # この機器がじゃんけん中なら、手を教材へ(翻訳しない)
+                        continue
+                    _q = getattr(admin.HUB, "quiz", None)
+                    if _q is not None and _q.hear(text, lang, getattr(self, "dev_id", "")):   # この機器がクイズ・なぞなぞ・算数・えいご中なら、答えを教材へ(翻訳しない)
                         continue
                     if self._voice_cmd(text):                  # 「音量上げて」などは翻訳せず端末を操作する
                         continue
@@ -1535,7 +1538,11 @@ def main() -> None:
     admin.HUB.game = shiritori.GameHub(admin.HUB, admin.REG, admin.HUB.discuss, lambda: eng)
     import janken
     admin.HUB.janken = janken.JankenHub(admin.HUB, admin.REG, admin.HUB.discuss, lambda: eng)
-    admin.HUB.game.peer, admin.HUB.janken.peer = admin.HUB.janken, admin.HUB.game          # 同じ機器で 2 つの教材を同時に動かさない
+    import quiz
+    admin.HUB.quiz = quiz.QuizHub(admin.HUB, admin.REG, admin.HUB.discuss, lambda: eng)
+    _hubs = [admin.HUB.game, admin.HUB.janken, admin.HUB.quiz]
+    for _h in _hubs:
+        _h.peers = [x for x in _hubs if x is not _h]              # 同じ機器で 2 つの教材(しりとり・じゃんけん・クイズ)を同時に動かさない
     admin.HUB.kid = kidchat.KidChat(admin.HUB)
     threading.Thread(target=admin.HUB.kid.run, daemon=True).start()           # 子どもが黙ったとき・静かなときに、自分から話しかける
     admin.HUB.auto = autonomy.Autonomy(admin.HUB, admin.REG, admin.HUB.discuss, lambda: eng)
