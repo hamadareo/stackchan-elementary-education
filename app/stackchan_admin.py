@@ -1195,7 +1195,7 @@ class Win(QMainWindow):
         self.g_acts = {}
         for key, label in (("shiritori", "しりとり"), ("janken", "じゃんけん"), ("riddle", "なぞなぞ"), ("quiz", "クイズ"), ("math", "さんすう"), ("english", "えいご")):
             cb = QCheckBox(label)
-            cb.setChecked(key != "english")
+            cb.setChecked(True)
             cb.toggled.connect(lambda _on, self=self: self.act("menu_set", {"acts": [k for k, c in self.g_acts.items() if c.isChecked()]}))
             self.g_acts[key] = cb
             row.addWidget(cb)
