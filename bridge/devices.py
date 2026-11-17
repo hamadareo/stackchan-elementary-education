@@ -12,6 +12,11 @@ import threading
 import time
 
 
+# 顔の種類(ファームウェアの zface::STYLE_NAME と同じ並び)。M5Stack-Avatar 同梱の顔(MIT ライセンス)
+FACE_STYLES = ["標準", "まる目(OωO)", "ガーリー", "ガーリー(リボン)", "ピンクの小悪魔", "わんこ", "シンプル(o_o)"]
+DEFAULT_FACE = [1, 2, 5]          # 登録順に、ずんだ=まる目(緑)・めたん=ガーリー(ピンク)・つむぎ=わんこ(オレンジ): 離れて見ても、どれがどの子か分かる
+
+
 class Registry:
     def __init__(self, path: str | None = None):
         self.path = path or os.environ.get("SC_DEVICES", os.path.expanduser("~/.sokutsu_devices.json"))

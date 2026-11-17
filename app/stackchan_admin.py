@@ -1031,6 +1031,12 @@ class Win(QMainWindow):
                 row.addWidget(lab, 1)
                 row.addWidget(btn("選ぶ", lambda i=d["id"]: self.act("device_select", {"id": i})))
                 row.addWidget(btn("名前", lambda i=d["id"], n=d["name"]: self.rename_dev(i, n)))
+                fc = QComboBox()
+                for n in (s.get("face_styles") or []):
+                    fc.addItem("顔: " + n)
+                fc.activated.connect(lambda ix, i=d["id"]: self.act("face_style", {"id": i, "style": ix}, "顔を変えました"))
+                row.addWidget(fc)
+                self.dev_w[d["id"]]["face"] = fc
                 if d["online"]:
                     row.addWidget(btn("初期設定", lambda i=d["id"]: self.setup_dev(i)))
                 else:
@@ -1063,6 +1069,9 @@ class Win(QMainWindow):
                     + (f' <span style="color:{GR}">[自動登録]</span>' if d.get("auto") else "")
                     + f'<br><span style="color:#6f8aa6">{info}<br>{d.get("ip", "")}   fw {d.get("fw", "-")}</span>')
             self._set(w["lab"], html)
+            fc = w.get("face")
+            if fc is not None and d.get("face") is not None and fc.currentIndex() != d["face"] and not fc.view().isVisible():
+                fc.setCurrentIndex(d["face"])
 
     @staticmethod
     def _set(w, text: str):

@@ -57,6 +57,19 @@ def fresh():
 
 
 class HubTests(unittest.TestCase):
+    def test_face_style(self):
+        import devices
+        h = admin.Hub()
+        rec, _ = admin.REG.touch("aabbccddeeff", "1.2.3.4", "x")
+        self.assertEqual(h._face_of(admin.REG.get("aabbccddeeff")), 0)            # discuss が無ければ標準
+        self.assertFalse(h.act("face_style", {"id": "aabbccddeeff", "style": 99})["ok"])
+        self.assertFalse(h.act("face_style", {"id": "nope", "style": 1})["ok"])
+        self.assertTrue(h.act("face_style", {"id": "aabbccddeeff", "style": 4})["ok"])
+        self.assertEqual(admin.REG.get("aabbccddeeff")["face"], 4)
+        self.assertEqual(h._face_of(admin.REG.get("aabbccddeeff")), 4)
+        self.assertEqual(len(devices.FACE_STYLES), 7)
+        self.assertTrue(all(0 <= i < len(devices.FACE_STYLES) for i in devices.DEFAULT_FACE))
+
     def test_stop_command_stops_autonomy(self):
         import discuss, autonomy
         h = admin.Hub()

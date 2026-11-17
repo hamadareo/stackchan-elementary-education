@@ -175,6 +175,15 @@ class Hub:
         for x in olds:
             x.alive = False
 
+    def _face_of(self, rec: dict) -> int:
+        f = rec.get("face")
+        if isinstance(f, int) and 0 <= f < len(_devices.FACE_STYLES):
+            return f
+        try:
+            return _devices.DEFAULT_FACE[self.discuss.persona_of(rec["id"]) % len(_devices.DEFAULT_FACE)] if self.discuss else 0
+        except Exception:  # noqa: BLE001
+            return 0
+
     def discussing(self) -> bool:
         return bool(self.discuss and self.discuss.on)
 
@@ -208,7 +217,7 @@ class Hub:
         for rec in REG.all():
             x = self.by_id(rec["id"])
             d = {"id": rec["id"], "name": rec.get("name", ""), "ip": rec.get("ip", ""), "fw": rec.get("fw", ""),
-                 "first": rec.get("first"), "voice": rec.get("voice", ""), "seen_age": int(now - rec["seen"]) if rec.get("seen") else None,
+                 "first": rec.get("first"), "voice": rec.get("voice", ""), "face": self._face_of(rec), "seen_age": int(now - rec["seen"]) if rec.get("seen") else None,
                  "auto": bool(rec.get("auto")), "setup": rec.get("setup"), "online": bool(x),
                  "lang": rec.get("lang"), "topic": rec.get("topic", "")}
             if x:
@@ -377,6 +386,7 @@ class Hub:
         st["discuss"] = self.discuss.snapshot() if self.discuss else None
         st["auto"] = self.auto.snapshot() if self.auto else None
         st["game"] = self.game.snapshot() if self.game else None
+        st["face_styles"] = list(_devices.FACE_STYLES)
         st["journal"] = {"summary": self.discuss.journal.summary(), "items": self.discuss.journal.recent(20)} if self.discuss else None
         st["usb"] = self.usb.snapshot() if getattr(self, "usb", None) else []
         st["target"] = self.target
@@ -529,6 +539,19 @@ class Hub:
             if svc not in ("sc-bridge", "sc-voicevox", "sc-llm", "sc-s109"):
                 return {"ok": False, "error": "不明なサービス"}
             subprocess.Popen(["systemctl", "--user", "restart", svc])
+            return {"ok": True}
+        if name == "face_style":                          # 機器の顔の種類を変える(台帳に覚えて、機器にも送る)
+            dev = str(body.get("id", ""))
+            try:
+                st = int(body.get("style", 0))
+            except (TypeError, ValueError):
+                return {"ok": False, "error": "顔の番号が不正です"}
+            if not 0 <= st < len(_devices.FACE_STYLES) or not REG.get(dev):
+                return {"ok": False, "error": "不明な顔または機器です"}
+            REG.set(dev, face=st)
+            x = self.by_id(dev)
+            if x is not None:
+                x.send({"t": "faceStyle", "id": st})
             return {"ok": True}
         if name == "game_start":                          # 教材を始める。会話中・自律モードは先に止める(教材とぶつからないように)
             if not self.game:

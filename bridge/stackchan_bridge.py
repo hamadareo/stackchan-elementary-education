@@ -42,6 +42,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import admin  # noqa: E402  管理画面
+import devices as _devices  # noqa: E402  機器台帳(顔の種類の表)
 
 sys.path.insert(0, os.environ.get("TSUYAKU_SRC", "/Users/work/tsuyaku/src"))
 
@@ -494,6 +495,7 @@ class Session:
         self.topic = rec.get("topic", "") or ""
         self.voice = rec.get("voice") or None                 # この機器の日本語の声(無ければ既定)
         self.send({"t": "name", "name": self.name})            # 画面の右下に機器名を出す
+        self.send({"t": "faceStyle", "id": self._face_style(rec)})   # 顔の種類(キャラごとに違う顔)
         if new:
             self.auto_setup(rec)
         else:
@@ -513,6 +515,16 @@ class Session:
         self.send({"t": "face", "state": "happy"})
         self.send({"t": "servo", "pan": 0, "tilt": 200, "speed": 300})
         self.send({"t": "caption", "lang": "ja", "to": "ja", "orig": f"セットアップ完了 {self.name}", "trans": "", "final": True})
+
+    def _face_style(self, rec: dict) -> int:
+        """この機器の顔の種類。管理画面で選んでいればそれ、なければ登録順のキャラに合わせた既定の顔。"""
+        f = rec.get("face")
+        if isinstance(f, int) and 0 <= f < len(_devices.FACE_STYLES):
+            return f
+        try:
+            return _devices.DEFAULT_FACE[admin.HUB.discuss.persona_of(self.dev_id) % len(_devices.DEFAULT_FACE)]
+        except Exception:  # noqa: BLE001
+            return 0
 
     def _stage(self, name: str, state: str = "done", **info) -> None:
         admin.HUB.stage(name, state, dev=self.name, **info)
