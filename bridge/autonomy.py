@@ -107,6 +107,8 @@ class Autonomy:
 
     def blockers(self, now: float) -> str:
         """いま話し始めてはいけない理由(なければ空)。"""
+        if getattr(self.hub, "edu_on", False):
+            return "教材モードです"
         if not self.cfg["enabled"]:
             return "自律モードはオフです"
         if self.discuss.on:

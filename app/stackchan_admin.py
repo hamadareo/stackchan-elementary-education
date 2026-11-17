@@ -1179,6 +1179,10 @@ class Win(QMainWindow):
         for label, v in (("やさしい(続けやすい文字で答える)", "easy"), ("ふつう", "normal"), ("つよい(続けにくい文字で答える)", "hard")):
             self.g_level.addItem(label, v)
         l.addLayout(hrow(self.g_first, self.g_level, btn("▶ 全台であそぶ", lambda: self.game_go(None)), btn("■ 全部やめる", lambda: self.act("game_stop"), name="bad")))
+        self.g_edu = QCheckBox("教材モード: オンの間は、翻訳・3人会話・自律会話をすべて止めて、教材(話しかけの返事・しりとり)だけにします")
+        self.g_edu.setStyleSheet("font-size:15px;font-weight:700;color:#ffb347;padding:4px")
+        self.g_edu.toggled.connect(lambda on: self.act("edu_set", {"on": on}, "教材モードをオンにしました" if on else "教材モードをオフにしました"))
+        l.addWidget(self.g_edu)
         self.g_kid = QCheckBox("子どもモード: 子どもが話しかけたら、その機器のキャラがやさしく返事をする(オフにすると、ふつうの通訳に戻ります)")
         self.g_kid.setChecked(True)
         self.g_kid.toggled.connect(lambda on: self.act("kid_set", {"on": on}))
@@ -1739,6 +1743,8 @@ class Win(QMainWindow):
         self.render_auto(s.get("auto"))
         self.render_journal(s.get("journal"))
         self.render_game(s.get("game"), s.get("devices"))
+        if s.get("edu_on") is not None and self.g_edu.isChecked() != s["edu_on"] and not self.g_edu.hasFocus():
+            self.g_edu.blockSignals(True); self.g_edu.setChecked(bool(s["edu_on"])); self.g_edu.blockSignals(False)
         if s.get("kid_on") is not None and self.g_kid.isChecked() != s["kid_on"] and not self.g_kid.hasFocus():
             self.g_kid.blockSignals(True); self.g_kid.setChecked(bool(s["kid_on"])); self.g_kid.blockSignals(False)
         self.render_phrases()

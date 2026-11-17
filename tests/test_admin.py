@@ -57,6 +57,16 @@ def fresh():
 
 
 class HubTests(unittest.TestCase):
+    def test_edu_mode(self):
+        h = admin.Hub()
+        self.assertFalse(h.edu_on)
+        self.assertTrue(h.act("edu_set", {"on": True})["ok"])
+        self.assertTrue(h.edu_on and h.kid_on)
+        r = h.act("discuss_start", {"topic": "てすと"})
+        self.assertFalse(r["ok"])
+        self.assertTrue(h.act("edu_set", {"on": False})["ok"])
+        self.assertFalse(h.edu_on)
+
     def test_face_style(self):
         import devices
         h = admin.Hub()

@@ -1043,6 +1043,8 @@ class Session:
                     _k = getattr(admin.HUB, "kid", None)
                     if _k is not None and _k.hear(self, text, lang):        # 子どもが話しかけた: キャラが返事をする(翻訳しない)
                         continue
+                    if getattr(admin.HUB, "edu_on", False):                 # 教材モード: 翻訳はしない(教材と関係ない聞き取りは捨てる)
+                        continue
                     units = self.ep.push(seg, lo, hi, text, lang, now=time.time() - self.t0, pre=pre)
                 for u in units:
                     self._emit(u)
