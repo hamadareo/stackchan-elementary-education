@@ -1,4 +1,4 @@
-"""子ども向けの遊び: なぞなぞ・クイズ(○× と 3たく)・算数・えいご。そして「きょうは何日?」などの単発の返事。
+"""子ども向けの遊び: なぞなぞ・クイズ(○× と 3たく)・算数・かんじ・えいご。そして「きょうは何日?」などの単発の返事。
 
 しりとり(shiritori.py)・じゃんけん(janken.py)と同じ作り: 機器ごとに独立(3台は連携しない)、声の出し方・聞き取りの守り
 (ロボットの声の回り込みを捨てる)・先生の入力・「ほかの機器が話している間は聞かない」をそのまま使う。
@@ -25,9 +25,10 @@ YES = re.compile(r"はい|うん|やる|やろ|もういっかい|もう一回|�
 NO = re.compile(r"いいえ|やめ|おわり|終わり|やらない|ううん|もういい|いやだ|いや|ばいばい|バイバイ|おしまい")
 DONT = re.compile(r"わからない|わかんない|わかりません|わからん|しらない|知らない|ヒント|ひんと|おしえて|教えて|パス|ぱす|ギブ|ぎぶ|こたえは?(なに|なあに)")
 
-KINDS = {"riddle": "なぞなぞ", "quiz": "クイズ", "math": "さんすう", "add": "たしざん", "sub": "ひきざん", "kuku": "かけざん(九九)", "english": "えいご"}
+KINDS = {"riddle": "なぞなぞ", "quiz": "クイズ", "math": "さんすう", "add": "たしざん", "sub": "ひきざん", "kuku": "かけざん(九九)", "english": "えいご", "kanji": "かんじ"}
 MATH_KINDS = ("math", "add", "sub", "kuku")
-MATH_LEVELS = {"math": (1, 4), "add": (1, 2), "sub": (3, 3), "kuku": (4, 4)}      # 種類ごとの、むずかしさ(レベル)の範囲
+LEVEL_KINDS = MATH_KINDS + ("kanji",)            # つづけて せいかいすると、むずかしくなる遊び
+MATH_LEVELS = {"math": (1, 4), "add": (1, 2), "sub": (3, 3), "kuku": (4, 4), "kanji": (1, 3)}      # 種類ごとの、むずかしさ(レベル)の範囲
 
 
 # ---------------------------------------------------------------- 言葉の整え・数詞
@@ -146,7 +147,7 @@ class Item:
         f = fold(text)
         if not f:
             return "unclear"
-        if self.kind in ("riddle", "jp_en", "en_jp"):
+        if self.kind in ("riddle", "jp_en", "en_jp", "kanji"):
             if match(f, self.answers):
                 return "ok"
             return "hint" if DONT.search(f) else "ng"
@@ -245,6 +246,7 @@ INTRO = {"riddle": "なぞなぞを しよう！ぜんぶで5もん。わから�
          "add": "たしざんを しよう！ぜんぶで5もん。こたえを、こえで 言ってね。",
          "sub": "ひきざんを しよう！ぜんぶで5もん。こたえを、こえで 言ってね。",
          "kuku": "九九を しよう！ぜんぶで5もん。こたえを、こえで 言ってね。",
+         "kanji": "かんじを しよう！ぜんぶで5もん。がめんの かんじを みて、よみかたを 言ってね。わからないときは、ヒントって言ってね。",
          "english": "えいごを しよう！ぜんぶで5もん。えいごや にほんごで、こたえてね。"}
 
 
@@ -340,6 +342,11 @@ class Quiz(Shiritori):
                             hint=f"「{kata[0]}」から はじまるよ。", reprompt="えいごで 言ってみてね。")
             return Item("en_jp", f"「{kata}」は、にほんごで なにかな？", jp, show=f"「{en}」({kata}) を にほんごで → {jp}", answers=[jp, hira], tries=2,
                         hint=f"「{hira[0]}」から はじまるよ。", reprompt="にほんごで 言ってみてね。")
+        if k == "kanji":
+            lv = max(1, min(3, self.level))
+            ch, rd = qd.KANJI[lv][self._pick(f"kanji{lv}", len(qd.KANJI[lv]))]
+            return Item("kanji", "がめんの かんじを みてね。なんて よむかな？", rd[0], show=f"「{ch}」は、なんて よむ？", answers=rd, tries=2,
+                        hint=f"「{rd[0][0]}」から はじまるよ。", reprompt="よみかたを、ひらがなで 言ってね。")
         lo, hi = MATH_LEVELS.get(k, (1, 4))
         return gen_math(max(lo, min(hi, self.level)), self.rnd)
 
@@ -348,10 +355,10 @@ class Quiz(Shiritori):
         d = LINES.get(self.robots[0]["name"], LINES["ずんだ"])[key]
         return d[i % len(d)] if isinstance(d, list) else d
 
-    def _say(self, eng, text: str, emo: str = "joy") -> None:
+    def _say(self, eng, text: str, emo: str = "joy", caption: "str | None" = None) -> None:
         self.turn = ""
-        self.msg = text
-        self._speak(eng, 0, text, emo)
+        self.msg = caption or text
+        self._speak(eng, 0, text, emo, caption=caption)
 
     def _wait(self, timeout: float):
         """子どもの言葉を待つ。(None=止められた / ""=時間切れ / 言葉)"""
@@ -369,7 +376,7 @@ class Quiz(Shiritori):
     def _ask(self, eng, it: Item, n: int) -> str:
         """1 問。戻り値: correct / wrong / quit / idle"""
         self.cur = it
-        self._say(eng, f"{n + 1}もんめ！{it.prompt}", "neutral")
+        self._say(eng, f"{n + 1}もんめ！{it.prompt}", "neutral", caption=(f"{n + 1}もんめ！{it.show}" if it.kind == "kanji" else None))     # かんじは、声では読まず(誤読するため)画面に出す
         tries = idle = unclear = 0
         hinted = False
         while not self._stop.is_set():
@@ -445,7 +452,7 @@ class Quiz(Shiritori):
                         else:
                             self._say(eng, self._L("bye"), "joy")
                         return
-                    if self.kind in MATH_KINDS:                    # つづけて せいかいしたら、むずかしくする
+                    if self.kind in LEVEL_KINDS:                    # つづけて せいかいしたら、むずかしくする
                         lo, hi = MATH_LEVELS[self.kind]
                         streak = streak + 1 if res == "correct" else 0
                         if streak >= 2 and self.level < hi:
@@ -482,7 +489,7 @@ class Quiz(Shiritori):
         it = self.cur
         return {"dev_id": r.get("id", ""), "dev_name": r.get("dev_name", ""), "persona": r.get("name", ""),
                 "on": self.on, "kind": self.kind, "kind_label": KINDS.get(self.kind, ""), "turn": self.turn, "msg": self.msg, "result": self.result,
-                "qno": self.qno, "rounds": ROUND, "score": self.score, "level": self.level if self.kind in MATH_KINDS else 0,
+                "qno": self.qno, "rounds": ROUND, "score": self.score, "level": self.level if self.kind in LEVEL_KINDS else 0,
                 "question": it.show if it else "", "answer": (it.answer_text() if it else ""),
                 "history": self.history[-10:], "plays": self.stats.get("plays", 0), "correct": self.stats.get("correct", 0), "answered": self.stats.get("answered", 0)}
 
@@ -494,7 +501,7 @@ class QuizHub(GameHub):
     LABEL = "クイズ"
 
     def start(self, kind: str = "riddle", level: str = "", dev_ids: "list | None" = None) -> "tuple[bool, str]":
-        """dev_ids の機器それぞれで、独立に始める(省略なら、接続中の全機器)。kind: riddle/quiz/math/add/sub/kuku/english"""
+        """dev_ids の機器それぞれで、独立に始める(省略なら、接続中の全機器)。kind: riddle/quiz/math/add/sub/kuku/english/kanji"""
         if self.discuss is not None and self.discuss.on:
             return False, "いまロボットが会話中です(止めてから始めてください)"
         pk = self.discuss.pick() if self.discuss is not None else []

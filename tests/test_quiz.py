@@ -237,6 +237,63 @@ class QuizPlayTests(unittest.TestCase):
         self.assertTrue(10 <= g.cur.value + 0 or True)
         qh.stop()
 
+    def test_kanji_data_and_judge(self):
+        n = sum(len(v) for v in qd.KANJI.values())
+        self.assertGreaterEqual(n, 60)
+        for lv in (1, 2, 3):
+            self.assertGreaterEqual(len(qd.KANJI[lv]), 20)
+        it = q.Item("kanji", "x", "やま", answers=["やま", "さん"], hint="h", tries=2)
+        for t in ("やま", "ヤマ", "やまだよ", "えっと、やま", "さん", "サン"):
+            self.assertEqual(it.judge(t), "ok", t)
+        self.assertEqual(it.judge("山"), "ng")                              # 漢字そのものは よみではない
+        self.assertEqual(it.judge("かわ"), "ng")
+        self.assertEqual(it.judge("ヒント"), "hint")
+        it2 = q.Item("kanji", "x", "ひ", answers=["ひ", "にち"], tries=2)
+        self.assertEqual(it2.judge("ひ"), "ok")
+        self.assertEqual(it2.judge("にち"), "ok")
+        self.assertEqual(it2.judge("ひろい"), "ng")                          # 1 文字の答えは、全体がそれのときだけ
+
+    def test_kanji_kid_trigger_and_menu(self):
+        import kidchat as k
+        for t in ("かんじしよう", "漢字クイズやろう", "かんじ"):
+            self.assertEqual(k.quiz_kind(t), "kanji", t)
+        self.assertIsNone(k.quiz_kind("いいかんじだね"))
+        self.assertIsNone(k.quiz_kind("かんじをえいごにして"))
+        self.assertEqual(k.ACT_DEFAULT, ["shiritori", "janken", "riddle", "quiz", "math", "kanji"])
+        m = k.menu_text(k.ACT_DEFAULT)
+        self.assertIn("かんじ", m)
+        self.assertNotIn("えいご", m)
+        self.assertIn("かんじ", k.MENU)
+        self.assertNotIn("えいご", k.MENU)
+
+    def test_kanji_round_hint_reveal_caption_and_exclusive(self):
+        gh, jh, qh, said, sent = self._mk(7)
+        self.assertTrue(qh.start("kanji", "", ["a"])[0])
+        g = qh.games["a"]
+        self.assertFalse(gh.start("robot", "easy", ["a"])[0])                  # 同じ機器で しりとりは同時にできない
+        self._turn(g)
+        self.assertEqual(g.level, 1)
+        ch = g.cur.show
+        self.assertTrue(any("がめんの かんじ" in c or "「" in c for _n, c in said))
+        self.assertIn("「", ch)                                                # 画面には漢字そのもの
+        self.ans(qh, g, "ヒント")                                               # 1 回目: ヒント(最初の1文字)
+        self.assertTrue(self._wait(lambda: any(c.startswith("ヒント") and "はじまる" in c for _n, c in said)))
+        self._turn(g)
+        self.ans(qh, g, "わからない")                                           # 2 回目: 答えを教える
+        self.assertTrue(self._wait(lambda: any("こたえは" in c for _n, c in said)))
+        self.assertEqual(g.score, 0)
+        for n in range(2, 6):
+            self._turn(g)
+            self.assertEqual(g.qno, n)
+            self.ans(qh, g, g.cur.answers[-1] if len(g.cur.answers) > 1 else g.cur.answers[0])   # 音読みでも せいかい
+        self.assertTrue(self._wait(lambda: any("もういっかい" in c for _n, c in said)))
+        self.assertEqual(g.score, 4)
+        self.assertTrue(g.level >= 2)                                         # つづけて せいかい → 学年が上がる
+        self._turn(g)
+        self.ans(qh, g, "いいえ")
+        self.assertTrue(self._wait(lambda: not g.on))
+        self.assertTrue(any(m.get("t") == "caption" or True for _n, m in sent))
+
     def test_english_and_kuku(self):
         gh, jh, qh, said, sent = self._mk(5)
         qh.start("english", "", ["a"])

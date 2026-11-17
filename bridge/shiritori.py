@@ -321,7 +321,7 @@ class Shiritori:
                 except Exception:  # noqa: BLE001
                     pass
 
-    def _speak(self, eng, i: int, text: str, emo: str = "joy") -> None:
+    def _speak(self, eng, i: int, text: str, emo: str = "joy", caption: "str | None" = None) -> None:
         """ロボット i が声に出す(顔と字幕つき)。話している間と直後は、聞き取りを捨てる。"""
         from discuss import EMOTIONS
         s = self._sess(i)
@@ -335,12 +335,12 @@ class Shiritori:
                 if sk is not None:
                     sk.send({"t": "face", "state": pr[2] if k == i else "listening"})
                     if k != i:
-                        sk.send({"t": "caption", "lang": "ja", "to": "ja", "orig": f'{self.robots[i]["name"]}: {text}', "trans": "", "final": True})
+                        sk.send({"t": "caption", "lang": "ja", "to": "ja", "orig": f'{self.robots[i]["name"]}: {caption or text}', "trans": "", "final": True})
             try:
                 pcm = eng.speech_pcm_as(text, self.robots[i]["voice"], emotion=pr[1])
             except TypeError:
                 pcm = eng.speech_pcm_as(text, self.robots[i]["voice"])
-            dur = s._send_pcm(pcm, caption=text, lang="ja")
+            dur = s._send_pcm(pcm, caption=caption or text, lang="ja")
             t0 = self.clock()
             while self.clock() - t0 < (dur or 0) + 0.3 and not self._stop.is_set():
                 time.sleep(0.1)

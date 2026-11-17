@@ -38,7 +38,7 @@ class Hub:
         self.quiz = None                 # 子供たちの教材(なぞなぞ・クイズ・算数・えいご)
         self.kid = None                  # 子どもモード(子どもが話しかけたら、キャラが返事をする)
         self.kid_on = True
-        self.menu_acts = ["shiritori", "janken", "riddle", "quiz", "math"]     # 教材モードで子どもに出す遊び(これ以外はしない)
+        self.menu_acts = ["shiritori", "janken", "riddle", "quiz", "math", "kanji"]     # 教材モードで子どもに出す遊び(これ以外はしない)
         self.kid_auto = True             # 子どもモードで、ロボットが自分から話しかける
         self.hand_cache: dict = {}       # 機器ID → 手の確認の結果 {ts, src, jpeg, info}(管理画面が見ている機器だけ計算する)
         self.hand_lock = threading.Lock()
@@ -118,7 +118,7 @@ class Hub:
         self.kid_on = bool(d.get("kid_on", True))
         self.kid_auto = bool(d.get("kid_auto", True))
         if isinstance(d.get("menu_acts"), list):
-            self.menu_acts = [a for a in d["menu_acts"] if a in ("shiritori", "janken", "riddle", "quiz", "math", "english")]
+            self.menu_acts = [a for a in d["menu_acts"] if a in ("shiritori", "janken", "riddle", "quiz", "math", "kanji", "english")]
         self.edu_on = bool(d.get("edu_on", False))
         self.janken_cam = bool(d.get("janken_cam", True))
         if isinstance(d.get("phrases"), list):
@@ -723,7 +723,7 @@ class Hub:
             self.event("自分から話しかける: " + ("オン" if self.kid_auto else "オフ(話しかけられたときだけ返事)"))
             return {"ok": True}
         if name == "menu_set":                            # 教材モードで子どもに出す遊びを選ぶ
-            self.menu_acts = [a for a in body.get("acts", []) if a in ("shiritori", "janken", "riddle", "quiz", "math", "english")]
+            self.menu_acts = [a for a in body.get("acts", []) if a in ("shiritori", "janken", "riddle", "quiz", "math", "kanji", "english")]
             self.event("子どもに出す遊び: " + "、".join(self.menu_acts or ["なし"]))
             return {"ok": True}
         if name == "kid_say":                             # 先生が、子どもの代わりに話しかける(声が聞き取れないとき・動作確認)
