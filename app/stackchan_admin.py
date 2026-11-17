@@ -1197,7 +1197,7 @@ class Win(QMainWindow):
         sa.setStyleSheet("QScrollArea{background:transparent;border:0}")
         sa.viewport().setStyleSheet("background:transparent")
         sa.setWidget(self.g_wrap)
-        sub = QTabWidget()
+        sub = self.edu_sub = QTabWidget()
         sh = QWidget()
         shl = QVBoxLayout(sh)
         shl.setContentsMargins(0, 6, 0, 0)
@@ -1225,7 +1225,7 @@ class Win(QMainWindow):
         self.jk_cam.setChecked(True)
         self.jk_cam.toggled.connect(lambda on: self.act("janken_cam_set", {"on": on}))
         v.addWidget(self.jk_cam)
-        self.h_chk = QCheckBox("手の確認を表示: 各機器のカメラ画像に、見つけた手(枠・関節・指の線)と判定を重ねて見せます(オフのときは計算しません)")
+        self.h_chk = QCheckBox("手の確認を表示(じゃんけん中は自動で出ます): 各機器のカメラ画像に、見つけた手(枠・関節・指の線)と判定を重ねて見せます(オフのときは計算しません)")
         self.h_chk.setChecked(False)
         self.h_chk.toggled.connect(self.hand_toggle)
         v.addWidget(self.h_chk)
@@ -1262,7 +1262,7 @@ class Win(QMainWindow):
         return w
 
     def hand_toggle(self, on):
-        self.h_box.setVisible(bool(on))
+        self.h_box.setVisible(bool(on) or bool(getattr(self, "jk_on", None)))
         if on:
             self.hand_tick()
 
@@ -1294,11 +1294,18 @@ class Win(QMainWindow):
             self.h_row.addWidget(fr)
             self.h_cells[did] = (img, txt)
 
+    def hand_auto(self):
+        """じゃんけん中の機器があれば、チェックがなくてもカメラ映像の枠を出す。"""
+        show = self.h_chk.isChecked() or bool(getattr(self, "jk_on", None))
+        if self.h_box.isVisible() != show:
+            self.h_box.setVisible(show)
+
     def hand_tick(self):
-        """「手の確認」を表示しているときだけ、約1秒ごとに、重ね描き済みの画像を取りに行く。"""
-        if not self.h_chk.isChecked() or not self.jk_page.isVisible():
+        """「手の確認」を表示しているとき(またはじゃんけん中の機器があるとき)だけ、約1秒ごとに、重ね描き済みの画像を取りに行く。"""
+        playing = getattr(self, "jk_on", set())
+        if not (self.h_chk.isChecked() or playing) or not self.jk_page.isVisible():
             return
-        devs = [(d["id"], d["name"]) for d in (self.h_devs or []) if d.get("online")]
+        devs = [(d["id"], d["name"]) for d in (self.h_devs or []) if d.get("online") and (self.h_chk.isChecked() or d["id"] in playing)]
         self.hand_cells(devs)
         for did, _n in devs:
             img, txt = self.h_cells[did]
@@ -1321,6 +1328,14 @@ class Win(QMainWindow):
         if not g:
             return
         devs = [d for d in (devices or []) if d.get("online")]
+        now_on = {x["dev_id"] for x in g.get("games", []) if x.get("on")}
+        if now_on - getattr(self, "jk_on", set()):                 # じゃんけんが始まった: じゃんけんの画面に切り替えて、カメラ映像を出す
+            try:
+                self.edu_sub.setCurrentIndex(1)
+            except Exception:  # noqa: BLE001
+                pass
+        self.jk_on = now_on
+        self.hand_auto()
         k = json.dumps([g, [(d["id"], d["name"]) for d in devs]], ensure_ascii=False)
         if k == self.jk_key:
             return
