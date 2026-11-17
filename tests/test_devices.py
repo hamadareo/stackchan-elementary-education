@@ -46,6 +46,12 @@ class RegistryTest(unittest.TestCase):
 
 
 class KidShiritoriTriggerTests(unittest.TestCase):
+    def test_asobo_menu_trigger(self):
+        import kidchat
+        self.assertTrue(kidchat.ASOBO.search("あそぼう"))
+        self.assertTrue(kidchat.ASOBO.search("なにしよう"))
+        self.assertFalse(kidchat.ASOBO.search("こんにちは"))
+
     def test_trigger_words(self):
         import kidchat
         for w in ("しりとりしよう", "しりとりやろう", "尻取りしたい"):

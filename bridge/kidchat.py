@@ -55,6 +55,8 @@ def clean_reply(out: str, prev: str = "neutral") -> "tuple[str, str]":
     return emo, body
 
 
+ASOBO = re.compile(r"あそぼ|遊ぼ|あそびたい|遊びたい|なにしよう|何しよう|なにして遊|なにしてあそ")
+MENU = "しりとりと、じゃんけんが、できるよ！「しりとりしよう」か「じゃんけんしよう」って、言ってね！"
 JANKEN = re.compile(r"じゃんけん|ジャンケン|じゃん拳")
 SHIRITORI = re.compile(r"しりとり|尻取り|しりとろ|しり取り")
 
@@ -90,6 +92,9 @@ class KidChat:
         """この機器で聞き取った言葉。返事をする(別スレッド)なら True。しないなら、ふつうの翻訳に任せる(False)。"""
         if lang != "ja" or not worth_answering(text) or self.blocked():
             return False
+        if ASOBO.search(text) and not (JANKEN.search(text) or SHIRITORI.search(text)):   # 「あそぼう」: できる遊びを教える
+            self._menu(sess)
+            return True
         if JANKEN.search(text) and self._start_janken(sess):            # 「じゃんけんしよう」: その機器でじゃんけんを始める
             return True
         if SHIRITORI.search(text) and self._start_shiritori(sess):      # 「しりとりしよう」: その機器でしりとりを始める
@@ -121,6 +126,28 @@ class KidChat:
         if ok:
             print("[bridge] 子どもの声でじゃんけんを始めました", flush=True)
         return bool(ok)
+
+    def _menu(self, sess) -> None:
+        """「あそぼう」と言われたら、遊びの選び方を、その機器の声で話す(返事中は何もしない)。"""
+        if not self.busy.acquire(blocking=False):
+            return
+        self.speaking = True
+
+        def go():
+            try:
+                eng = sess.eng
+                voice = getattr(sess, "voice", None) or PERSONAS[0]["voice"]
+                sess.send({"t": "face", "state": "happy"})
+                pcm = eng.speech_pcm_as(MENU, voice)
+                dur = sess._send_pcm(pcm, caption=MENU, lang="ja")
+                time.sleep((dur or 0) + 0.3)
+            except Exception as e:  # noqa: BLE001
+                print(f"[bridge] 遊びの案内に失敗: {type(e).__name__}: {e}", flush=True)
+            finally:
+                self.speaking = False
+                self.quiet_until = self.clock() + 1.4
+                self.busy.release()
+        threading.Thread(target=go, daemon=True).start()
 
     def _start_shiritori(self, sess) -> bool:
         """子どもの「しりとりしよう」で、この機器だけしりとりを始める(自律モードは止める)。始められなければ False。"""
