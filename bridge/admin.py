@@ -38,6 +38,7 @@ class Hub:
         self.quiz = None                 # 子供たちの教材(なぞなぞ・クイズ・算数・えいご)
         self.kid = None                  # 子どもモード(子どもが話しかけたら、キャラが返事をする)
         self.kid_on = True
+        self.menu_acts = ["shiritori", "janken", "riddle", "quiz", "math"]     # 教材モードで子どもに出す遊び(これ以外はしない)
         self.kid_auto = True             # 子どもモードで、ロボットが自分から話しかける
         self.hand_cache: dict = {}       # 機器ID → 手の確認の結果 {ts, src, jpeg, info}(管理画面が見ている機器だけ計算する)
         self.hand_lock = threading.Lock()
@@ -90,7 +91,7 @@ class Hub:
     # ---- 設定の保存と復元(再起動しても声・話速などを覚える) ----
     def save(self) -> None:
         e = self.engine
-        d = {"wave_on": self.wave_on, "wave_voice": self.wave_voice, "gate": self.gate_mult, "mode": self.mode, "track": self.track, "listen": self.listen, "phrases": self.phrases, "kid_on": self.kid_on, "kid_auto": self.kid_auto, "edu_on": self.edu_on, "janken_cam": self.janken_cam}
+        d = {"wave_on": self.wave_on, "wave_voice": self.wave_voice, "gate": self.gate_mult, "mode": self.mode, "track": self.track, "listen": self.listen, "phrases": self.phrases, "kid_on": self.kid_on, "kid_auto": self.kid_auto, "menu_acts": self.menu_acts, "edu_on": self.edu_on, "janken_cam": self.janken_cam}
         if e is not None:
             d["speed"] = getattr(e, "speed_scale", 1.0)
             d["voice"] = getattr(e, "voice_ja", None)
@@ -116,6 +117,8 @@ class Hub:
         self.track, self.listen = bool(d.get("track", True)), bool(d.get("listen", True))
         self.kid_on = bool(d.get("kid_on", True))
         self.kid_auto = bool(d.get("kid_auto", True))
+        if isinstance(d.get("menu_acts"), list):
+            self.menu_acts = [a for a in d["menu_acts"] if a in ("shiritori", "janken", "riddle", "quiz", "math", "english")]
         self.edu_on = bool(d.get("edu_on", False))
         self.janken_cam = bool(d.get("janken_cam", True))
         if isinstance(d.get("phrases"), list):
@@ -447,6 +450,7 @@ class Hub:
         st["auto"] = self.auto.snapshot() if self.auto else None
         st["kid_on"] = self.kid_on
         st["kid_auto"] = self.kid_auto
+        st["menu_acts"] = list(self.menu_acts)
         st["hand"] = self.hand_status()
         st["edu_on"] = self.edu_on
         st["janken_cam"] = self.janken_cam
@@ -717,6 +721,10 @@ class Hub:
         if name == "kid_auto_set":                        # 子どもモード: ロボットが自分から話しかける
             self.kid_auto = bool(body.get("on", True))
             self.event("自分から話しかける: " + ("オン" if self.kid_auto else "オフ(話しかけられたときだけ返事)"))
+            return {"ok": True}
+        if name == "menu_set":                            # 教材モードで子どもに出す遊びを選ぶ
+            self.menu_acts = [a for a in body.get("acts", []) if a in ("shiritori", "janken", "riddle", "quiz", "math", "english")]
+            self.event("子どもに出す遊び: " + "、".join(self.menu_acts or ["なし"]))
             return {"ok": True}
         if name == "kid_greet":                           # 先生が、ロボットから声をかけさせる(人を見つけたときと同じ動き)
             x = self.by_id(str(body.get("id", ""))) or (self.live()[0] if self.live() else None)

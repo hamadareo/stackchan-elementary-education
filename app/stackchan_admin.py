@@ -1190,6 +1190,17 @@ class Win(QMainWindow):
         self.g_kauto.setChecked(True)
         self.g_kauto.toggled.connect(lambda on: self.act("kid_auto_set", {"on": on}))
         l.addWidget(self.g_kauto)
+        row = QHBoxLayout()
+        row.addWidget(QLabel("子どもに出す遊び(教材モード。これ以外は、おしゃべりせず、遊びを案内します):"))
+        self.g_acts = {}
+        for key, label in (("shiritori", "しりとり"), ("janken", "じゃんけん"), ("riddle", "なぞなぞ"), ("quiz", "クイズ"), ("math", "さんすう"), ("english", "えいご")):
+            cb = QCheckBox(label)
+            cb.setChecked(key != "english")
+            cb.toggled.connect(lambda _on, self=self: self.act("menu_set", {"acts": [k for k, c in self.g_acts.items() if c.isChecked()]}))
+            self.g_acts[key] = cb
+            row.addWidget(cb)
+        row.addStretch(1)
+        l.addLayout(row)
         self.g_stat = muted("")
         self.g_wrap = QWidget()
         self.g_wrap.setObjectName("gwrap")
@@ -2118,6 +2129,10 @@ class Win(QMainWindow):
             self.jk_cam.blockSignals(True); self.jk_cam.setChecked(bool(s["janken_cam"])); self.jk_cam.blockSignals(False)
         if s.get("edu_on") is not None and self.g_edu.isChecked() != s["edu_on"] and not self.g_edu.hasFocus():
             self.g_edu.blockSignals(True); self.g_edu.setChecked(bool(s["edu_on"])); self.g_edu.blockSignals(False)
+        if isinstance(s.get("menu_acts"), list) and not any(c.hasFocus() for c in self.g_acts.values()):
+            for k, c in self.g_acts.items():
+                if c.isChecked() != (k in s["menu_acts"]):
+                    c.blockSignals(True); c.setChecked(k in s["menu_acts"]); c.blockSignals(False)
         if s.get("kid_auto") is not None and self.g_kauto.isChecked() != s["kid_auto"] and not self.g_kauto.hasFocus():
             self.g_kauto.blockSignals(True); self.g_kauto.setChecked(bool(s["kid_auto"])); self.g_kauto.blockSignals(False)
         if s.get("kid_on") is not None and self.g_kid.isChecked() != s["kid_on"] and not self.g_kid.hasFocus():

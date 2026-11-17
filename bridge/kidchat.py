@@ -69,7 +69,18 @@ def clean_reply(out: str, prev: str = "neutral") -> "tuple[str, str]":
 
 
 ASOBO = re.compile(r"あそぼ|遊ぼ|あそびたい|遊びたい|なにしよう|何しよう|なにして遊|なにしてあそ")
-MENU = "しりとり、じゃんけん、なぞなぞ、クイズ、さんすう、えいごが、できるよ！やりたいのを、言ってね！"
+ACT_LABEL = {"shiritori": "しりとり", "janken": "じゃんけん", "riddle": "なぞなぞ", "quiz": "クイズ", "math": "さんすう", "english": "えいご"}
+ACT_DEFAULT = ["shiritori", "janken", "riddle", "quiz", "math"]      # 子どもに出す遊びは、これだけ(ほかのことはしない)
+MENU = "しりとり、じゃんけん、なぞなぞ、クイズ、さんすうが、できるよ！やりたいのを、言ってね！"
+GUIDE_GAP = 7.0         # 遊びを選ぶ案内を、同じ機器でくり返すまでの最短の秒数
+
+
+def menu_text(acts: list, lead: str = "") -> str:
+    """出せる遊びを読み上げる文。例: 「しりとり、じゃんけん、なぞなぞの、どれで あそぶ？ えらんでね！」"""
+    names = [ACT_LABEL[a] for a in ACT_DEFAULT + ["english"] if a in acts]
+    if not names:
+        return lead or "こんにちは！"
+    return lead + "、".join(names) + "の、どれで あそぶ？ えらんでね！"
 JANKEN = re.compile(r"じゃんけん|ジャンケン|じゃん拳")
 SHIRITORI = re.compile(r"しりとり|尻取り|しりとろ|しり取り")
 
@@ -140,6 +151,7 @@ class KidChat:
         self.next_idle: dict = {}         # 機器 → 次に自分から話しかける時刻
         self.used: dict = {}              # 機器 → 使った話しかけ(重ならないように)
         self.rnd = __import__("random").Random()
+        self.last_guide: dict = {}        # 機器 → 遊びを案内した時刻
         self.greet_req: dict = {}         # 機器 → 人を見つけた時刻(あいさつ待ち)
         self.last_greet: dict = {}        # 機器 → 最後にあいさつした時刻
 
@@ -164,27 +176,35 @@ class KidChat:
         if lang != "ja" or not worth_answering(text) or self.blocked():
             return False
         k_name = None
+        guided = bool(getattr(self.hub, "edu_on", False))           # 教材モード: 決まった遊びだけ。自由なおしゃべりはしない
+        acts = self.acts()
         try:
             import quiz as _quiz
             if getattr(self.hub, "quiz", None) is not None:
                 dev0 = getattr(sess, "dev_id", "")
                 kp = self.hub.discuss.persona_of(dev0) if getattr(self.hub, "discuss", None) else 0
                 k_name = PERSONAS[kp % len(PERSONAS)]["name"]
-                tl = _quiz.today_reply(text, k_name)
+                tl = _quiz.today_reply(text, k_name) if not guided else None
                 if tl:                                              # 「きょうは何日？」「いま何時？」: 決まった返事
                     self._say_once(sess, tl, "happy")
                     return True
                 kind = quiz_kind(text)
-                if kind and self._start_quiz(sess, kind):           # 「なぞなぞしよう」など: その機器で始める
+                if kind and (not guided or kind in acts) and self._start_quiz(sess, kind):           # 「なぞなぞしよう」など: その機器で始める
                     return True
         except Exception as e:  # noqa: BLE001
             print(f"[bridge] クイズの判定に失敗: {type(e).__name__}: {e}", flush=True)
         if ASOBO.search(text) and not (JANKEN.search(text) or SHIRITORI.search(text)):   # 「あそぼう」: できる遊びを教える
             self._menu(sess)
             return True
-        if JANKEN.search(text) and self._start_janken(sess):            # 「じゃんけんしよう」: その機器でじゃんけんを始める
+        if JANKEN.search(text) and (not guided or "janken" in acts) and self._start_janken(sess):            # 「じゃんけんしよう」: その機器でじゃんけんを始める
             return True
-        if SHIRITORI.search(text) and self._start_shiritori(sess):      # 「しりとりしよう」: その機器でしりとりを始める
+        if SHIRITORI.search(text) and (not guided or "shiritori" in acts) and self._start_shiritori(sess):      # 「しりとりしよう」: その機器でしりとりを始める
+            return True
+        if guided:                                           # 遊びの名前でなければ、おしゃべりはせず、選べる遊びを案内する
+            dev = getattr(sess, "dev_id", "")
+            if self.clock() - self.last_guide.get(dev, -1e9) >= GUIDE_GAP:
+                self.last_guide[dev] = self.clock()
+                self._menu(sess)
             return True
         if not self.busy.acquire(blocking=False):
             return True                                      # 返事を考え中の子どもの声は、翻訳せず捨てる
@@ -197,6 +217,11 @@ class KidChat:
         self.last_kid[dev], self.nudges[dev] = self.clock(), 0          # 子どもが話した: 会話中にして、話しかけの回数を数え直す
         threading.Thread(target=self._reply, args=(sess, text.strip()), daemon=True).start()
         return True
+
+    def acts(self) -> list:
+        """子どもに出す遊び(管理画面で選べる)。"""
+        a = getattr(self.hub, "menu_acts", None)
+        return list(a) if a is not None else list(ACT_DEFAULT)
 
     def _start_quiz(self, sess, kind: str) -> bool:
         h = self.hub
@@ -268,8 +293,9 @@ class KidChat:
                 eng = sess.eng
                 voice = getattr(sess, "voice", None) or PERSONAS[0]["voice"]
                 sess.send({"t": "face", "state": "happy"})
-                pcm = eng.speech_pcm_as(MENU, voice)
-                dur = sess._send_pcm(pcm, caption=MENU, lang="ja")
+                mt = menu_text(self.acts())
+                pcm = eng.speech_pcm_as(mt, voice)
+                dur = sess._send_pcm(pcm, caption=mt, lang="ja")
                 time.sleep((dur or 0) + 0.3)
             except Exception as e:  # noqa: BLE001
                 print(f"[bridge] 遊びの案内に失敗: {type(e).__name__}: {e}", flush=True)
@@ -403,7 +429,10 @@ class KidChat:
             name = PERSONAS[k % len(PERSONAS)]["name"]
             hist = self.hist.setdefault(dev, [])
             emo, line = "joy", ""
-            if kind == "nudge" and hist:
+            if getattr(self.hub, "edu_on", False):               # 教材モード: AI におしゃべりを作らせず、遊びの案内だけ(何をしていいか迷わせない)
+                lead = {"greet": f"こんにちは！{name}だよ。", "idle": "ねえねえ、あそぼうよ！", "nudge": "どれに する？ "}.get(kind, "")
+                line = menu_text(self.acts(), lead)
+            elif kind == "nudge" and hist:
                 try:
                     out, _l = eng.translate(nudge_msgs(k, name, hist))
                     emo, line = clean_reply(out)

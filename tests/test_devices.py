@@ -1019,6 +1019,20 @@ class KidChatTests(unittest.TestCase):
             def discussing(s): return False
         self.Eng, self.Sess, self.hub = Eng, Sess, Hub()
 
+    def test_guided_edu_mode_only_menu(self):
+        self.hub.edu_on = True
+        self.hub.menu_acts = ["shiritori", "janken", "riddle", "quiz", "math"]
+        kc, r = self.run_reply("きょうは、あめがふってたよ")
+        self.assertTrue(r)
+        self.assertEqual(len(self.spoke), 1)
+        self.assertIn("どれで あそぶ", self.spoke[0])             # おしゃべりはせず、遊びを案内する
+        self.assertNotIn("えいご", self.spoke[0])
+        self.assertEqual(self.k.menu_text(["janken"]), "じゃんけんの、どれで あそぶ？ えらんでね！")
+        self.hub.menu_acts = ["janken"]
+        kc2, r2 = self.run_reply("えいごしよう")                   # 出さない遊びは始めず、案内する
+        self.assertTrue(r2)
+        self.assertNotIn("えいご", self.spoke[-1])
+
     def test_greets_when_person_seen(self):
         t = [1000.0]
         kc = self.k.KidChat(self.hub, clock=lambda: t[0])
