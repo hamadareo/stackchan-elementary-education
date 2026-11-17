@@ -1022,7 +1022,7 @@ class KidChatTests(unittest.TestCase):
     def test_autonomous_nudge_and_idle(self):
         t = [1000.0]
         kc = self.k.KidChat(self.hub, clock=lambda: t[0])
-        s = self.Sess(self, self.Eng("【喜び】それで、どうなったの？"))
+        s = self.Sess(self, self.Eng("【喜び】いいね、たのしそう！"))
         self.hub.live = lambda: [s]
         self.hub.edu_on = False
         self.hub.kid_auto = True
@@ -1034,6 +1034,7 @@ class KidChatTests(unittest.TestCase):
                 break
             time.sleep(0.05)
         n = len(self.spoke)
+        s.eng.out = "【喜び】それで、どうなったの？"                   # 次の話しかけ(さっきの返事とは別の文)
         t[0] += 3
         self.assertEqual(kc.pending(s, t[0]), "")                 # 少しの間は待つ
         t[0] += 10

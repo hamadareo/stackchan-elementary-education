@@ -23,10 +23,17 @@ SAFE = ["それは、先生やおうちの人に、きいてみてね。ほか�
 FILLER = re.compile(r"^[\s、。,.!！?？ーあえおうんはひ]*$")
 
 
+# 聞き取りが雑音から作ってしまう定番の言葉(動画の決まり文句など)。子どもの声ではないので返事をしない
+HALLU = re.compile(r"ご視聴|チャンネル登録|字幕|最後までご覧|ご清聴|次の動画|高評価")
+
+
 def worth_answering(text: str) -> bool:
-    """雑音・あいづちだけ・短すぎる聞き取りには、返事をしない。"""
+    """雑音・あいづちだけ・短すぎる・同じ音の繰り返し(いっいっいっ)・動画の決まり文句には、返事をしない。"""
     t = (text or "").strip()
-    return len(re.sub(r"[\s、。,.!！?？]", "", t)) >= 2 and not FILLER.match(t)
+    c = re.sub(r"[\s、。,.!！?？]", "", t)
+    if len(c) < 2 or FILLER.match(t) or HALLU.search(c):
+        return False
+    return not re.fullmatch(r"(.{1,2})\1{2,}", c)
 
 
 def kid_msgs(k: int, name: str, text: str, hist: list) -> list:
@@ -49,7 +56,9 @@ def clean_reply(out: str, prev: str = "neutral") -> "tuple[str, str]":
     """AI の出力 → (感情, 返事)。思考・注釈・かっこを落とし、2文・60文字までに切る。"""
     out = re.sub(r"<think>.*?</think>", "", out or "", flags=re.S).strip()
     emo, body = split_emotion(out, prev)
+    body = re.sub(r"[\U0001F000-\U0001FAFF\u2600-\u27BF\uFE0F]", "", body)                  # 絵文字は読み上げ・画面で崩れる
     body = re.sub(r"[「」『』*#\-・]", "", body).strip().split("\n")[0].strip()
+    body = re.sub(r"([。！？!?])\s*[ねよわ]。$", r"\1", body)                                  # 文のあとに語尾だけ残さない
     body = re.sub(r"^(ずんだもん|ずんだ|めたん|つむぎ|ロボット)\s*[、,:：]\s*", "", body)     # 自分の名前を先頭につけない
     body = re.sub(r"([？?])\s*のだ[。!！]*$", r"\1", body)                                   # 質問のあとに語尾だけ残さない
     parts = re.findall(r".+?[。！？!?]|.+$", body)
@@ -301,8 +310,9 @@ class KidChat:
                         emo = guess_emotion(line, "neutral")
                 except Exception:  # noqa: BLE001
                     line = ""
-                if line and SENSITIVE.search(line):
-                    line = ""
+                recent = [x for who, x in hist[-8:] if who == "robot"]
+                if line and (SENSITIVE.search(line) or any(line == r or (len(line) > 6 and line[:8] == r[:8]) for r in recent)):
+                    line = ""                                       # 危ない話題・さっきと同じ話しかけは使わず、決まった質問にする
             if not line:
                 pool = OPENERS if kind == "idle" else NUDGES
                 used = self.used.setdefault(dev, [])
