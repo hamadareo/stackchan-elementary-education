@@ -37,6 +37,7 @@ class Hub:
         self.janken = None               # 子供たちの教材(じゃんけん)
         self.kid = None                  # 子どもモード(子どもが話しかけたら、キャラが返事をする)
         self.kid_on = True
+        self.kid_auto = True             # 子どもモードで、ロボットが自分から話しかける
         self.hand_cache: dict = {}       # 機器ID → 手の確認の結果 {ts, src, jpeg, info}(管理画面が見ている機器だけ計算する)
         self.hand_lock = threading.Lock()
         self.janken_cam = True           # じゃんけんで、カメラの手の認識を使う
@@ -88,7 +89,7 @@ class Hub:
     # ---- 設定の保存と復元(再起動しても声・話速などを覚える) ----
     def save(self) -> None:
         e = self.engine
-        d = {"wave_on": self.wave_on, "wave_voice": self.wave_voice, "gate": self.gate_mult, "mode": self.mode, "track": self.track, "listen": self.listen, "phrases": self.phrases, "kid_on": self.kid_on, "edu_on": self.edu_on, "janken_cam": self.janken_cam}
+        d = {"wave_on": self.wave_on, "wave_voice": self.wave_voice, "gate": self.gate_mult, "mode": self.mode, "track": self.track, "listen": self.listen, "phrases": self.phrases, "kid_on": self.kid_on, "kid_auto": self.kid_auto, "edu_on": self.edu_on, "janken_cam": self.janken_cam}
         if e is not None:
             d["speed"] = getattr(e, "speed_scale", 1.0)
             d["voice"] = getattr(e, "voice_ja", None)
@@ -113,6 +114,7 @@ class Hub:
         self.wave_on, self.wave_voice = bool(d.get("wave_on", True)), bool(d.get("wave_voice", True))
         self.track, self.listen = bool(d.get("track", True)), bool(d.get("listen", True))
         self.kid_on = bool(d.get("kid_on", True))
+        self.kid_auto = bool(d.get("kid_auto", True))
         self.edu_on = bool(d.get("edu_on", False))
         self.janken_cam = bool(d.get("janken_cam", True))
         if isinstance(d.get("phrases"), list):
@@ -443,6 +445,7 @@ class Hub:
         st["discuss"] = self.discuss.snapshot() if self.discuss else None
         st["auto"] = self.auto.snapshot() if self.auto else None
         st["kid_on"] = self.kid_on
+        st["kid_auto"] = self.kid_auto
         st["hand"] = self.hand_status()
         st["edu_on"] = self.edu_on
         st["janken_cam"] = self.janken_cam
@@ -682,6 +685,10 @@ class Hub:
         if name == "kid_set":                             # 子どもモードのオン・オフ
             self.kid_on = bool(body.get("on", True))
             self.event("子どもモード: " + ("オン(話しかけると返事をします)" if self.kid_on else "オフ"))
+            return {"ok": True}
+        if name == "kid_auto_set":                        # 子どもモード: ロボットが自分から話しかける
+            self.kid_auto = bool(body.get("on", True))
+            self.event("自分から話しかける: " + ("オン" if self.kid_auto else "オフ(話しかけられたときだけ返事)"))
             return {"ok": True}
         if name == "kid_say":                             # 先生が、子どもの代わりに話しかける(声が聞き取れないとき・動作確認)
             x = self.by_id(str(body.get("id", ""))) or (self.live()[0] if self.live() else None)

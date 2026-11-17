@@ -33,12 +33,13 @@ def kid_msgs(k: int, name: str, text: str, hist: list) -> list:
     p = PERSONAS[k % len(PERSONAS)]
     # 共通の指示を先頭に置き、キャラごとの違いは最後に置く(LLM が先頭からの同じ部分を使い回せて、返事が速くなる)
     sys = ("あなたは、小学校で子どもたちとお話しするロボットです。子どもが話しかけてきました。きちんと内容に答えて、やさしく返事をしてください。\n"
-           "ルール: 1〜2文、全部で40文字ぐらいまで。むずかしい言葉は使わず、ひらがなを多めにする。説明や箇条書きはしない。"
+           "ルール: 1〜2文、全部で50文字ぐらいまで。むずかしい言葉は使わず、ひらがなを多めにする。説明や箇条書きはしない。"
+           "まず子どもの言ったことに、気持ちを込めて答える。そのあと、できるだけ、話が続く簡単な質問を1つ、最後につける(例: 「どんなのが すき？」「どうして？」「それから どうなったの？」)。子どもの名前や好きなものを聞いたら、おぼえて、あとで話にだす。"
            "こわい話・恋愛・けんか・おとなの話はしない。わからないときは、正直に「わからないよ」と言って、子どもに質問し返す。\n"
            "出力の先頭に、気持ちを【喜び】【驚き】【照れ】【平常】【困惑】のどれか1つ、かっこつきで付ける。例: 【喜び】きょうは、いいてんきだね！\n"
            f"あなたの名前は「{name}」。{p['trait'].split('。')[0]}。{STYLE[k % len(STYLE)]}")
     msgs = [{"role": "system", "content": sys}]
-    for who, line in hist[-4:]:
+    for who, line in hist[-8:]:
         msgs.append({"role": "user" if who == "kid" else "assistant", "content": line})
     msgs.append({"role": "user", "content": text.strip()})
     return msgs
@@ -62,6 +63,31 @@ JANKEN = re.compile(r"じゃんけん|ジャンケン|じゃん拳")
 SHIRITORI = re.compile(r"しりとり|尻取り|しりとろ|しり取り")
 
 
+# 自分から話しかける(子どもが黙ったとき・しばらく誰も話さないとき)。こわくない・むずかしくない・答えやすい質問
+OPENERS = ["ねえねえ、きょうの きゅうしょくは なんだった？", "すきな どうぶつは なあに？", "いちばん すきな あそびは なに？", "きょうは、がっこうで なにを したの？",
+           "すきな たべものを おしえて！", "おおきくなったら、なにに なりたい？", "さいきん、たのしかったことは ある？", "すきな いろは なにいろ？",
+           "どんな おうちに すんでるの？", "いちばん とくいな ことは なあに？", "すきな うたは ある？", "きのうの よるは、なにを したの？"]
+NUDGES = ["ねえ、ほかにも おはなし しよう！", "ぼくは、もっと きいてみたいな。なにか おしえて！", "つぎは、なんの おはなしを する？", "しりとりか じゃんけんも できるよ！"]
+NUDGE_S = 9.0           # 子どもの返事が止まってから、自分から続きを話すまでの秒数
+ENGAGED_S = 120.0       # 子どもが最後に話してから、この間は「会話中」とみなす
+NUDGE_MAX = 2           # 返事がないとき、続けて話しかける回数(超えたら静かに待つ)
+IDLE_S = (150.0, 260.0)  # しばらく誰も話しかけないとき、自分から話しかける間隔(ゆらぎ)
+
+
+def nudge_msgs(k: int, name: str, hist: list) -> list:
+    """子どもが黙ってしまったとき、前の話を受けて、続きの一言(質問)を作らせる。"""
+    p = PERSONAS[k % len(PERSONAS)]
+    sys = ("あなたは、小学校で子どもたちとお話しするロボットです。さっきまで子どもと話していましたが、子どもが少し黙りました。\n"
+           "前の話に続けて、やさしく、答えやすい質問か、ひとことを、1文(30文字ぐらいまで)で言ってください。むずかしい言葉・こわい話・恋愛は使わない。ひらがなを多めに。同じ質問は繰り返さない。\n"
+           "出力の先頭に、気持ちを【喜び】【驚き】【照れ】【平常】【困惑】のどれか1つ、かっこつきで付ける。\n"
+           f"あなたの名前は「{name}」。{p['trait'].split('。')[0]}。{STYLE[k % len(STYLE)]}")
+    msgs = [{"role": "system", "content": sys}]
+    for who, line in hist[-8:]:
+        msgs.append({"role": "user" if who == "kid" else "assistant", "content": line})
+    msgs.append({"role": "user", "content": "(子どもは黙っています。続きを話しかけてください)"})
+    return msgs
+
+
 class KidChat:
     """機器ごとの短い会話の記憶と、返事の発話。全機器で同時には 1 人しか話さない。"""
 
@@ -72,6 +98,12 @@ class KidChat:
         self.quiet_until = 0.0
         self.hist: dict = {}
         self.n = 0
+        self.last_kid: dict = {}          # 機器 → 子どもが最後に話した時刻
+        self.last_end: dict = {}          # 機器 → ロボットが最後に話し終えた時刻
+        self.nudges: dict = {}            # 機器 → 返事がないまま続けて話しかけた回数
+        self.next_idle: dict = {}         # 機器 → 次に自分から話しかける時刻
+        self.used: dict = {}              # 機器 → 使った話しかけ(重ならないように)
+        self.rnd = __import__("random").Random()
 
     @property
     def enabled(self) -> bool:
@@ -107,6 +139,8 @@ class KidChat:
             sess.send({"t": "face", "state": "thinking"})    # すぐ「考え中」の顔にして、待ち時間を短く感じさせる
         except Exception:  # noqa: BLE001
             pass
+        dev = getattr(sess, "dev_id", "")
+        self.last_kid[dev], self.nudges[dev] = self.clock(), 0          # 子どもが話した: 会話中にして、話しかけの回数を数え直す
         threading.Thread(target=self._reply, args=(sess, text.strip()), daemon=True).start()
         return True
 
@@ -188,7 +222,7 @@ class KidChat:
             self.n += 1
             h = self.hist.setdefault(dev, [])
             h += [("kid", text), ("robot", line)]
-            del h[:-8]
+            del h[:-12]
             pr = EMOTIONS.get(emo, EMOTIONS["neutral"])
             sess.send({"t": "face", "state": pr[2]})
             voice = getattr(sess, "voice", None) or PERSONAS[k % len(PERSONAS)]["voice"]
@@ -204,7 +238,104 @@ class KidChat:
         finally:
             self.speaking = False
             self.quiet_until = self.clock() + 1.4            # 自分の声の回り込みが、遅れて届くぶん待つ
+            self.last_end[getattr(sess, "dev_id", "")] = self.clock()
             self.busy.release()
+
+    # ---- 自分から話しかける(自律) ----
+    @property
+    def auto_on(self) -> bool:
+        return bool(getattr(self.hub, "kid_auto", True))
+
+    def pending(self, sess, now: float) -> str:
+        """この機器が、いま自分から話しかけるべきか。"nudge"(子どもが黙った) / "idle"(しばらく静か) / ""。"""
+        dev = getattr(sess, "dev_id", "")
+        if not dev or not self.auto_on or self.blocked() or getattr(sess, "talking", False):
+            return ""
+        eng = getattr(sess, "eng", None)
+        if now - getattr(eng, "last_voice", 0.0) < 4.0:            # 誰かが話している最中は、話しかけない
+            return ""
+        if getattr(getattr(self.hub, "janken", None), "on", False):
+            return ""
+        kid_t, end_t = self.last_kid.get(dev, 0.0), self.last_end.get(dev, 0.0)
+        if kid_t and now - kid_t < ENGAGED_S and self.nudges.get(dev, 0) < NUDGE_MAX:
+            return "nudge" if now - max(kid_t, end_t) >= NUDGE_S else ""
+        if kid_t and now - kid_t < ENGAGED_S:
+            return ""                                           # 話しかけても返事がない: 静かに待つ
+        if not getattr(self.hub, "edu_on", False):
+            return ""                                           # 自分からの話しかけ(静かなとき)は教材モードだけ(ふつうの通訳中は、しゃべりださない)
+        nxt = self.next_idle.setdefault(dev, now + self.rnd.uniform(60.0, 120.0))
+        return "idle" if now >= nxt else ""
+
+    def tick(self, now: "float | None" = None) -> bool:
+        """見張りの 1 回ぶん。話しかけを始めたら True(1 度に 1 台だけ)。"""
+        now = self.clock() if now is None else now
+        live = list(getattr(self.hub, "live", lambda: [])())
+        self.rnd.shuffle(live)
+        for sess in live:
+            kind = self.pending(sess, now)
+            if kind and self.busy.acquire(blocking=False):
+                self.speaking = True
+                dev = getattr(sess, "dev_id", "")
+                if kind == "nudge":
+                    self.nudges[dev] = self.nudges.get(dev, 0) + 1
+                self.next_idle[dev] = now + self.rnd.uniform(*IDLE_S)
+                threading.Thread(target=self._initiate, args=(sess, kind), daemon=True).start()
+                return True
+        return False
+
+    def _initiate(self, sess, kind: str) -> None:
+        try:
+            eng = sess.eng
+            dev = getattr(sess, "dev_id", "")
+            k = self.hub.discuss.persona_of(dev) if getattr(self.hub, "discuss", None) else 0
+            name = PERSONAS[k % len(PERSONAS)]["name"]
+            hist = self.hist.setdefault(dev, [])
+            emo, line = "joy", ""
+            if kind == "nudge" and hist:
+                try:
+                    out, _l = eng.translate(nudge_msgs(k, name, hist))
+                    emo, line = clean_reply(out)
+                    if not has_tag(out):
+                        emo = guess_emotion(line, "neutral")
+                except Exception:  # noqa: BLE001
+                    line = ""
+                if line and SENSITIVE.search(line):
+                    line = ""
+            if not line:
+                pool = OPENERS if kind == "idle" else NUDGES
+                used = self.used.setdefault(dev, [])
+                left = [t for t in pool if t not in used] or pool
+                line = self.rnd.choice(left)
+                used.append(line)
+                del used[:-8]
+                emo = "joy"
+            hist += [("robot", line)]
+            del hist[:-12]
+            pr = EMOTIONS.get(emo, EMOTIONS["neutral"])
+            sess.send({"t": "face", "state": pr[2]})
+            voice = getattr(sess, "voice", None) or PERSONAS[k % len(PERSONAS)]["voice"]
+            try:
+                pcm = eng.speech_pcm_as(line, voice, emotion=pr[1])
+            except TypeError:
+                pcm = eng.speech_pcm_as(line, voice)
+            print(f"[bridge] 子どもモード自発({name}/{kind}): 「{line}」", flush=True)
+            dur = sess._send_pcm(pcm, caption=line, lang="ja")
+            time.sleep((dur or 0) + 0.3)
+        except Exception as e:  # noqa: BLE001
+            print(f"[bridge] 子どもモードの話しかけに失敗: {type(e).__name__}: {e}", flush=True)
+        finally:
+            self.speaking = False
+            self.quiet_until = self.clock() + 1.4
+            self.last_end[getattr(sess, "dev_id", "")] = self.clock()
+            self.busy.release()
+
+    def run(self) -> None:
+        while True:
+            try:
+                self.tick()
+            except Exception:  # noqa: BLE001 - 見張りは落とさない
+                pass
+            time.sleep(2.0)
 
 
 def has_tag(out: str) -> bool:

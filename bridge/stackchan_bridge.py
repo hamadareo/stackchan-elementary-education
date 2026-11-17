@@ -1537,6 +1537,7 @@ def main() -> None:
     admin.HUB.janken = janken.JankenHub(admin.HUB, admin.REG, admin.HUB.discuss, lambda: eng)
     admin.HUB.game.peer, admin.HUB.janken.peer = admin.HUB.janken, admin.HUB.game          # 同じ機器で 2 つの教材を同時に動かさない
     admin.HUB.kid = kidchat.KidChat(admin.HUB)
+    threading.Thread(target=admin.HUB.kid.run, daemon=True).start()           # 子どもが黙ったとき・静かなときに、自分から話しかける
     admin.HUB.auto = autonomy.Autonomy(admin.HUB, admin.REG, admin.HUB.discuss, lambda: eng)
     threading.Thread(target=admin.HUB.auto.run, daemon=True).start()
     try:                                                              # Ubuntu の USB に挿した機器を認識し、新品なら書き込む

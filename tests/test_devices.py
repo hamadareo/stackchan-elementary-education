@@ -1019,6 +1019,44 @@ class KidChatTests(unittest.TestCase):
             def discussing(s): return False
         self.Eng, self.Sess, self.hub = Eng, Sess, Hub()
 
+    def test_autonomous_nudge_and_idle(self):
+        t = [1000.0]
+        kc = self.k.KidChat(self.hub, clock=lambda: t[0])
+        s = self.Sess(self, self.Eng("【喜び】それで、どうなったの？"))
+        self.hub.live = lambda: [s]
+        self.hub.edu_on = False
+        self.hub.kid_auto = True
+        s.eng.last_voice = 0.0
+        self.assertEqual(kc.pending(s, t[0]), "")                 # まだ誰も話していない・教材モードでもない
+        kc.hear(s, "きょうね、ともだちと あそんだよ", "ja")
+        for _ in range(100):
+            if not kc.speaking:
+                break
+            time.sleep(0.05)
+        n = len(self.spoke)
+        t[0] += 3
+        self.assertEqual(kc.pending(s, t[0]), "")                 # 少しの間は待つ
+        t[0] += 10
+        self.assertEqual(kc.pending(s, t[0]), "nudge")            # 黙ったので続きを話しかける
+        self.assertTrue(kc.tick(t[0]))
+        for _ in range(100):
+            if not kc.speaking:
+                break
+            time.sleep(0.05)
+        self.assertEqual(len(self.spoke), n + 1)
+        self.assertEqual(self.spoke[-1], "それで、どうなったの？")
+        t[0] += 20
+        self.assertEqual(kc.pending(s, t[0]), "nudge")
+        kc.nudges["d1"] = self.k.NUDGE_MAX
+        self.assertEqual(kc.pending(s, t[0]), "")                 # 返事がないなら、静かに待つ
+        t[0] += self.k.ENGAGED_S + 1
+        self.assertEqual(kc.pending(s, t[0]), "")                 # 教材モードでなければ、自分からは話さない
+        self.hub.edu_on = True
+        kc.next_idle["d1"] = t[0] - 1
+        self.assertEqual(kc.pending(s, t[0]), "idle")
+        self.hub.kid_auto = False
+        self.assertEqual(kc.pending(s, t[0]), "")                 # 設定でオフにできる
+
     def run_reply(self, text, out="【喜び】こんにちは、げんきだね！", lang="ja"):
         kc = self.k.KidChat(self.hub, clock=lambda: 1e9)
         s = self.Sess(self, self.Eng(out))

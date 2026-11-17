@@ -1186,6 +1186,10 @@ class Win(QMainWindow):
         self.g_kid.setChecked(True)
         self.g_kid.toggled.connect(lambda on: self.act("kid_set", {"on": on}))
         l.addWidget(self.g_kid)
+        self.g_kauto = QCheckBox("自分から話しかける: 子どもが黙ったら続きを質問し、しばらく静かなときは(教材モードで)ロボットから話しかける")
+        self.g_kauto.setChecked(True)
+        self.g_kauto.toggled.connect(lambda on: self.act("kid_auto_set", {"on": on}))
+        l.addWidget(self.g_kauto)
         self.g_stat = muted("")
         self.g_wrap = QWidget()
         self.g_wrap.setObjectName("gwrap")
@@ -1981,6 +1985,8 @@ class Win(QMainWindow):
             self.jk_cam.blockSignals(True); self.jk_cam.setChecked(bool(s["janken_cam"])); self.jk_cam.blockSignals(False)
         if s.get("edu_on") is not None and self.g_edu.isChecked() != s["edu_on"] and not self.g_edu.hasFocus():
             self.g_edu.blockSignals(True); self.g_edu.setChecked(bool(s["edu_on"])); self.g_edu.blockSignals(False)
+        if s.get("kid_auto") is not None and self.g_kauto.isChecked() != s["kid_auto"] and not self.g_kauto.hasFocus():
+            self.g_kauto.blockSignals(True); self.g_kauto.setChecked(bool(s["kid_auto"])); self.g_kauto.blockSignals(False)
         if s.get("kid_on") is not None and self.g_kid.isChecked() != s["kid_on"] and not self.g_kid.hasFocus():
             self.g_kid.blockSignals(True); self.g_kid.setChecked(bool(s["kid_on"])); self.g_kid.blockSignals(False)
         self.render_phrases()
