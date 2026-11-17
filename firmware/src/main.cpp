@@ -321,6 +321,9 @@ static void onWs(WStype_t type, uint8_t *p, size_t n) {
         else setVolume((int)spkVol + (d["delta"] | 0));
       } else if (t == "shot") {                          // 画面を撮って送る(デバッグ用)
         shotReq = true;
+      } else if (t == "faceStyle") {                     // 顔の種類(まる目・ガーリー・わんこ など)と色
+        zface::setStyle(d["id"] | 0);
+        barDirty = true;
       } else if (t == "name") {                          // 機器名(画面の右下に出す)
         snprintf(devName, sizeof devName, "%s", (const char *)(d["name"] | ""));
         barDirty = true;

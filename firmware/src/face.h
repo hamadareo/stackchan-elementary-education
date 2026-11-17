@@ -3,6 +3,8 @@
 #pragma once
 #include <M5Unified.h>
 #include <Avatar.h>
+#include <faces/FaceTemplates.hpp>   // M5Stack-Avatar 同梱の顔(MIT ライセンス): まる目・ガーリー・小悪魔・わんこ など
+#include <faces/DogFace.h>
 
 namespace m5avatar { extern void (*avatarPostDraw)(); extern char avatarCaption[512]; extern volatile uint32_t avatarCaptionSeq; }   // lib/M5Stack-Avatar に追加したフック(顔の描画タスクから呼ばれる)
 
@@ -26,11 +28,41 @@ static void apply(Emo e) {
   }
 }
 
+// ---- 顔の種類(M5Stack-Avatar に同梱されている MIT ライセンスの顔と、その色)。ブリッジから {"t":"faceStyle","id":N} で切り替える ----
+static const int STYLE_N = 7;
+static const char *STYLE_NAME[STYLE_N] = {"標準", "まる目(OωO)", "ガーリー", "ガーリー(リボン)", "ピンクの小悪魔", "わんこ", "シンプル(o_o)"};
+static m5avatar::Face *styleFace[STYLE_N] = {nullptr};   // 一度作ったら使い回す(切り替えるたびに作らない)
+static int styleNow = 0;
+static void setStyle(int id) {
+  using namespace m5avatar;
+  if (id < 0 || id >= STYLE_N) id = 0;
+  if (!styleFace[0]) return;                             // begin() 前
+  if (!styleFace[id]) {
+    switch (id) {
+      case 1: styleFace[id] = new OmegaFace(); break;
+      case 2: styleFace[id] = new GirlyFace(); break;
+      case 3: styleFace[id] = new GirlyFace2(); break;
+      case 4: styleFace[id] = new PinkDemonFace(); break;
+      case 5: styleFace[id] = new DogFace(); break;
+      case 6: styleFace[id] = new SimpleFace(); break;
+      default: styleFace[id] = styleFace[0]; break;
+    }
+  }
+  static const uint8_t RGB[STYLE_N][3] = {{255, 255, 255}, {150, 235, 150}, {255, 150, 200}, {200, 160, 255}, {255, 100, 170}, {255, 190, 110}, {120, 220, 255}};
+  ColorPalette cp;
+  cp.set(COLOR_PRIMARY, M5.Display.color565(RGB[id][0], RGB[id][1], RGB[id][2]));
+  cp.set(COLOR_BACKGROUND, 0x0000);
+  avatar.setColorPalette(cp);
+  avatar.setFace(styleFace[id]);
+  styleNow = id;
+}
+
 static void begin() {
   M5.Display.setRotation(1);
   avatar.setScale(0.9f);                                 // 上の 22px を状態バーに空ける
   avatar.setPosition(11, 0);
   avatar.init();
+  styleFace[0] = avatar.getFace();                       // 初期の顔(標準)を覚えておく
   M5.Display.setClipRect(0, 22, M5.Display.width(), M5.Display.height() - 22);   // 顔の描画が状態バーを消さない
   avatar.setSpeechFont(&fonts::efontJA_16);
   apply(NEUTRAL);

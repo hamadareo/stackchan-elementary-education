@@ -231,3 +231,18 @@ class NoDuplicateMethods(unittest.TestCase):
                 names = [n.name for n in cls.body if isinstance(n, ast.FunctionDef)]
                 dup = {x for x in names if names.count(x) > 1}
                 self.assertFalse(dup, f"{fn}:{cls.name} に重複: {dup}")
+
+
+class VoiceTuneTests(unittest.TestCase):
+    def test_zundamon_is_calmer(self):
+        import stackchan_bridge as b
+        base = b.tuned_prosody("voicevox:3", None)
+        self.assertLess(base["speed"], 1.0); self.assertLess(base["pitch"], 0.0); self.assertGreater(base["volume"], 1.0)   # 遅く・低く・大きく
+        excited = {"speed": 1.18, "pitch": 0.07, "intonation": 1.4, "volume": 1.1}
+        pr = b.tuned_prosody("voicevox:3", excited)
+        self.assertLess(pr["speed"], 1.0)                                  # 興奮しても、速くなりすぎない
+        self.assertLess(pr["pitch"], 0.0)
+        self.assertLess(pr["intonation"], 1.1)
+        self.assertEqual(b.tuned_prosody("voicevox:2", excited), excited)  # めたんは、そのまま
+        self.assertIsNone(b.tuned_prosody("voicevox:2", None))
+

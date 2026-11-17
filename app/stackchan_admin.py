@@ -1162,74 +1162,117 @@ class Win(QMainWindow):
         w = QWidget()
         lay = QVBoxLayout(w)
         lay.setContentsMargins(0, 0, 0, 0)
-        c, l = card("しりとり", "子供たちとロボットがしりとりであそびます。ルール判定はプログラムが行い、「ん」がついたら負け、同じ言葉は使えません")
+        c, l = card("しりとり", "ロボット対子供たち。各機器が、自分の前にいる子供たちと、それぞれ独立にしりとりをします(3台は連携しません)。「ん」がついたら負け、同じ言葉は使えません")
         self.g_first = QComboBox()
         self.g_first.addItem("子どもから始める", "kid")
         self.g_first.addItem("ロボットから始める", "robot")
         self.g_level = QComboBox()
         for label, v in (("やさしい(続けやすい文字で答える)", "easy"), ("ふつう", "normal"), ("つよい(続けにくい文字で答える)", "hard")):
             self.g_level.addItem(label, v)
-        self.g_go = btn("▶ あそぶ", self.game_go)
-        l.addLayout(hrow(self.g_first, self.g_level, self.g_go, btn("■ やめる", lambda: self.act("game_stop"), name="bad")))
-        self.g_big = QLabel("ボタンをおして、はじめよう!")
-        self.g_big.setAlignment(Qt.AlignCenter)
-        self.g_big.setWordWrap(True)
-        self.g_big.setStyleSheet(f"font-size:34px;font-weight:700;color:{CY};padding:18px 8px")
-        l.addWidget(self.g_big)
-        self.g_msg = muted("")
-        self.g_msg.setAlignment(Qt.AlignCenter)
-        l.addWidget(self.g_msg)
-        self.g_chain = QLabel("")
-        self.g_chain.setWordWrap(True)
-        self.g_chain.setTextFormat(Qt.RichText)
-        self.g_chain.setStyleSheet("font-size:17px;padding:8px")
-        l.addWidget(self.g_chain, 1)
+        l.addLayout(hrow(self.g_first, self.g_level, btn("▶ 全台であそぶ", lambda: self.game_go(None)), btn("■ 全部やめる", lambda: self.act("game_stop"), name="bad")))
         self.g_stat = muted("")
         l.addWidget(self.g_stat)
-        self.g_type = QLineEdit()
-        self.g_type.setPlaceholderText("先生の入力: 子どもの声が聞き取れないとき、ここに言葉を入れて「送る」(例: りんご)")
-        self.g_type.returnPressed.connect(self.game_type)
-        l.addLayout(hrow(self.g_type, btn("送る", self.game_type)))
-        l.addWidget(muted("ロボットは、接続中の機器が順番に答えます。話している間は、自分たちの声を拾わないようにしています。ほかの教材は、これから追加します。"))
+        self.g_wrap = QWidget()
+        self.g_wrap.setObjectName("gwrap")
+        self.g_wrap.setStyleSheet("#gwrap{background:transparent}")
+        self.g_l = QVBoxLayout(self.g_wrap)
+        self.g_l.setContentsMargins(0, 0, 0, 0)
+        sa = QScrollArea()
+        sa.setWidgetResizable(True)
+        sa.setStyleSheet("QScrollArea{background:transparent;border:0}")
+        sa.viewport().setStyleSheet("background:transparent")
+        sa.setWidget(self.g_wrap)
+        l.addWidget(sa, 1)
+        l.addWidget(muted("子どもの声は、その機器のマイクだけで聞き取ります。聞き取れないときは、各カードの「先生の入力」に言葉を入れてください。ほかの教材は、これから追加します。"))
         lay.addWidget(c, 1)
         self.g_key = ""
+        self.g_struct = ""
+        self.g_w: dict = {}
         return w
 
-    def game_go(self):
-        self.act("game_start", {"first": self.g_first.currentData(), "level": self.g_level.currentData()}, "しりとりを始めます(自律モードはオフにしました)")
+    def game_go(self, dev_id):
+        body = {"first": self.g_first.currentData(), "level": self.g_level.currentData()}
+        if dev_id:
+            body["devices"] = [dev_id]
+        self.act("game_start", body, "しりとりを始めます(自律モードはオフにしました)")
 
-    def game_type(self):
-        t = self.g_type.text().strip()
+    def game_type(self, dev_id, edit):
+        t = edit.text().strip()
         if t:
-            self.act("game_say", {"text": t})
-            self.g_type.clear()
+            self.act("game_say", {"text": t, "id": dev_id})
+            edit.clear()
 
-    def render_game(self, g):
+    def render_game(self, g, devices):
         if not g:
             return
-        k = json.dumps(g, ensure_ascii=False)
+        devs = [d for d in (devices or []) if d.get("online")]
+        k = json.dumps([g, [(d["id"], d["name"]) for d in devs]], ensure_ascii=False)
         if k == self.g_key:
             return
         self.g_key = k
-        self.g_go.setEnabled(not g["on"])
-        if g["on"]:
-            if g["turn"] == "kid":
-                big = f'きみの番!  「{g["need"]}」から' if g["need"] else "すきな言葉から、はじめてね!"
-            elif g["turn"]:
-                big = f'{g["turn"]}が答えるよ…'
+        by = {x["dev_id"]: x for x in g.get("games", [])}
+        struct = json.dumps([(d["id"], d["name"]) for d in devs])
+        if struct != self.g_struct:                          # 台数・名前が変わったときだけカードを作り直す
+            self.g_struct = struct
+            self.g_w = {}
+            while self.g_l.count():
+                it = self.g_l.takeAt(0)
+                if it.widget():
+                    it.widget().deleteLater()
+            for d in devs:
+                fr = QFrame()
+                fr.setObjectName("gcard")
+                fr.setStyleSheet("#gcard{background:rgba(10,20,34,0.55);border:1px solid #1d3a55;border-radius:8px}#gcard QLabel{background:transparent}")
+                v = QVBoxLayout(fr)
+                head = QLabel()
+                head.setTextFormat(Qt.RichText)
+                big = QLabel("ボタンをおして、はじめよう!")
+                big.setAlignment(Qt.AlignCenter)
+                big.setWordWrap(True)
+                big.setStyleSheet(f"font-size:26px;font-weight:700;color:{CY};padding:6px 4px")
+                msg = muted("")
+                msg.setAlignment(Qt.AlignCenter)
+                chain = QLabel("")
+                chain.setWordWrap(True)
+                chain.setTextFormat(Qt.RichText)
+                chain.setStyleSheet("font-size:15px;padding:4px")
+                typ = QLineEdit()
+                typ.setPlaceholderText("先生の入力(聞き取れないとき): 言葉を入れて Enter")
+                typ.returnPressed.connect(lambda i=d["id"], e=typ: self.game_type(i, e))
+                v.addLayout(hrow(head, btn("▶ あそぶ", lambda i=d["id"]: self.game_go(i)), btn("■ やめる", lambda i=d["id"]: self.act("game_stop", {"id": i}), name="bad")))
+                v.addWidget(big)
+                v.addWidget(msg)
+                v.addWidget(chain)
+                v.addWidget(typ)
+                self.g_l.addWidget(fr)
+                self.g_w[d["id"]] = {"head": head, "big": big, "msg": msg, "chain": chain}
+            if not devs:
+                self.g_l.addWidget(muted("接続中の機器がありません"))
+            self.g_l.addStretch(1)
+        self.g_stat.setText(f'つないだ数のベスト {g.get("best", 0)}　あそんだ回数 {g.get("plays", 0)}')
+        for d in devs:
+            w = self.g_w.get(d["id"])
+            if not w:
+                continue
+            x = by.get(d["id"])
+            persona = (x or {}).get("persona", "")
+            w["head"].setText(f'<b>{d["name"]}</b>' + (f' <span style="color:{AM}">({persona})</span>' if persona else ""))
+            if x is None:
+                w["big"].setText("ボタンをおして、はじめよう!"); w["msg"].setText(""); w["chain"].setText("")
+                continue
+            if x["on"]:
+                if x["turn"] == "kid":
+                    big = f'きみの番!  「{x["need"]}」から' if x["need"] else "すきな言葉から、はじめてね!"
+                elif x["turn"]:
+                    big = f'{x["turn"]}が答えるよ…'
+                else:
+                    big = "しりとり、はじまるよ!"
             else:
-                big = "しりとり、はじまるよ!"
-        else:
-            big = {"kid_win": "🎉 きみの勝ち!", "robot_win": "ロボットの勝ち! また挑戦してね", "stopped": "おしまい。またあそぼうね"}.get(g["result"], "ボタンをおして、はじめよう!")
-        self.g_big.setText(big)
-        self.g_msg.setText(g["msg"])
-        parts = []
-        for c in g["chain"]:
-            col = GR if c["kid"] else AM
-            parts.append(f'<span style="color:{col}"><b>{c["word"]}</b></span><span style="color:#6f8aa6">({c["who"]})</span>')
-        self.g_chain.setText("　→　".join(parts) if parts else '<span style="color:#6f8aa6">ここに、つながった言葉が出ます</span>')
-        rb = "・".join(f'{r["name"]}({r["dev_name"]})' for r in g["robots"])
-        self.g_stat.setText(f'つないだ数 {g["score"]}　ベスト {g["best"]}　あそんだ回数 {g["plays"]}' + (f'　参加: {rb}' if rb else ""))
+                big = {"kid_win": "🎉 きみの勝ち!", "robot_win": "ロボットの勝ち! また挑戦してね", "stopped": "おしまい。またあそぼうね"}.get(x["result"], "ボタンをおして、はじめよう!")
+            w["big"].setText(big)
+            w["msg"].setText(x["msg"])
+            parts = [f'<span style="color:{GR if c["kid"] else AM}"><b>{c["word"]}</b></span>' for c in x["chain"]]
+            w["chain"].setText(" → ".join(parts) + (f'<br><span style="color:#6f8aa6">つないだ数 {x["score"]}</span>' if parts else "") if parts else '<span style="color:#6f8aa6">ここに、つながった言葉が出ます</span>')
 
     def page_journal(self) -> QWidget:
         w = QWidget()
@@ -1682,7 +1725,7 @@ class Win(QMainWindow):
         self.render_discuss(s.get("discuss"))
         self.render_auto(s.get("auto"))
         self.render_journal(s.get("journal"))
-        self.render_game(s.get("game"))
+        self.render_game(s.get("game"), s.get("devices"))
         self.render_phrases()
         self.render_people(s.get("people"))
         self.render_turns()

@@ -214,8 +214,9 @@ class Shiritori:
     PERSONA = {"ずんだ": {"word": "{w}なのだ!", "emo": "excited"}, "めたん": {"word": "{w}、ですね。", "emo": "neutral"},
                "つむぎ": {"word": "{w}、かな?", "emo": "joy"}}
 
-    def __init__(self, hub, reg, discuss, eng_getter, path: "str | None" = None, rnd=None, clock=time.time):
+    def __init__(self, hub, reg, discuss, eng_getter, path: "str | None" = None, rnd=None, clock=time.time, stats: "dict | None" = None, save_cb=None, guard=None):
         self.hub, self.reg, self.discuss, self.eng_getter = hub, reg, discuss, eng_getter
+        self.save_cb, self.guard = save_cb, guard          # 管理役(GameHub)から: 記録の共有と、「ほかの機器が話している間は聞かない」の判定
         self.path = path or os.environ.get("SC_GAME", os.path.expanduser("~/.sokutsu_game.json"))
         self.rnd = rnd or random.Random()
         self.clock = clock
@@ -233,14 +234,18 @@ class Shiritori:
         self.quiet_until = 0.0
         self._stop = threading.Event()
         self.robots: list = []
-        self.stats = {"best": 0, "plays": 0}
-        try:
-            self.stats.update({k: int(v) for k, v in json.load(open(self.path)).items() if k in ("best", "plays")})
-        except (OSError, ValueError):
-            pass
+        self.stats = stats if stats is not None else {"best": 0, "plays": 0}
+        if stats is None:
+            try:
+                self.stats.update({k: int(v) for k, v in json.load(open(self.path)).items() if k in ("best", "plays")})
+            except (OSError, ValueError):
+                pass
 
     # ---- 保存
     def _save(self) -> None:
+        if self.save_cb:
+            self.save_cb()
+            return
         try:
             fd = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
             with os.fdopen(fd, "w") as f:
@@ -249,7 +254,7 @@ class Shiritori:
             pass
 
     # ---- 開始・終了
-    def start(self, first: str = "kid", level: str = "easy") -> "tuple[bool, str]":
+    def start(self, first: str = "kid", level: str = "easy", dev_id: "str | None" = None) -> "tuple[bool, str]":
         if self.on:
             return False, "すでに遊んでいます(やめてから始めてください)"
         if self.discuss is not None and self.discuss.on:
@@ -258,6 +263,8 @@ class Shiritori:
         if eng is None:
             return False, "エンジンの準備中です"
         pk = self.discuss.pick() if self.discuss is not None else []
+        if dev_id:                                          # この機器だけで遊ぶ(ほかの機器とは連携しない)
+            pk = [(r, s) for r, s in pk if r["id"] == dev_id]
         if not pk:
             return False, "接続中の機器がありません"
         from discuss import PERSONAS
@@ -287,7 +294,7 @@ class Shiritori:
             return False
         if lang not in ("ja", "", None):
             return True
-        if self.speaking or self.clock() < self.quiet_until or self.turn != "kid":
+        if self.speaking or self.clock() < self.quiet_until or self.turn != "kid" or (self.guard and self.guard()):
             return True                                     # ロボットの声を自分のマイクが拾った分・順番外は捨てる
         self.q.put(text)
         return True
@@ -472,7 +479,84 @@ class Shiritori:
             self.hub.event(f"しりとり終了({self.result}・つないだ数 {self.score})")
 
     def snapshot(self) -> dict:
-        return {"on": self.on, "level": self.level, "turn": self.turn, "need": self.need, "msg": self.msg, "result": self.result,
+        return {"dev_id": self.robots[0]["id"] if self.robots else "", "dev_name": self.robots[0]["dev_name"] if self.robots else "", "persona": self.robots[0]["name"] if self.robots else "",
+                "on": self.on, "level": self.level, "turn": self.turn, "need": self.need, "msg": self.msg, "result": self.result,
                 "score": self.score, "best": self.stats["best"], "plays": self.stats["plays"],
                 "robots": [{"name": r["name"], "dev_name": r["dev_name"]} for r in self.robots],
                 "chain": [{"who": c["who"], "word": c["word"], "kid": c["kid"]} for c in self.chain[-30:]]}
+
+
+class GameHub:
+    """機器ごとに、独立したしりとりを持つ管理役。実際の現場は「ロボット対子どもたち」なので、3 台は連携せず、
+    各機器が自分のマイク・スピーカーで、自分の前にいる子どもたちとだけ遊ぶ。ただし、ほかの機器が話している間は、
+    その声の回り込みを聞き取らないよう、どの機器も聞き取りを止める。"""
+
+    def __init__(self, hub, reg, discuss, eng_getter, path: "str | None" = None, rnd=None):
+        self.hub, self.reg, self.discuss, self.eng_getter = hub, reg, discuss, eng_getter
+        self.path = path or os.environ.get("SC_GAME", os.path.expanduser("~/.sokutsu_game.json"))
+        self.rnd = rnd
+        self.games: dict = {}
+        self.lock = threading.Lock()
+        self.stats = {"best": 0, "plays": 0}
+        try:
+            self.stats.update({k: int(v) for k, v in json.load(open(self.path)).items() if k in ("best", "plays")})
+        except (OSError, ValueError):
+            pass
+
+    def save(self) -> None:
+        try:
+            fd = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w") as f:
+                json.dump(self.stats, f)
+        except OSError:
+            pass
+
+    @property
+    def on(self) -> bool:
+        return any(g.on for g in self.games.values())
+
+    def _guard_for(self, me):
+        return lambda: any(g is not me and (g.speaking or g.clock() < g.quiet_until) for g in self.games.values())
+
+    def start(self, first: str = "kid", level: str = "easy", dev_ids: "list | None" = None) -> "tuple[bool, str]":
+        """dev_ids の機器それぞれで、独立にしりとりを始める(省略なら、接続中の全機器)。"""
+        if self.discuss is not None and self.discuss.on:
+            return False, "いまロボットが会話中です(止めてから始めてください)"
+        pk = self.discuss.pick() if self.discuss is not None else []
+        ids = [r["id"] for r, _s in pk] if not dev_ids else [i for i in dev_ids if any(r["id"] == i for r, _s in pk)]
+        if not ids:
+            return False, "接続中の機器がありません"
+        started, err = [], ""
+        for i in ids:
+            g = self.games.get(i)
+            if g is None:
+                g = self.games[i] = Shiritori(self.hub, self.reg, self.discuss, self.eng_getter, self.path, self.rnd, stats=self.stats, save_cb=self.save)
+                g.guard = self._guard_for(g)
+            ok, e = g.start(first, level, dev_id=i)
+            if ok:
+                started.append(i)
+            else:
+                err = e
+        return (True, "") if started else (False, err)
+
+    def stop(self, dev_id: "str | None" = None) -> None:
+        for i, g in list(self.games.items()):
+            if dev_id is None or i == dev_id:
+                g.stop()
+
+    def hear(self, text: str, lang: str = "ja", dev_id: str = "") -> bool:
+        """機器 dev_id のマイクで聞き取った言葉を、その機器のしりとりへ。その機器が遊んでいなければ False(ふつうの翻訳へ)。"""
+        g = self.games.get(dev_id)
+        return bool(g and g.on and g.hear(text, lang))
+
+    def say(self, text: str, dev_id: str = "") -> bool:
+        """先生の入力。dev_id を省略すると、いま子どもの番の機器すべてへ。"""
+        ok = False
+        for i, g in self.games.items():
+            if g.on and (not dev_id or i == dev_id):
+                ok = g.say(text) or ok
+        return ok
+
+    def snapshot(self) -> dict:
+        gs = [g.snapshot() for g in self.games.values() if g.robots]
+        return {"on": self.on, "games": gs, "best": self.stats["best"], "plays": self.stats["plays"]}

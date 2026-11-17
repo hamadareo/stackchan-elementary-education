@@ -541,14 +541,15 @@ class Hub:
                 while self.discuss.on and time.time() - t0 < 8:
                     time.sleep(0.2)
             self.listen = True                            # 子どもの声を聞き取る(マイクがオフなら入れる)
-            ok, err = self.game.start(str(body.get("first", "kid")), str(body.get("level", "easy")))
+            ids = body.get("devices")
+            ok, err = self.game.start(str(body.get("first", "kid")), str(body.get("level", "easy")), list(ids) if isinstance(ids, list) and ids else None)
             return {"ok": True} if ok else {"ok": False, "error": err}
         if name == "game_stop":
             if self.game:
-                self.game.stop()
+                self.game.stop(str(body.get("id", "")) or None)
             return {"ok": True}
         if name == "game_say":                            # 先生が、子どもの代わりに言葉を入力する
-            if not self.game or not self.game.say(str(body.get("text", "")).strip()[:40]):
+            if not self.game or not self.game.say(str(body.get("text", "")).strip()[:40], str(body.get("id", ""))):
                 return {"ok": False, "error": "いまは子どもの番ではありません"}
             return {"ok": True}
         if name == "auto_set":

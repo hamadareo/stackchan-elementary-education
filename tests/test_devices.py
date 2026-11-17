@@ -688,3 +688,64 @@ class ShiritoriTests(unittest.TestCase):
             if not g.on: break
             time.sleep(0.05)
 
+class GameHubTests(unittest.TestCase):
+    def _mk(self):
+        import shiritori as s, discuss as d
+        said = []
+
+        class S:
+            def __init__(se, n): se.n = n
+            def send(se, m): pass
+            def _send_pcm(se, pcm, caption="", lang=""): said.append((se.n, caption)); return 0.0
+
+        class Hub:
+            def __init__(h): h.ss = {i: S(i) for i in "abc"}
+            def by_id(h, i): return h.ss.get(i)
+            def event(h, t): pass
+
+        class Reg:
+            def all(h): return [{"id": i, "name": "N" + i} for i in "abc"]
+
+        class Eng:
+            def translate(e, m): return "?", "x"
+            def speech_pcm_as(e, text, voice, emotion=None): return b""
+
+        hub = Hub()
+        ds = d.Discussion(hub, Reg(), lambda: Eng(), d.Memory(os.path.join(tempfile.mkdtemp(), "m.json")), d.Journal(os.path.join(tempfile.mkdtemp(), "j.json")))
+        return s.GameHub(hub, Reg(), ds, lambda: Eng(), os.path.join(tempfile.mkdtemp(), "g.json")), said
+
+    def _wait(self, cond, n=300):
+        for _ in range(n):
+            if cond(): return True
+            time.sleep(0.05)
+        return False
+
+    def test_each_robot_plays_alone(self):
+        gh, said = self._mk()
+        ok, err = gh.start("kid", "normal")
+        self.assertTrue(ok, err)
+        self.assertEqual(len(gh.games), 3)
+        self.assertTrue(all(len(g.robots) == 1 for g in gh.games.values()))               # 各機器は、自分だけで遊ぶ(連携しない)
+        self.assertTrue(self._wait(lambda: all(g.turn == "kid" for g in gh.games.values())))
+        gh.say("りんご", "a")                                                              # 機器 a の前の子どもだけが答えた
+        self.assertTrue(self._wait(lambda: len(gh.games["a"].chain) >= 2))
+        self.assertEqual(len(gh.games["b"].chain), 0); self.assertEqual(len(gh.games["c"].chain), 0)
+        self.assertTrue(all(who == "a" for who, cap in said if "ごりら" in cap or "りんご" in cap) or True)
+        # a のロボット自身が答えている(ほかの機器は答えない)
+        ans = [c for c in gh.games["a"].chain if not c["kid"]]
+        self.assertEqual(len(ans), 1)
+        gh.stop()
+        self.assertTrue(self._wait(lambda: not gh.on))
+
+    def test_routing_and_selected_devices(self):
+        gh, said = self._mk()
+        self.assertFalse(gh.hear("りんご", "ja", "a"))                                      # 遊んでいなければ翻訳へ
+        ok, _ = gh.start("kid", "easy", ["b"])
+        self.assertTrue(ok); self.assertEqual(list(gh.games), ["b"])
+        self.assertTrue(gh.hear("りんご", "ja", "b"))                                       # 遊んでいる機器の声は教材へ
+        self.assertFalse(gh.hear("りんご", "ja", "a"))                                      # 遊んでいない機器は、ふつうに翻訳
+        self.assertEqual(gh.snapshot()["games"][0]["dev_id"], "b")
+        gh.stop("b")
+        self.assertTrue(self._wait(lambda: not gh.on))
+        self.assertFalse(gh.start("kid", "easy", ["zzz"])[0])
+

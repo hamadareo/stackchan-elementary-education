@@ -52,6 +52,22 @@ SAY_VOICE = {"ja": "Kyoko", "ko": "Yuna", "en": "Samantha", "zh": "Tingting"}
 
 
 # ---------------------------------------------------------------- 共有モデル(起動時に1回)
+# 声ごとの聞き取りやすさの調整。ずんだもん(標準)は、高めで速く、子どもや教室の騒音では聞き取りにくいので、遅く・低く・抑揚を抑え・音量を上げる。
+# emo は、感情による声の変化をどれだけ効かせるか(1=そのまま)。感情が強いほど聞き取りにくくなるので、ずんだは弱める。
+VOICE_TUNE = {"voicevox:3": {"speed": 0.88, "pitch": -0.05, "intonation": 0.9, "volume": 1.2, "emo": 0.35}}
+
+
+def tuned_prosody(voice: "str | None", emotion: "dict | None") -> "dict | None":
+    """感情の調子(emotion)に、その声の調整(VOICE_TUNE)を合わせる。どちらも無ければ None(いつもの声)。"""
+    tune = VOICE_TUNE.get(voice or "")
+    if not tune:
+        return emotion or None
+    k = tune.get("emo", 1.0)
+    e = emotion or {}
+    return {"speed": tune["speed"] * (1 + (e.get("speed", 1.0) - 1) * k), "pitch": tune["pitch"] + e.get("pitch", 0.0) * k,
+            "intonation": tune["intonation"] * (1 + (e.get("intonation", 1.0) - 1) * k), "volume": tune["volume"] * (1 + (e.get("volume", 1.0) - 1) * k)}
+
+
 class Engine:
     """Sokutsu の耳・翻訳・声を1か所に持つ。接続ごとの Session が使い回す。"""
 
@@ -243,7 +259,7 @@ class Engine:
                 return self._speech_pcm(text, "ja", src_dur, speed)
             self.tts.voices["ja"] = voice or self.voice_ja
             self._install_prosody()
-            self.prosody = emotion or None
+            self.prosody = tuned_prosody(voice or self.voice_ja, emotion)
             try:
                 return self._speech_pcm(text, "ja", src_dur, speed)
             finally:
@@ -982,8 +998,7 @@ class Session:
                         continue
                     self.eng.last_voice = time.time()
                     _g = getattr(admin.HUB, "game", None)
-                    if _g is not None and _g.on:               # しりとり中は、子どもの声を教材へ(翻訳しない)
-                        _g.hear(text, lang)
+                    if _g is not None and _g.hear(text, lang, getattr(self, "dev_id", "")):   # この機器がしりとり中なら、子どもの声を教材へ(翻訳しない)
                         continue
                     if self._voice_cmd(text):                  # 「音量上げて」などは翻訳せず端末を操作する
                         continue
@@ -1396,7 +1411,7 @@ def main() -> None:
     import discuss
     admin.HUB.discuss = discuss.Discussion(admin.HUB, admin.REG, lambda: eng)
     import shiritori
-    admin.HUB.game = shiritori.Shiritori(admin.HUB, admin.REG, admin.HUB.discuss, lambda: eng)
+    admin.HUB.game = shiritori.GameHub(admin.HUB, admin.REG, admin.HUB.discuss, lambda: eng)
     admin.HUB.auto = autonomy.Autonomy(admin.HUB, admin.REG, admin.HUB.discuss, lambda: eng)
     threading.Thread(target=admin.HUB.auto.run, daemon=True).start()
     try:                                                              # Ubuntu の USB に挿した機器を認識し、新品なら書き込む
