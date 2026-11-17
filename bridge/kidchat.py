@@ -50,6 +50,8 @@ def clean_reply(out: str, prev: str = "neutral") -> "tuple[str, str]":
     out = re.sub(r"<think>.*?</think>", "", out or "", flags=re.S).strip()
     emo, body = split_emotion(out, prev)
     body = re.sub(r"[「」『』*#\-・]", "", body).strip().split("\n")[0].strip()
+    body = re.sub(r"^(ずんだもん|ずんだ|めたん|つむぎ|ロボット)\s*[、,:：]\s*", "", body)     # 自分の名前を先頭につけない
+    body = re.sub(r"([？?])\s*のだ[。!！]*$", r"\1", body)                                   # 質問のあとに語尾だけ残さない
     parts = re.findall(r".+?[。！？!?]|.+$", body)
     body = "".join(parts[:2]).strip()
     if len(body) > 60:
