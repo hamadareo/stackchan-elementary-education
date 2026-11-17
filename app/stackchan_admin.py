@@ -1362,6 +1362,10 @@ class Win(QMainWindow):
                 big.setStyleSheet(f"font-size:26px;font-weight:700;color:{CY};padding:6px 4px")
                 msg = muted("")
                 msg.setAlignment(Qt.AlignCenter)
+                last = QLabel("")
+                last.setAlignment(Qt.AlignCenter)
+                last.setTextFormat(Qt.RichText)
+                last.setStyleSheet("font-size:20px;padding:4px")
                 rec = QLabel("")
                 rec.setAlignment(Qt.AlignCenter)
                 rec.setTextFormat(Qt.RichText)
@@ -1376,11 +1380,12 @@ class Win(QMainWindow):
                 v.addLayout(hrow(head, btn("▶ あそぶ", lambda i=d["id"]: self.janken_go(i)), btn("■ やめる", lambda i=d["id"]: self.act("janken_stop", {"id": i}), name="bad")))
                 v.addWidget(big)
                 v.addWidget(msg)
+                v.addWidget(last)
                 v.addWidget(rec)
                 v.addWidget(hist)
                 v.addWidget(typ)
                 self.jk_l.addWidget(fr)
-                self.jk_w[d["id"]] = {"head": head, "big": big, "msg": msg, "rec": rec, "hist": hist}
+                self.jk_w[d["id"]] = {"head": head, "big": big, "msg": msg, "last": last, "rec": rec, "hist": hist}
             if not devs:
                 self.jk_l.addWidget(muted("接続中の機器がありません"))
             self.jk_l.addStretch(1)
@@ -1393,7 +1398,7 @@ class Win(QMainWindow):
             persona = (x or {}).get("persona", "")
             w["head"].setText(f'<b>{d["name"]}</b>' + (f' <span style="color:{AM}">({persona})</span>' if persona else ""))
             if x is None:
-                w["big"].setText("ボタンをおして、はじめよう!"); w["msg"].setText(""); w["rec"].setText(""); w["hist"].setText("")
+                w["big"].setText("ボタンをおして、はじめよう!"); w["msg"].setText(""); w["last"].setText(""); w["rec"].setText(""); w["hist"].setText("")
                 continue
             if x["on"]:
                 big = "きみの番!  ぐー・ちょき・ぱー!" if x["turn"] == "kid" else (f'{x["turn"]}が答えるよ…' if x["turn"] else "じゃんけん、はじまるよ!")
@@ -1401,6 +1406,17 @@ class Win(QMainWindow):
                 big = "おしまい。またあそぼうね" if x["result"] else "ボタンをおして、はじめよう!"
             w["big"].setText(big)
             w["msg"].setText(x["msg"])
+            icon = {"ぐー": "✊", "ちょき": "✌️", "ぱー": "🖐️"}
+            if x["hands"]:                                       # 直近の1回: 出した手を、絵と文字で大きく見せる
+                h = x["hands"][-1]
+                c = {"kid_win": GR, "robot_win": AM, "draw": "#6f8aa6"}[h["res"]]
+                r = {"kid_win": "きみの勝ち!", "robot_win": "ロボットの勝ち", "draw": "あいこ"}[h["res"]]
+                w["last"].setText(
+                    f'<span style="font-size:46px">{icon.get(h["kid"], "")}</span> <b style="font-size:26px">きみ: {h["kid"]}</b>{"(カメラ)" if h.get("via") == "camera" else ""}'
+                    f'　<span style="color:#6f8aa6">VS</span>　<b style="font-size:26px">ロボット: {h["robot"]}</b> <span style="font-size:46px">{icon.get(h["robot"], "")}</span>'
+                    f'<br><span style="color:{c};font-size:24px;font-weight:700">{r}</span>')
+            else:
+                w["last"].setText("")
             cam = ""
             if x.get("cam_on") and x.get("cam_ok"):
                 cam = f'　<span style="color:{CY}">カメラ: {x["cam_hand"] or "（まだ見えていません）"}</span>' + (f' <span style="color:#6f8aa6">({x["cam_note"]})</span>' if x.get("cam_note") else "")
