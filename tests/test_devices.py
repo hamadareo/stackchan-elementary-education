@@ -1,5 +1,5 @@
 import json
-import os, sys, tempfile, time, unittest
+import os, sys, tempfile, threading, time, unittest
 os.environ["SC_JOURNAL"] = os.path.join(tempfile.mkdtemp(), "journal.json")      # 実際の活動記録に触れない
 os.environ["SC_PERSONA"] = os.path.join(tempfile.mkdtemp(), "persona.json")
 os.environ["SC_AUTONOMY"] = os.path.join(tempfile.mkdtemp(), "auto.json")
@@ -51,6 +51,119 @@ class KidShiritoriTriggerTests(unittest.TestCase):
         for w in ("しりとりしよう", "しりとりやろう", "尻取りしたい"):
             self.assertTrue(kidchat.SHIRITORI.search(w), w)
         self.assertFalse(kidchat.SHIRITORI.search("こんにちは"))
+
+
+class HandCameraTests(unittest.TestCase):
+    """カメラの手の認識。画像なしで、指の状態→手・多数決・声とカメラの優先順位を確かめる。"""
+
+    @staticmethod
+    def _lm(ext):
+        """上向きの手の 21 点を作る。ext = 立っている指の集合(index/middle/ring/pinky/thumb)。"""
+        import numpy as np
+        lm = np.zeros((21, 2))
+        lm[0] = (0, 0)
+        base_x = {"index": -1.0, "middle": 0.0, "ring": 1.0, "pinky": 2.0}
+        for name, (mcp, pip, tip) in {"index": (5, 6, 8), "middle": (9, 10, 12), "ring": (13, 14, 16), "pinky": (17, 18, 20)}.items():
+            x = base_x[name]
+            lm[mcp] = (x, 3.0)
+            lm[pip] = (x, 4.2)
+            lm[tip] = (x, 6.0) if name in ext else (x, 3.2)          # たたんだ指の先は、手首の近くに戻る
+            lm[tip - 1] = (x, 5.0) if name in ext else (x, 3.6)
+        lm[1], lm[2], lm[3] = (-1.5, 1.0), (-2.2, 1.8), (-3.0, 2.4)
+        lm[4] = (-4.5, 3.0) if "thumb" in ext else (-1.2, 3.1)
+        return lm
+
+    def test_classify_from_landmarks(self):
+        import hand
+        allf = {"index", "middle", "ring", "pinky"}
+        self.assertEqual(hand.classify_landmarks(self._lm(set())), "gu")
+        self.assertEqual(hand.classify_landmarks(self._lm({"thumb"})), "gu")                 # 親指だけ立てても、ぐー
+        self.assertEqual(hand.classify_landmarks(self._lm({"index", "middle"})), "choki")
+        self.assertEqual(hand.classify_landmarks(self._lm(allf)), "pa")
+        self.assertEqual(hand.classify_landmarks(self._lm(allf | {"thumb"})), "pa")
+        self.assertEqual(hand.classify_landmarks(self._lm({"index", "middle", "ring"})), None)   # 3本: 決めない
+        self.assertEqual(hand.classify_landmarks(self._lm({"index"})), None)                     # 人差し指1本: 決めない
+
+    def test_rotation_invariant(self):
+        import hand, numpy as np
+        lm = self._lm({"index", "middle"})
+        for deg in (0, 90, 180, 250):
+            r = np.deg2rad(deg)
+            R = np.array([[np.cos(r), -np.sin(r)], [np.sin(r), np.cos(r)]])
+            rot = lm.copy()
+            rot[:, :2] = lm[:, :2] @ R.T + [50, 80]
+            self.assertEqual(hand.classify_landmarks(rot), "choki", deg)
+
+    def test_vote(self):
+        import hand
+        self.assertEqual(hand.vote(["gu", None, "gu", "pa"]), "gu")
+        self.assertIsNone(hand.vote(["gu", "pa"]))                  # 同数は決めない
+        self.assertIsNone(hand.vote(["gu", None, None]))            # 1 票だけでは決めない
+        self.assertIsNone(hand.vote([]))
+        self.assertEqual(hand.vote(["choki", "choki", "pa"], need=2), "choki")
+
+    def test_anchors(self):
+        import hand
+        a = hand.make_anchors()
+        self.assertEqual(a.shape, (2016, 2))
+        self.assertAlmostEqual(float(a[0][0]), 0.5 / 24, places=6)
+
+    def _mk(self, cam_frames=None, cam_result=None):
+        import janken as j, hand, queue as _q
+
+        class Sess:
+            hand_cb = None
+
+        sess = Sess()
+
+        class Hub:
+            janken_cam = True
+            def by_id(self, _d):
+                return sess
+            def event(self, *_a):
+                pass
+
+        g = j.Janken(Hub(), None, None, lambda: None, os.path.join(tempfile.mkdtemp(), "g.json"))
+        g.robots = [{"id": "d1", "name": "ずんだ", "dev_name": "x", "voice": "voicevox:3"}]
+        self._orig = (hand.HandRecognizer.available, hand.recognize_jpegs, j.CAM_WINDOW)
+        hand.HandRecognizer.available = staticmethod(lambda: True)
+        hand.recognize_jpegs = lambda fr: (cam_result, [cam_result] * len(fr))
+        j.CAM_WINDOW = 0.4
+        self.addCleanup(self._restore)
+        return g, sess
+
+    def _restore(self):
+        import janken as j, hand
+        hand.HandRecognizer.available, hand.recognize_jpegs, j.CAM_WINDOW = self._orig
+
+    def test_camera_used_when_no_voice(self):
+        g, sess = self._mk(cam_result="pa")
+        threading.Timer(0.1, lambda: sess.hand_cb(b"x")).start()
+        threading.Timer(0.2, lambda: sess.hand_cb(b"y")).start()
+        text, cam = g._wait_hand()
+        self.assertEqual((text, cam), ("", "pa"))
+        self.assertEqual(g.cam_hand, "ぱー")
+        self.assertIsNone(sess.hand_cb)                              # 終わったら、画像の取り込みを外す(顔追従に戻る)
+
+    def test_voice_has_priority_over_camera(self):
+        g, sess = self._mk(cam_result="pa")
+        g.q.put("ぐー")
+        text, cam = g._wait_hand()
+        self.assertEqual((text, cam), ("ぐー", None))
+        self.assertIsNone(sess.hand_cb)
+
+    def test_unclear_voice_falls_back_to_camera(self):
+        g, sess = self._mk(cam_result="choki")
+        g.q.put("えーっと")
+        text, cam = g._wait_hand()
+        self.assertEqual(cam, "choki")
+
+    def test_camera_off_waits_voice_only(self):
+        g, sess = self._mk(cam_result="pa")
+        g.hub.janken_cam = False
+        g.q.put("ちょき")
+        self.assertEqual(g._wait_hand(), ("ちょき", None))
+        self.assertIsNone(sess.hand_cb)
 
 
 if __name__ == "__main__":

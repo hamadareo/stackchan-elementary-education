@@ -37,6 +37,7 @@ class Hub:
         self.janken = None               # 子供たちの教材(じゃんけん)
         self.kid = None                  # 子どもモード(子どもが話しかけたら、キャラが返事をする)
         self.kid_on = True
+        self.janken_cam = True           # じゃんけんで、カメラの手の認識を使う
         self.edu_on = False              # 教材モード(オンの間は、翻訳・3人会話・自律会話など教材と関係ないものを止める)
         self.usb = None                  # USB 監視(同上)
         self.sessions: list = []
@@ -85,7 +86,7 @@ class Hub:
     # ---- 設定の保存と復元(再起動しても声・話速などを覚える) ----
     def save(self) -> None:
         e = self.engine
-        d = {"wave_on": self.wave_on, "wave_voice": self.wave_voice, "gate": self.gate_mult, "mode": self.mode, "track": self.track, "listen": self.listen, "phrases": self.phrases, "kid_on": self.kid_on, "edu_on": self.edu_on}
+        d = {"wave_on": self.wave_on, "wave_voice": self.wave_voice, "gate": self.gate_mult, "mode": self.mode, "track": self.track, "listen": self.listen, "phrases": self.phrases, "kid_on": self.kid_on, "edu_on": self.edu_on, "janken_cam": self.janken_cam}
         if e is not None:
             d["speed"] = getattr(e, "speed_scale", 1.0)
             d["voice"] = getattr(e, "voice_ja", None)
@@ -111,6 +112,7 @@ class Hub:
         self.track, self.listen = bool(d.get("track", True)), bool(d.get("listen", True))
         self.kid_on = bool(d.get("kid_on", True))
         self.edu_on = bool(d.get("edu_on", False))
+        self.janken_cam = bool(d.get("janken_cam", True))
         if isinstance(d.get("phrases"), list):
             self.phrases = d["phrases"][:12]
         for name, body in (("speed", {"scale": d.get("speed")}), ("vad", {"threshold": d.get("vad")}),
@@ -393,6 +395,7 @@ class Hub:
         st["auto"] = self.auto.snapshot() if self.auto else None
         st["kid_on"] = self.kid_on
         st["edu_on"] = self.edu_on
+        st["janken_cam"] = self.janken_cam
         st["game"] = self.game.snapshot() if self.game else None
         st["janken"] = self.janken.snapshot() if self.janken else None
         st["face_styles"] = list(_devices.FACE_STYLES)
@@ -454,7 +457,7 @@ class Hub:
 
     def act(self, name: str, body: dict, persist: bool = True) -> dict:
         r = self._act(name, body)
-        if persist and r.get("ok") and name in ("speed", "voice", "vad", "engine", "track", "listen", "phrases", "lang", "topic", "gate", "wave", "kid_set", "edu_set"):
+        if persist and r.get("ok") and name in ("speed", "voice", "vad", "engine", "track", "listen", "phrases", "lang", "topic", "gate", "wave", "kid_set", "edu_set", "janken_cam_set"):
             self.save()
         return r
 
@@ -621,6 +624,10 @@ class Hub:
                 if self.janken:
                     self.janken.stop(None)
             self.event("教材モード: " + ("オン(翻訳・3人会話・自律会話はオフ)" if self.edu_on else "オフ(ふつうの通訳に戻ります)"))
+            return {"ok": True}
+        if name == "janken_cam_set":                      # じゃんけんのカメラ認識のオン・オフ
+            self.janken_cam = bool(body.get("on", True))
+            self.event("じゃんけんのカメラ認識: " + ("オン" if self.janken_cam else "オフ(声だけ)"))
             return {"ok": True}
         if name == "kid_set":                             # 子どもモードのオン・オフ
             self.kid_on = bool(body.get("on", True))

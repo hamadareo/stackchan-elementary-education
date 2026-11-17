@@ -6,3 +6,6 @@ firmware/src/config.h
 bridge/logs/
 bridge/calib.json
 bridge/.ctl/
+bridge/models/face_recognition_sface_2021dec.onnx
+bridge/models/handpose_estimation_mediapipe_2023feb.onnx
+bridge/models/palm_detection_mediapipe_2023feb.onnx

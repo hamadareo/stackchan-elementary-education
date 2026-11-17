@@ -1219,8 +1219,12 @@ class Win(QMainWindow):
         w = QWidget()
         v = QVBoxLayout(w)
         v.setContentsMargins(0, 6, 0, 0)
-        v.addWidget(muted("ロボット対子供たち。各機器が、自分の前にいる子供たちと、独立にじゃんけんをします。「ぐー・ちょき・ぱー」を声で言ってもらいます。「やめる」で終わります"))
+        v.addWidget(muted("ロボット対子供たち。各機器が、自分の前にいる子供たちと、独立にじゃんけんをします。「ぐー・ちょき・ぱー」を、声で言うか、カメラに手を見せて出してもらいます。「やめる」で終わります"))
         v.addLayout(hrow(btn("▶ 全台であそぶ", lambda: self.janken_go(None)), btn("■ 全部やめる", lambda: self.act("janken_stop"), name="bad")))
+        self.j_cam = QCheckBox("カメラで手を見分ける: 「ぽん！」のあと、機器のカメラに見せた手(ぐー・ちょき・ぱー)を認識する。声が聞き取れたときは、声を優先します")
+        self.j_cam.setChecked(True)
+        self.j_cam.toggled.connect(lambda on: self.act("janken_cam_set", {"on": on}))
+        v.addWidget(self.j_cam)
         self.j_stat = muted("")
         v.addWidget(self.j_stat)
         self.j_wrap = QWidget()
@@ -1311,10 +1315,15 @@ class Win(QMainWindow):
                 big = "おしまい。またあそぼうね" if x["result"] else "ボタンをおして、はじめよう!"
             w["big"].setText(big)
             w["msg"].setText(x["msg"])
-            w["rec"].setText(f'<span style="color:{GR}">きみの勝ち {x["wins"]}</span>　<span style="color:{AM}">ロボットの勝ち {x["losses"]}</span>　あいこ {x["draws"]}　れんしょう {x["streak"]}')
+            cam = ""
+            if x.get("cam_on") and x.get("cam_ok"):
+                cam = f'　<span style="color:{CY}">カメラ: {x["cam_hand"] or "（まだ見えていません）"}</span>' + (f' <span style="color:#6f8aa6">({x["cam_note"]})</span>' if x.get("cam_note") else "")
+            elif x.get("cam_on") and not x.get("cam_ok"):
+                cam = '　<span style="color:#6f8aa6">カメラ認識: 手のモデルがありません(声だけ)</span>'
+            w["rec"].setText(f'<span style="color:{GR}">きみの勝ち {x["wins"]}</span>　<span style="color:{AM}">ロボットの勝ち {x["losses"]}</span>　あいこ {x["draws"]}　れんしょう {x["streak"]}' + cam)
             col = {"kid_win": GR, "robot_win": AM, "draw": "#6f8aa6"}
             lab = {"kid_win": "きみの勝ち", "robot_win": "ロボットの勝ち", "draw": "あいこ"}
-            w["hist"].setText("<br>".join(f'きみ <b>{h["kid"]}</b> ・ ロボット <b>{h["robot"]}</b> → <span style="color:{col[h["res"]]}">{lab[h["res"]]}</span>' for h in reversed(x["hands"])) or '<span style="color:#6f8aa6">ここに、じゃんけんの結果が出ます</span>')
+            w["hist"].setText("<br>".join(f'きみ <b>{h["kid"]}</b>{"(カメラ)" if h.get("via") == "camera" else ""} ・ ロボット <b>{h["robot"]}</b> → <span style="color:{col[h["res"]]}">{lab[h["res"]]}</span>' for h in reversed(x["hands"])) or '<span style="color:#6f8aa6">ここに、じゃんけんの結果が出ます</span>')
 
     def janken_type(self, dev_id, edit):
         t = edit.text().strip()
@@ -1859,6 +1868,8 @@ class Win(QMainWindow):
         self.render_journal(s.get("journal"))
         self.render_game(s.get("game"), s.get("devices"))
         self.render_janken(s.get("janken"), s.get("devices"))
+        if s.get("janken_cam") is not None and self.j_cam.isChecked() != s["janken_cam"] and not self.j_cam.hasFocus():
+            self.j_cam.blockSignals(True); self.j_cam.setChecked(bool(s["janken_cam"])); self.j_cam.blockSignals(False)
         if s.get("edu_on") is not None and self.g_edu.isChecked() != s["edu_on"] and not self.g_edu.hasFocus():
             self.g_edu.blockSignals(True); self.g_edu.setChecked(bool(s["edu_on"])); self.g_edu.blockSignals(False)
         if s.get("kid_on") is not None and self.g_kid.isChecked() != s["kid_on"] and not self.g_kid.hasFocus():

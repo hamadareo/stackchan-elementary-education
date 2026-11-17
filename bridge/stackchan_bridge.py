@@ -683,6 +683,13 @@ class Session:
             self.say(f"こんにちは、{name}さん" if name else "こんにちは", "ja")
 
     def on_frame(self, jpeg: bytes) -> None:
+        cb = self.__dict__.get("hand_cb")                       # じゃんけん中: 画像を手の認識に回す(この間、顔追従の首は止める)
+        if cb is not None:
+            try:
+                cb(jpeg)
+            except Exception:  # noqa: BLE001
+                pass
+            return
         face = self.eng.face
         snap = os.environ.get("SC_SNAP_DIR")                  # 調査用: 最新のカメラ画像を保存(ローカルのみ)
         if snap:
