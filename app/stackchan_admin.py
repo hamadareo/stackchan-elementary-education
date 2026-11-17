@@ -1171,7 +1171,7 @@ class Win(QMainWindow):
         w = QWidget()
         lay = QVBoxLayout(w)
         lay.setContentsMargins(0, 0, 0, 0)
-        c, l = card("子供たちの教材", "しりとり・じゃんけん。ロボット対子供たち。各機器が、自分の前にいる子供たちと、それぞれ独立にしりとりをします(3台は連携しません)。「ん」がついたら負け、同じ言葉は使えません")
+        c, l = card("子供たちの教材", "しりとり・じゃんけん・クイズ。ロボット対子供たち。各機器が、自分の前にいる子供たちと、それぞれ独立に遊びます(3台は連携しません)")
         self.g_first = QComboBox()
         self.g_first.addItem("ロボットから始める", "robot")
         self.g_first.addItem("子どもから始める", "kid")
