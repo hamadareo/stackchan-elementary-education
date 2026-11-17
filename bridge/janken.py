@@ -24,7 +24,7 @@ WORDS = {
     "choki": ("ちょき", "ちょ", "ちょっき", "ちょきー", "はさみ", "鋏", "ちょき!", "ちよき", "ちょーき"),
     "pa": ("ぱ", "ぱあ", "ぱー", "ぱぁ", "かみ", "紙", "ぱーぱー", "ぱーー"),
 }
-CAM_WINDOW = 3.5            # 「ぽん！」のあと、カメラで手を見る秒数(機器から届く画像は、実測で毎秒1枚前後)
+CAM_WINDOW = 5.0            # 「ぽん！」のあと、カメラで手を見る秒数(機器から届く画像は、実測で毎秒1枚前後)
 CAM_MAX_FRAMES = 14
 QUIT = re.compile(r"やめ|おわり|終わり|おしまい|もういい|もう終|あそばない|やだ")
 
@@ -180,6 +180,7 @@ class Janken(Shiritori):
                     cam_done = True
                     sess.hand_cb = None
                     h, per = hand_mod.recognize_jpegs(list(frames))
+                    self._dump(frames)
                     self.cam_note = f"{len(frames)}枚中 {sum(1 for x in per if x)}枚で手を検出"
                     if h:
                         self.cam_hand = NAME[h]
@@ -188,6 +189,17 @@ class Janken(Shiritori):
             return voice_miss, None
         finally:
             sess.hand_cb = None
+
+    def _dump(self, frames: list) -> None:
+        """診断用: 直近の窓で見た画像を /tmp/sc_hand_dbg に置く(次のじゃんけんで上書き)。"""
+        try:
+            import os
+            d = "/tmp/sc_hand_dbg"
+            os.makedirs(d, exist_ok=True)
+            for i, j in enumerate(frames[:8]):
+                open(os.path.join(d, f"{getattr(self, 'dev_name', 'dev')}_{i}.jpg"), "wb").write(j if isinstance(j, (bytes, bytearray)) else b"")
+        except Exception:  # noqa: BLE001
+            pass
 
     def _run(self, eng) -> None:
         try:

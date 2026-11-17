@@ -98,7 +98,7 @@ class HandCameraTests(unittest.TestCase):
         import hand
         self.assertEqual(hand.vote(["gu", None, "gu", "pa"]), "gu")
         self.assertIsNone(hand.vote(["gu", "pa"]))                  # 同数は決めない
-        self.assertIsNone(hand.vote(["gu", None, None]))            # 1 票だけでは決めない
+        self.assertEqual(hand.vote(["gu", None, None]), "gu")        # 1 票でも、食い違いがなければ採用
         self.assertIsNone(hand.vote([]))
         self.assertEqual(hand.vote(["choki", "choki", "pa"], need=2), "choki")
 
@@ -164,6 +164,51 @@ class HandCameraTests(unittest.TestCase):
         g.q.put("ちょき")
         self.assertEqual(g._wait_hand(), ("ちょき", None))
         self.assertIsNone(sess.hand_cb)
+
+
+class HandViewTests(unittest.TestCase):
+    def test_status_text(self):
+        import hand
+        self.assertEqual(hand.status_text(False, 0, None), "画像が届いていません")
+        self.assertEqual(hand.status_text(True, 0, None), "手なし")
+        self.assertEqual(hand.status_text(True, 1, None), "決められない")
+        self.assertEqual([hand.status_text(True, 1, h) for h in ("gu", "choki", "pa")], ["ぐー", "ちょき", "ぱー"])
+
+    def test_draw_overlay_synthetic(self):
+        import numpy as np
+        import hand
+        img = np.zeros((240, 320, 3), np.uint8)
+        lm = np.array([[100 + 5 * i, 100 + 3 * i, 0.0] for i in range(21)])
+        palm = np.array([80, 80, 200, 200] + [0] * 14 + [0.9])
+        out = hand.draw_overlay(img, palm, lm, "ぱー")
+        self.assertEqual(out.shape, img.shape)
+        self.assertTrue(out.any())                       # 何かが描かれた
+        self.assertFalse(img.any())                      # 元の画像は変えない
+        self.assertFalse(hand.draw_overlay(img, None, None, "手なし").any())
+
+    def test_analyze_jpeg_and_hub(self):
+        import cv2
+        import numpy as np
+        import admin
+        import hand
+        ok, buf = cv2.imencode(".jpg", np.full((240, 320, 3), 90, np.uint8))
+        jpg, info = hand.analyze_jpeg(bytes(buf))
+        self.assertIsNotNone(jpg)
+        self.assertIn(info["text"], ("手なし", "決められない", "ぐー", "ちょき", "ぱー"))
+        self.assertEqual(hand.analyze_jpeg(b"")[0], None)
+
+        class S:
+            alive = True
+            dev_id = "aa"
+            last_jpeg = bytes(buf)
+            last_jpeg_ts = 1.0
+        h = admin.Hub()
+        h.sessions = [S()]
+        self.assertIsNone(h.hand_view("zz"))             # 画像が無い機器は None
+        c = h.hand_view("aa")
+        self.assertIsNotNone(c)
+        self.assertIs(h.hand_view("aa"), c)              # 1.5 秒以内は計算し直さない
+        self.assertIn("aa", h.hand_status())
 
 
 if __name__ == "__main__":

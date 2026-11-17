@@ -1221,27 +1221,98 @@ class Win(QMainWindow):
         v.setContentsMargins(0, 6, 0, 0)
         v.addWidget(muted("ロボット対子供たち。各機器が、自分の前にいる子供たちと、独立にじゃんけんをします。「ぐー・ちょき・ぱー」を、声で言うか、カメラに手を見せて出してもらいます。「やめる」で終わります"))
         v.addLayout(hrow(btn("▶ 全台であそぶ", lambda: self.janken_go(None)), btn("■ 全部やめる", lambda: self.act("janken_stop"), name="bad")))
-        self.j_cam = QCheckBox("カメラで手を見分ける: 「ぽん！」のあと、機器のカメラに見せた手(ぐー・ちょき・ぱー)を認識する。声が聞き取れたときは、声を優先します")
-        self.j_cam.setChecked(True)
-        self.j_cam.toggled.connect(lambda on: self.act("janken_cam_set", {"on": on}))
-        v.addWidget(self.j_cam)
-        self.j_stat = muted("")
-        v.addWidget(self.j_stat)
-        self.j_wrap = QWidget()
-        self.j_wrap.setObjectName("jwrap")
-        self.j_wrap.setStyleSheet("#jwrap{background:transparent}")
-        self.j_l = QVBoxLayout(self.j_wrap)
-        self.j_l.setContentsMargins(0, 0, 0, 0)
+        self.jk_cam = QCheckBox("カメラで手を見分ける: 「ぽん！」のあと、機器のカメラに見せた手(ぐー・ちょき・ぱー)を認識する。声が聞き取れたときは、声を優先します")
+        self.jk_cam.setChecked(True)
+        self.jk_cam.toggled.connect(lambda on: self.act("janken_cam_set", {"on": on}))
+        v.addWidget(self.jk_cam)
+        self.h_chk = QCheckBox("手の確認を表示: 各機器のカメラ画像に、見つけた手(枠・関節・指の線)と判定を重ねて見せます(オフのときは計算しません)")
+        self.h_chk.setChecked(False)
+        self.h_chk.toggled.connect(self.hand_toggle)
+        v.addWidget(self.h_chk)
+        self.h_box = QWidget()
+        self.h_box.setObjectName("hbox")
+        self.h_box.setStyleSheet("#hbox{background:transparent}")
+        self.h_row = QHBoxLayout(self.h_box)
+        self.h_row.setContentsMargins(0, 0, 0, 0)
+        self.h_cells: dict = {}
+        self.h_devs: list = []
+        self.h_hand: dict = {}
+        self.h_box.hide()
+        v.addWidget(self.h_box)
+        self.h_timer = QTimer(self)
+        self.h_timer.timeout.connect(self.hand_tick)
+        self.h_timer.start(1000)
+        self.jk_page = w
+        self.jk_stat = muted("")
+        v.addWidget(self.jk_stat)
+        self.jk_wrap = QWidget()
+        self.jk_wrap.setObjectName("jkwrap")
+        self.jk_wrap.setStyleSheet("#jkwrap{background:transparent}")
+        self.jk_l = QVBoxLayout(self.jk_wrap)
+        self.jk_l.setContentsMargins(0, 0, 0, 0)
         sa = QScrollArea()
         sa.setWidgetResizable(True)
         sa.setStyleSheet("QScrollArea{background:transparent;border:0}")
         sa.viewport().setStyleSheet("background:transparent")
-        sa.setWidget(self.j_wrap)
+        sa.setWidget(self.jk_wrap)
         v.addWidget(sa, 1)
-        self.j_key = ""
-        self.j_struct = ""
-        self.j_w: dict = {}
+        self.jk_key = ""
+        self.jk_struct = ""
+        self.jk_w: dict = {}
         return w
+
+    def hand_toggle(self, on):
+        self.h_box.setVisible(bool(on))
+        if on:
+            self.hand_tick()
+
+    def hand_cells(self, devs):
+        """確認エリアの枠(機器ごとに、画像と大きな判定の文字)。機器の顔ぶれが変わったときだけ作り直す。"""
+        key = json.dumps(devs)
+        if key == getattr(self, "_h_key", None):
+            return
+        self._h_key = key
+        self.h_cells = {}
+        while self.h_row.count():
+            it = self.h_row.takeAt(0)
+            if it.widget():
+                it.widget().deleteLater()
+        for did, name in devs:
+            fr = QFrame()
+            fr.setObjectName("hcard")
+            fr.setStyleSheet("#hcard{background:rgba(10,20,34,0.55);border:1px solid #1d3a55;border-radius:8px}#hcard QLabel{background:transparent}")
+            f = QVBoxLayout(fr)
+            f.addWidget(QLabel(f"<b>{name}</b>"))
+            img = QLabel("画像が届いていません")
+            img.setAlignment(Qt.AlignCenter)
+            img.setMinimumSize(200, 150)
+            txt = QLabel("")
+            txt.setAlignment(Qt.AlignCenter)
+            txt.setStyleSheet(f"font-size:22px;font-weight:700;color:{CY}")
+            f.addWidget(img)
+            f.addWidget(txt)
+            self.h_row.addWidget(fr)
+            self.h_cells[did] = (img, txt)
+
+    def hand_tick(self):
+        """「手の確認」を表示しているときだけ、約1秒ごとに、重ね描き済みの画像を取りに行く。"""
+        if not self.h_chk.isChecked() or not self.jk_page.isVisible():
+            return
+        devs = [(d["id"], d["name"]) for d in (self.h_devs or []) if d.get("online")]
+        self.hand_cells(devs)
+        for did, _n in devs:
+            img, txt = self.h_cells[did]
+            def cb(ok, data, img=img, txt=txt, did=did):
+                pm = QPixmap()
+                if ok and pm.loadFromData(data):
+                    img.setPixmap(pm.scaledToWidth(230, Qt.SmoothTransformation))
+                    t = (self.h_hand.get(did) or {}).get("text", "")
+                    txt.setText(t or "…")
+                else:
+                    img.setPixmap(QPixmap())
+                    img.setText("画像が届いていません")
+                    txt.setText("画像が届いていません")
+            self.api.get("/api/hand.jpg?id=" + did, cb)
 
     def janken_go(self, dev_id):
         self.act("janken_start", {"devices": [dev_id]} if dev_id else {}, "じゃんけんを始めます(自律モードはオフにしました)")
@@ -1251,16 +1322,16 @@ class Win(QMainWindow):
             return
         devs = [d for d in (devices or []) if d.get("online")]
         k = json.dumps([g, [(d["id"], d["name"]) for d in devs]], ensure_ascii=False)
-        if k == self.j_key:
+        if k == self.jk_key:
             return
-        self.j_key = k
+        self.jk_key = k
         by = {x["dev_id"]: x for x in g.get("games", [])}
         struct = json.dumps([(d["id"], d["name"]) for d in devs])
-        if struct != self.j_struct:                          # 台数・名前が変わったときだけカードを作り直す
-            self.j_struct = struct
-            self.j_w = {}
-            while self.j_l.count():
-                it = self.j_l.takeAt(0)
+        if struct != self.jk_struct:                          # 台数・名前が変わったときだけカードを作り直す
+            self.jk_struct = struct
+            self.jk_w = {}
+            while self.jk_l.count():
+                it = self.jk_l.takeAt(0)
                 if it.widget():
                     it.widget().deleteLater()
             for d in devs:
@@ -1293,14 +1364,14 @@ class Win(QMainWindow):
                 v.addWidget(rec)
                 v.addWidget(hist)
                 v.addWidget(typ)
-                self.j_l.addWidget(fr)
-                self.j_w[d["id"]] = {"head": head, "big": big, "msg": msg, "rec": rec, "hist": hist}
+                self.jk_l.addWidget(fr)
+                self.jk_w[d["id"]] = {"head": head, "big": big, "msg": msg, "rec": rec, "hist": hist}
             if not devs:
-                self.j_l.addWidget(muted("接続中の機器がありません"))
-            self.j_l.addStretch(1)
-        self.j_stat.setText(f'ぜんぶの記録: 子どもの勝ち {g.get("wins", 0)}　ロボットの勝ち {g.get("losses", 0)}　れんしょうのベスト {g.get("best", 0)}　あそんだ回数 {g.get("plays", 0)}')
+                self.jk_l.addWidget(muted("接続中の機器がありません"))
+            self.jk_l.addStretch(1)
+        self.jk_stat.setText(f'ぜんぶの記録: 子どもの勝ち {g.get("wins", 0)}　ロボットの勝ち {g.get("losses", 0)}　れんしょうのベスト {g.get("best", 0)}　あそんだ回数 {g.get("plays", 0)}')
         for d in devs:
-            w = self.j_w.get(d["id"])
+            w = self.jk_w.get(d["id"])
             if not w:
                 continue
             x = by.get(d["id"])
@@ -1868,8 +1939,10 @@ class Win(QMainWindow):
         self.render_journal(s.get("journal"))
         self.render_game(s.get("game"), s.get("devices"))
         self.render_janken(s.get("janken"), s.get("devices"))
-        if s.get("janken_cam") is not None and self.j_cam.isChecked() != s["janken_cam"] and not self.j_cam.hasFocus():
-            self.j_cam.blockSignals(True); self.j_cam.setChecked(bool(s["janken_cam"])); self.j_cam.blockSignals(False)
+        self.h_devs = s.get("devices") or self.h_devs
+        self.h_hand = s.get("hand") or {}
+        if s.get("janken_cam") is not None and self.jk_cam.isChecked() != s["janken_cam"] and not self.jk_cam.hasFocus():
+            self.jk_cam.blockSignals(True); self.jk_cam.setChecked(bool(s["janken_cam"])); self.jk_cam.blockSignals(False)
         if s.get("edu_on") is not None and self.g_edu.isChecked() != s["edu_on"] and not self.g_edu.hasFocus():
             self.g_edu.blockSignals(True); self.g_edu.setChecked(bool(s["edu_on"])); self.g_edu.blockSignals(False)
         if s.get("kid_on") is not None and self.g_kid.isChecked() != s["kid_on"] and not self.g_kid.hasFocus():

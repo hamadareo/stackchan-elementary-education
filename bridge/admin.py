@@ -37,6 +37,8 @@ class Hub:
         self.janken = None               # 子供たちの教材(じゃんけん)
         self.kid = None                  # 子どもモード(子どもが話しかけたら、キャラが返事をする)
         self.kid_on = True
+        self.hand_cache: dict = {}       # 機器ID → 手の確認の結果 {ts, src, jpeg, info}(管理画面が見ている機器だけ計算する)
+        self.hand_lock = threading.Lock()
         self.janken_cam = True           # じゃんけんで、カメラの手の認識を使う
         self.edu_on = False              # 教材モード(オンの間は、翻訳・3人会話・自律会話など教材と関係ないものを止める)
         self.usb = None                  # USB 監視(同上)
@@ -326,6 +328,32 @@ class Hub:
         with self.lock:
             self.sessions = [x for x in self.sessions if x.alive] + [s]
 
+    HAND_EVERY = 1.5                     # 手の確認の計算は、機器ごとに 1.5 秒に 1 回まで(重い処理)
+
+    def hand_view(self, dev: str):
+        """管理画面「手の確認」用: その機器の最新のカメラ画像に手の検出を重ねた JPEG と結果。画像が無ければ None。
+        この経路が呼ばれた機器だけ計算する(画面を開いていなければ何もしない)。"""
+        x = self.by_id(dev)
+        src = getattr(x, "last_jpeg", None) if x is not None else None
+        if not src:
+            return None
+        now = time.time()
+        with self.hand_lock:
+            c = self.hand_cache.get(dev)
+            if c and (now - c["ts"] < self.HAND_EVERY or c["src"] is src):
+                return c
+            import hand as _hand
+            jpg, info = _hand.analyze_jpeg(src)
+            c = {"ts": time.time(), "src": src, "jpeg": jpg or src, "info": info,
+                 "frame_ts": getattr(x, "last_jpeg_ts", 0.0)}
+            self.hand_cache[dev] = c
+            return c
+
+    def hand_status(self) -> dict:
+        now = time.time()
+        return {d: {"hand": c["info"]["hand"], "n_palm": c["info"]["n_palm"], "text": c["info"]["text"], "age": round(now - c["ts"], 1)}
+                for d, c in list(self.hand_cache.items()) if now - c["ts"] < 10}
+
     def live(self) -> list:
         with self.lock:
             return [x for x in self.sessions if x.alive]
@@ -394,6 +422,7 @@ class Hub:
         st["discuss"] = self.discuss.snapshot() if self.discuss else None
         st["auto"] = self.auto.snapshot() if self.auto else None
         st["kid_on"] = self.kid_on
+        st["hand"] = self.hand_status()
         st["edu_on"] = self.edu_on
         st["janken_cam"] = self.janken_cam
         st["game"] = self.game.snapshot() if self.game else None
@@ -812,6 +841,10 @@ class Handler(BaseHTTPRequestHandler):
                     day = cand
             f = os.path.join(HERE, "logs", day + ".jsonl")
             return self._send(200, "application/x-ndjson; charset=utf-8", open(f, "rb").read() if os.path.exists(f) else b"")
+        if p == "/api/hand.jpg":                    # 手の確認: 重ね描き済みのカメラ画像(画像が無ければ 404)
+            did = next((kv.split("=", 1)[1] for kv in q.split("&") if kv.startswith("id=")), "")
+            c = HUB.hand_view(did)
+            return self._send(200, "image/jpeg", c["jpeg"]) if c else self._send(404, "text/plain", b"no frame")
         if p == "/screen.jpg":
             v = HUB.view_session()
             img = HUB.screens.get(dev or getattr(v, "dev_id", ""), HUB.screen)

@@ -683,6 +683,7 @@ class Session:
             self.say(f"こんにちは、{name}さん" if name else "こんにちは", "ja")
 
     def on_frame(self, jpeg: bytes) -> None:
+        self.last_jpeg, self.last_jpeg_ts = jpeg, time.time()    # 管理画面の「手の確認」が見る最新のカメラ画像
         cb = self.__dict__.get("hand_cb")                       # じゃんけん中: 画像を手の認識に回す(この間、顔追従の首は止める)
         if cb is not None:
             try:

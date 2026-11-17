@@ -62,7 +62,11 @@ def vote(hands: list, need: int = 2) -> "str | None":
     counts = {h: hs.count(h) for h in set(hs)}
     best = max(counts.values())
     top = [h for h, c in counts.items() if c == best]
-    return top[0] if best >= need and len(top) == 1 else None
+    if len(top) != 1:
+        return None
+    if best >= need:
+        return top[0]
+    return top[0] if len(counts) == 1 else None          # 検出が少なくても、見えた手が食い違わなければ採用する(画像が少ない・手が小さい対策)
 
 
 _REC = None
@@ -112,7 +116,7 @@ class HandRecognizer:
         self.anchors = make_anchors()
         self.palm_size = np.array([192, 192])
         self.pose_size = np.array([224, 224])
-        self.palm_score, self.palm_nms, self.pose_conf = 0.5, 0.3, 0.7
+        self.palm_score, self.palm_nms, self.pose_conf = 0.4, 0.3, 0.6
 
     @staticmethod
     def available() -> bool:
@@ -242,3 +246,63 @@ class HandRecognizer:
             except Exception:  # noqa: BLE001 - 1 枚の失敗で止めない
                 per.append(None)
         return vote(per), per
+
+
+# ---------------------------------------------------------------- 管理画面の「手の確認」(目で見て確かめる)
+LABEL = {"gu": "ぐー", "choki": "ちょき", "pa": "ぱー"}
+# 関節の線(手首 0 → 各指)。MediaPipe の 21 点
+_BONES = [(0, 1), (1, 2), (2, 3), (3, 4), (0, 5), (5, 6), (6, 7), (7, 8), (5, 9), (9, 10), (10, 11), (11, 12),
+          (9, 13), (13, 14), (14, 15), (15, 16), (13, 17), (17, 18), (18, 19), (19, 20), (0, 17)]
+
+
+def status_text(has_frame: bool, n_palm: int, hand: "str | None") -> str:
+    """確認エリアの大きな文字。画像なし / 手なし / 手は見えるが決められない / ぐー・ちょき・ぱー。"""
+    if not has_frame:
+        return "画像が届いていません"
+    if n_palm <= 0:
+        return "手なし"
+    return LABEL.get(hand or "", "決められない")
+
+
+def draw_overlay(img: np.ndarray, palm, lm, text: str) -> np.ndarray:
+    """検出した手のひらの枠と、21 点の関節・指の線、判定の文字を画像に重ねる(元の画像は変えない)。"""
+    import cv2 as cv
+    out = img.copy()
+    if palm is not None:
+        x1, y1, x2, y2 = [int(v) for v in palm[:4]]
+        cv.rectangle(out, (x1, y1), (x2, y2), (255, 200, 0), 1)
+    if lm is not None:
+        pts = [(int(p[0]), int(p[1])) for p in lm]
+        for a, b in _BONES:
+            cv.line(out, pts[a], pts[b], (0, 255, 120), 1, cv.LINE_AA)
+        for i, p in enumerate(pts):
+            cv.circle(out, p, 2, (0, 120, 255) if i in (4, 8, 12, 16, 20) else (255, 255, 255), -1)
+    return out
+
+
+def analyze_jpeg(jpeg: bytes) -> "tuple[bytes | None, dict]":
+    """カメラの JPEG → (重ね描き済み JPEG, {"hand","n_palm","text"})。モデルが無ければ元の画像のまま hand=None。"""
+    import cv2 as cv
+    info = {"hand": None, "n_palm": 0, "text": status_text(bool(jpeg), 0, None)}
+    if not jpeg:
+        return None, info
+    img = cv.imdecode(np.frombuffer(jpeg, np.uint8), cv.IMREAD_COLOR)
+    if img is None:
+        return None, {"hand": None, "n_palm": 0, "text": "画像が届いていません"}
+    rec = shared()
+    palm = lm = None
+    if rec is not None:
+        with _REC_LOCK:
+            try:
+                palms = rec.detect_palms(img)
+                info["n_palm"] = int(len(palms))
+                if len(palms):
+                    palm = max(palms, key=lambda r: r[18])
+                    lm = rec.landmarks(img, palm)
+                    if lm is not None:
+                        info["hand"] = classify_landmarks(lm)
+            except Exception:  # noqa: BLE001
+                pass
+    info["text"] = status_text(True, info["n_palm"], info["hand"])
+    ok, buf = cv.imencode(".jpg", draw_overlay(img, palm, lm, info["text"]), [cv.IMWRITE_JPEG_QUALITY, 80])
+    return (bytes(buf) if ok else None), info
