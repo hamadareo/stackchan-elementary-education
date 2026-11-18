@@ -424,6 +424,11 @@ class Hub:
         tdevs = [vdev] if self.target != "all" else [x.dev_id for x in self.live()]
         e = self.engine
         st = {"uptime_s": int(time.time() - self.started), "connected": bool(s), "now": time.strftime("%H:%M:%S")}
+        try:
+            import health
+            st["ready"] = health.checks(self, e)                # 授業前の準備チェック
+        except Exception:  # noqa: BLE001 - チェックの不具合で状態を壊さない
+            st["ready"] = []
         if e is not None:
             st["ear"] = getattr(e.stt, "last_where", "") or ("remote" if e.remote_ear else "local")
             st["llm"] = getattr(e, "last_llm", "") or (e.llm[0][0] if e.llm else "")

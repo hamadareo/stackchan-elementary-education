@@ -1179,6 +1179,12 @@ class Win(QMainWindow):
         w = QWidget()
         lay = QVBoxLayout(w)
         lay.setContentsMargins(0, 0, 0, 0)
+        c, l = card("授業前の準備チェック", "✅ だいじょうぶ / ⚠ 直したほうがよい / ・ 参考")
+        self.ready_lbl = QLabel("確認中…")
+        self.ready_lbl.setTextFormat(Qt.RichText)
+        self.ready_lbl.setWordWrap(True)
+        l.addWidget(self.ready_lbl)
+        lay.addWidget(c)
         c, l = card("子供たちの教材", "しりとり・じゃんけん・なぞなぞ・あっちむいてホイ・おみくじ・ものまね。ロボット対子供たち。各機器が、自分の前にいる子供たちと、それぞれ独立に遊びます(3台は連携しません)")
         self.g_first = QComboBox()
         self.g_first.addItem("ロボットから始める", "robot")
@@ -2143,6 +2149,9 @@ class Win(QMainWindow):
             self.jk_cam.blockSignals(True); self.jk_cam.setChecked(bool(s["janken_cam"])); self.jk_cam.blockSignals(False)
         if s.get("edu_on") is not None and self.g_edu.isChecked() != s["edu_on"] and not self.g_edu.hasFocus():
             self.g_edu.blockSignals(True); self.g_edu.setChecked(bool(s["edu_on"])); self.g_edu.blockSignals(False)
+        if s.get("ready") is not None:
+            mark = {True: "✅", False: "⚠", None: "・"}
+            self.ready_lbl.setText("<br>".join(f'{mark.get(r.get("ok"), "・")} <b>{r.get("label", "")}</b>: {r.get("note", "")}' for r in s["ready"]) or "確認できません")
         if isinstance(s.get("menu_acts"), list) and not any(c.hasFocus() for c in self.g_acts.values()):
             for k, c in self.g_acts.items():
                 if c.isChecked() != (k in s["menu_acts"]):

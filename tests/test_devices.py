@@ -320,6 +320,30 @@ class UsbReflashTests(unittest.TestCase):
             os.unlink(img.name)
 
 
+class HealthTests(unittest.TestCase):
+    def test_checks(self):
+        import health
+        health._cache.update(t=0.0, v=[])
+        class X:
+            def __init__(s, b, link): s.batt, s.link = b, link
+        class Hub:
+            edu_on = True; menu_acts = ["janken", "riddle"]
+            def live(s): return [X(80, "USB 有線"), X(15, "USB 有線")]
+        class Eng:
+            llm = []; remote_ear = False; s = type("S", (), {"voicevox_url": ""})()
+        orig = health._get
+        health._get = lambda url, timeout=0.8: False
+        try:
+            r = {c["id"]: c for c in health.checks(Hub(), Eng())}
+        finally:
+            health._get = orig
+        self.assertFalse(r["devices"]["ok"])                       # 2台 < 3台
+        self.assertFalse(r["battery"]["ok"])                       # 15% は少ない
+        self.assertTrue(r["edu"]["ok"])
+        self.assertEqual(r["acts"]["note"], "2個")
+        self.assertIn("USB有線 2台", r["devices"]["note"])
+
+
 if __name__ == "__main__":
     unittest.main()
 
