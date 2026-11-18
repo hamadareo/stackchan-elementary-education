@@ -23,7 +23,7 @@ const int cy = 220;
 namespace m5avatar {
 // 遊びの表示カード: 見出し / 左右 2 列(名前・大きな字・矢印) / 一言。矢印 0=なし 1=上 2=下 3=左 4=右
 struct AvatarBoard {
-  char title[40], aWho[24], aBig[24], bWho[24], bBig[24], foot[64];
+  char title[48], aWho[48], aBig[32], bWho[48], bBig[32], foot[96];
   uint8_t aArrow, bArrow;
   bool on;
 };
