@@ -45,7 +45,9 @@ class Hub:
         self.hand_cache: dict = {}       # 機器ID → 手の確認の結果 {ts, src, jpeg, info}(管理画面が見ている機器だけ計算する)
         self.hand_lock = threading.Lock()
         self.janken_cam = True           # じゃんけんで、カメラの手の認識を使う
-        self.edu_on = False              # 教材モード(オンの間は、翻訳・3人会話・自律会話など教材と関係ないものを止める)
+        self.lesson = None               # 授業の進行役(lesson.Lesson): 管理画面のボタンで、機器ごとに遊びを始める・中止する
+        self.teacher_only = True         # 先生の操作だけで遊びを始める(オンの間は、子どもが「〇〇しよう」と言っても始まらない。遊びが選ばれていない間、ロボットは何もしない)
+        self.edu_on = True               # 教材モード(既定はオン: 先生がボタンを押すまで、ロボットは何もしない。オンの間は、翻訳・3人会話・自律会話など教材と関係ないものを止める)
         self.usb = None                  # USB 監視(同上)
         self.sessions: list = []
         self.turns: list = []            # 直近の通訳(新しい順に最大 40)
@@ -93,7 +95,7 @@ class Hub:
     # ---- 設定の保存と復元(再起動しても声・話速などを覚える) ----
     def save(self) -> None:
         e = self.engine
-        d = {"wave_on": self.wave_on, "wave_voice": self.wave_voice, "gate": self.gate_mult, "mode": self.mode, "track": self.track, "listen": self.listen, "phrases": self.phrases, "kid_on": self.kid_on, "kid_auto": self.kid_auto, "menu_acts": self.menu_acts, "edu_on": self.edu_on, "janken_cam": self.janken_cam}
+        d = {"wave_on": self.wave_on, "wave_voice": self.wave_voice, "gate": self.gate_mult, "mode": self.mode, "track": self.track, "listen": self.listen, "phrases": self.phrases, "kid_on": self.kid_on, "kid_auto": self.kid_auto, "menu_acts": self.menu_acts, "edu_on": self.edu_on, "janken_cam": self.janken_cam, "teacher_only": self.teacher_only}
         if e is not None:
             d["speed"] = getattr(e, "speed_scale", 1.0)
             d["voice"] = getattr(e, "voice_ja", None)
@@ -122,8 +124,9 @@ class Hub:
         if isinstance(d.get("menu_acts"), list):
             old = {"quiz", "math", "kanji", "english"} & set(d["menu_acts"])           # 勉強の遊びを廃止する前の保存値: 新しい 6 個の既定に直す
             self.menu_acts = list(ACTS) if old else [a for a in d["menu_acts"] if a in ACTS]
-        self.edu_on = bool(d.get("edu_on", False))
+        self.edu_on = bool(d.get("edu_on", True))
         self.janken_cam = bool(d.get("janken_cam", True))
+        self.teacher_only = bool(d.get("teacher_only", True))
         if isinstance(d.get("phrases"), list):
             self.phrases = d["phrases"][:12]
         for name, body in (("speed", {"scale": d.get("speed")}), ("vad", {"threshold": d.get("vad")}),
@@ -466,6 +469,11 @@ class Hub:
         st["hand"] = self.hand_status()
         st["edu_on"] = self.edu_on
         st["janken_cam"] = self.janken_cam
+        st["teacher_only"] = self.teacher_only
+        try:
+            st["lesson"] = self.lesson.snapshot([{"id": d["id"], "name": d["name"], "online": d.get("online")} for d in st["devices"]]) if self.lesson else []
+        except Exception:  # noqa: BLE001
+            st["lesson"] = []
         st["game"] = self.game.snapshot() if self.game else None
         st["janken"] = self.janken.snapshot() if self.janken else None
         st["quiz"] = self.quiz.snapshot() if self.quiz else None
@@ -528,7 +536,7 @@ class Hub:
 
     def act(self, name: str, body: dict, persist: bool = True) -> dict:
         r = self._act(name, body)
-        if persist and r.get("ok") and name in ("speed", "voice", "vad", "engine", "track", "listen", "phrases", "lang", "topic", "gate", "wave", "kid_set", "edu_set", "janken_cam_set"):
+        if persist and r.get("ok") and name in ("speed", "voice", "vad", "engine", "track", "listen", "phrases", "lang", "topic", "gate", "wave", "kid_set", "edu_set", "janken_cam_set", "teacher_only_set"):
             self.save()
         return r
 
@@ -697,6 +705,39 @@ class Hub:
                 if self.quiz:
                     self.quiz.stop(None)
             self.event("教材モード: " + ("オン(翻訳・3人会話・自律会話はオフ)" if self.edu_on else "オフ(ふつうの通訳に戻ります)"))
+            return {"ok": True}
+        if name == "lesson_start":                        # 先生が、機器ごと(省略なら全機器)に、遊びを始める。動いている遊びは、すぐ止めて切り替える
+            if not self.lesson:
+                return {"ok": False, "error": "未対応"}
+            if self.auto:
+                self.auto.set(enabled=False)
+            if self.discuss and self.discuss.on:
+                self.discuss.stop()
+                t0 = time.time()
+                while self.discuss.on and time.time() - t0 < 8:
+                    time.sleep(0.2)
+            self.listen = True
+            ids = body.get("devices")
+            if not ids and body.get("id"):
+                ids = [str(body.get("id"))]
+            ok, err = self.lesson.start(str(body.get("kind", "")), list(ids) if isinstance(ids, list) and ids else None)
+            return {"ok": True} if ok else {"ok": False, "error": err}
+        if name == "lesson_stop":                         # 中止: どの遊びでも、その機器(省略なら全機器)をすぐ止める。声も止める
+            if self.lesson:
+                self.lesson.stop(str(body.get("id", "")) or None)
+            self.event("中止しました" + (f"({body.get('id')})" if body.get("id") else "(全機器)"))
+            return {"ok": True}
+        if name == "lesson_say":                          # 先生が、子どもの代わりに言葉・手・向き・答えを入れる(どの遊びでも)
+            i = str(body.get("id", ""))
+            t = str(body.get("text", "")).strip()[:40]
+            ok = False
+            for h in (self.game, self.janken, self.quiz):
+                if h is not None and t and h.say(t, i):
+                    ok = True
+            return {"ok": True} if ok else {"ok": False, "error": "いまは子どもの番ではありません"}
+        if name == "teacher_only_set":                    # 先生の操作だけで遊びを始める(オフなら、子どもが「あそぼう」「〇〇しよう」と言って始められる)
+            self.teacher_only = bool(body.get("on", True))
+            self.event("遊びの開始: " + ("先生のボタンだけ" if self.teacher_only else "子どもの声でも始められる"))
             return {"ok": True}
         if name == "quiz_start":                          # なぞなぞ・あっち向いてホイ・おみくじ・ものまねを始める(機器ごとに独立。会話・自律は先に止める)
             if not self.quiz:

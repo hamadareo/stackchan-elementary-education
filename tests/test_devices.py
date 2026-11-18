@@ -327,7 +327,7 @@ class HealthTests(unittest.TestCase):
         class X:
             def __init__(s, b, link): s.batt, s.link = b, link
         class Hub:
-            edu_on = True; menu_acts = ["janken", "riddle"]
+            edu_on = True; teacher_only = False; menu_acts = ["janken", "riddle"]
             def live(s): return [X(80, "USB 有線"), X(15, "USB 有線")]
         class Eng:
             llm = []; remote_ear = False; s = type("S", (), {"voicevox_url": ""})()
@@ -355,7 +355,7 @@ class MenuBoardTests(unittest.TestCase):
             def __init__(s, on): s.on = on
             def snapshot(s): return {"games": [{"dev_id": "a", "on": s.on}]}
         class Hub:
-            edu_on = True; menu_acts = ["shiritori", "janken", "riddle", "hoi", "omikuji", "mimic"]
+            edu_on = True; teacher_only = False; menu_acts = ["shiritori", "janken", "riddle", "hoi", "omikuji", "mimic"]
             game = G(False); janken = G(True); quiz = None
             def live(s): return [S("a"), S("b")]
         h = Hub()
@@ -1101,6 +1101,7 @@ class KidChatTests(unittest.TestCase):
 
     def test_guided_edu_mode_silent_unless_game(self):
         self.hub.edu_on = True
+        self.hub.teacher_only = False
         self.hub.menu_acts = ["janken", "riddle"]
         kc, r = self.run_reply("きょうは、あめがふってたよ")
         self.assertTrue(r)

@@ -304,8 +304,22 @@ class Shiritori(Stage):
         return True, ""
 
     def stop(self) -> None:
+        """中止。すぐ止める: 待ちを解き、機器にも「声を止めて」と伝える(鳴りかけの声・つづく声を止める)。"""
         self._stop.set()
         self.q.put(None)
+        self._hush()
+
+    def _hush(self) -> None:
+        for k in range(len(self.robots)):
+            s = self._sess(k)
+            if s is None:
+                continue
+            try:
+                s.send({"t": "hush"})
+                s.send({"t": "board", "clear": True})
+                s.muted_until = 0.0
+            except Exception:  # noqa: BLE001
+                pass
 
     # ---- 子どもの声(または先生の入力)
     def hear(self, text: str, lang: str = "ja") -> bool:
@@ -480,7 +494,11 @@ class Shiritori(Stage):
                     sk.send({"t": "face", "state": (face or pr[2]) if k == i else "listening"})
                     if k != i:
                         sk.send({"t": "caption", "lang": "ja", "to": "ja", "orig": f'{self.robots[i]["name"]}: {caption or text}', "trans": "", "final": True})
+            if self._stop.is_set():
+                return
             pcm = self._synth(eng, i, text, pr[1], raw)
+            if self._stop.is_set():                          # 声を作っている間に中止された: 鳴らさない
+                return
             dur = s._send_pcm(pcm, caption=caption or text, lang="ja")
             t0 = self.clock()
             while self.clock() - t0 < (dur or 0) + 0.3 and not self._stop.is_set():
@@ -493,6 +511,8 @@ class Shiritori(Stage):
                     self.q.get_nowait()
                 except queue.Empty:
                     break
+            if self._stop.is_set():                          # 中止の合図(None)まで捨てないよう、入れ直す(待ちがすぐ終わる)
+                self.q.put(None)
 
     def _reading(self, eng, text: str) -> str:
         """子どもの言葉 → よみ(ひらがな)。かな・辞書にある言葉はそのまま。それ以外は AI に読みを聞く。"""

@@ -203,8 +203,10 @@ static float mouthFromPcm(const int16_t *pcm, size_t n, size_t pos) {
   return open;
 }
 
+static volatile bool hushReq = false;                  // 管理画面の「中止」: いま鳴っている声と、あとに続く声をすぐ止める
+
 static void playOne(int idx) {
-  if (!speechLenB[idx]) return;
+  if (!speechLenB[idx] || hushReq) return;
   const uint8_t *buf = speechBuf[idx];
   size_t len = speechLenB[idx];
   playIdx = idx;
@@ -214,7 +216,7 @@ static void playOne(int idx) {
   size_t nS = len / 2;
   static uint32_t lastBob = 0; static int bobDir = 1;
   gestN = gestI = 0; gestSpeed = 600;
-  while (M5.Speaker.isPlaying() && millis() - t0 < 40000) {
+  while (M5.Speaker.isPlaying() && millis() - t0 < 40000 && !hushReq) {
     float open = mouthFromPcm((const int16_t *)buf, nS, (size_t)((millis() - t0) * (SR / 1000)));
     // 話しながら首も動かす: 声の強いところでうなずき、左右にもゆれる(身ぶり)
     if (open > 0.6f && millis() - lastBob > 900) { lastBob = millis(); bobDir = -bobDir; gOffT = -30; gOffP = bobDir * 30; }
@@ -224,6 +226,7 @@ static void playOne(int idx) {
     linkPoll();                                          // 再生中に次の文が届く(別の面に入る)
     delay(15);
   }
+  if (hushReq) M5.Speaker.stop();
   gOffT = 0; gOffP = 0;
   playIdx = -1;
 }
@@ -241,11 +244,13 @@ static void playSpeech(int idx) {
   playOne(idx);
   uint32_t waitUntil = millis() + 400;                   // 次の文が届き終わるのを少し待つ(文のあいだを詰める)
   while (true) {
+    if (hushReq) { pendingIdx = -1; break; }
     if (pendingIdx >= 0) { int n = pendingIdx; pendingIdx = -1; speechLenB[idx] = 0; idx = n; playOne(idx); waitUntil = millis() + 400; continue; }
     if (recvActive || millis() < waitUntil) { linkPoll(); delay(5); continue; }
     break;
   }
   speechLenB[0] = speechLenB[1] = 0;
+  hushReq = false;
   zface::setSpeaking(false);
   M5.Speaker.end();
   M5.Mic.begin();
@@ -362,6 +367,15 @@ static void onWs(WStype_t type, uint8_t *p, size_t n) {
         tiltTarget = constrain(tiltTarget, SERVO_TILT_MIN, SERVO_TILT_MAX);
         gestSpeed = d["speed"] | SERVO_SPEED;
         zface::setGaze(0, 0);
+      } else if (t == "hush") {                          // 中止: 声をすぐ止める(再生中は playOne が抜ける。受信中・待機中は捨てる)
+        pendingIdx = -1;
+        recvActive = false;
+        if (mode == SPEAKING || playIdx >= 0) {
+          hushReq = true;
+        } else {
+          speechLenB[0] = speechLenB[1] = 0;
+          if (mode == RECEIVING) mode = LISTEN;
+        }
       } else if (t == "speech") {
         recvIdx = (playIdx >= 0) ? 1 - playIdx : 0;      // 再生中なら空いている面へ
         speechLenB[recvIdx] = 0;

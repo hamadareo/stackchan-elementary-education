@@ -18,6 +18,7 @@ class KidHub:
 
 def mk_kid(base, hub, gh, jh, qh):
     hub.kid_on, hub.edu_on, hub.kid_auto = True, True, True
+    hub.teacher_only = False
     hub.menu_acts = list(kc.ACT_DEFAULT)
     hub.game, hub.janken, hub.quiz = gh, jh, qh
     hub.discussing = lambda: False
@@ -162,6 +163,7 @@ class KidSwitchTests(PlayBase):
     def _kid(self):
         gh, jh, qh, said, sent, raws = self._mk()
         self.hub.kid_on, self.hub.edu_on, self.hub.kid_auto = True, True, True
+        self.hub.teacher_only = False
         self.hub.menu_acts = list(kc.ACT_DEFAULT)
         self.hub.game, self.hub.janken, self.hub.quiz = gh, jh, qh
         self.hub.discussing = lambda: False

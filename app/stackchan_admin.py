@@ -24,6 +24,8 @@ from PySide6.QtWidgets import (QApplication, QInputDialog, QGraphicsDropShadowEf
                                QLineEdit, QListWidget, QMainWindow, QMessageBox, QProgressBar, QPushButton,
                                QScrollArea, QSlider, QTabWidget, QVBoxLayout, QWidget)
 
+from lesson_ui import LessonPage  # noqa: E402
+
 BASE = os.environ.get("SC_ADMIN_URL", "http://127.0.0.1:8080").rstrip("/")
 TOKEN = os.environ.get("SC_ADMIN_TOKEN", "")
 NAMES = {"en": "EN", "zh": "ZH", "ko": "KO", "ja": "JA"}
@@ -676,13 +678,15 @@ class Win(QMainWindow):
 
         self.tabs = QTabWidget()
         top.addWidget(self.tabs, 1)
+        self.lesson_page = LessonPage(lambda n, b=None, m="": self.act(n, b, m))
+        self.tabs.addTab(self.lesson_page, "授業")
         self.tabs.addTab(self.page_status(), "ステータス")
         self.tabs.addTab(self.page_ctrl(), "操作")
         self.tabs.addTab(self.page_devices(), "機器")
         self.tabs.addTab(self.page_discuss(), "3人会話")
         self.tabs.addTab(self.page_profile(), "プロフィール")
         self.tabs.addTab(self.page_journal(), "活動記録")
-        self.tabs.addTab(self.page_edu(), "子供たちの教材")
+        self.tabs.addTab(self.page_edu(), "教材の詳細")
         self.tabs.addTab(self.page_talk(), "会話")
 
         self.msg = muted()
@@ -2140,6 +2144,7 @@ class Win(QMainWindow):
         self.render_discuss(s.get("discuss"))
         self.render_auto(s.get("auto"))
         self.render_journal(s.get("journal"))
+        self.lesson_page.render(s)
         self.render_game(s.get("game"), s.get("devices"))
         self.render_janken(s.get("janken"), s.get("devices"))
         self.render_quiz(s.get("quiz"), s.get("devices"))

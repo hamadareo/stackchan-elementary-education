@@ -209,6 +209,8 @@ class Play(Shiritori):
 
     def _wait(self, timeout: float):
         """子どもの言葉を待つ。(None=止められた / ""=時間切れ / 言葉)"""
+        if self._stop.is_set():
+            return None
         self.turn = "kid"
         self._face("listening")
         try:

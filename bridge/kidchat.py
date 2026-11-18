@@ -186,6 +186,8 @@ class KidChat:
         if lang != "ja" or not worth_answering(text) or self.blocked(getattr(sess, "dev_id", "")):
             return False
         guided = bool(getattr(self.hub, "edu_on", False))           # 教材モード: 決まった遊びだけ。自由なおしゃべりはしない
+        if guided and getattr(self.hub, "teacher_only", True):       # 先生のボタンだけで遊びを始める: 遊びが選ばれていない間は、子どもの声に何も反応しない
+            return True
         acts = self.acts()
         try:
             if getattr(self.hub, "quiz", None) is not None:
@@ -244,8 +246,8 @@ class KidChat:
     def switch(self, sess, text: str) -> bool:
         """遊びの途中で、べつの遊びを「〜しよう」と言われたら、いまの遊びを終えて、新しい遊びを始める。切り替えを始めたら True。"""
         dev = getattr(sess, "dev_id", "")
-        if not dev or not self.enabled:
-            return False
+        if not dev or not self.enabled or (getattr(self.hub, "edu_on", False) and getattr(self.hub, "teacher_only", True)):
+            return False                                     # 先生のボタンだけで切り替える
         cur = self.current(dev)
         want = self.want(text)
         if not cur or not want or want == cur:

@@ -1,0 +1,267 @@
+"""管理アプリの「授業」画面: 先生が、機器ごとに遊びを始める・中止する・切り替える。
+
+ロボットは、ここでボタンが押されるまで何もしない(授業モード)。ボタンは大きく、押したらすぐ反応する。
+  - 機器ごとのカード: 6 つの遊びのボタン / ■ 中止(どの遊びでも、すぐ止まる) / いまの状態 / 先生の入力
+  - 全台のボタン: 全部の機器で、いっせいに始める・中止する
+動いている遊びがあるときに、別の遊びのボタンを押すと、いまの遊びを止めて、すぐ切り替わる。
+状態は、ブリッジの state["lesson"](機器ごとの、いまの遊びと詳細)を描くだけ。通信は act(name, body) に任せる。
+"""
+from __future__ import annotations
+
+import html
+import json
+
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (QCheckBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea,
+                               QVBoxLayout, QWidget)
+
+CY, GR, AM, RD, MUTE = "#3fe0ff", "#41ffa8", "#ffc14d", "#ff5a6e", "#6f8aa6"
+KINDS = [("shiritori", "しりとり"), ("janken", "じゃんけん"), ("riddle", "なぞなぞ"), ("hoi", "あっちむいてホイ"), ("omikuji", "おみくじ"), ("mimic", "ものまねボイス")]
+LABEL = dict(KINDS)
+HINT = {"shiritori": "言葉を言う(例: りんご)", "janken": "ぐー・ちょき・ぱー", "riddle": "答えを言う(「ヒント」で ヒント)",
+        "hoi": "ぐー・ちょき・ぱー → うえ・した・ひだり・みぎ", "omikuji": "やる / やめる", "mimic": "まねしてほしい言葉"}
+BTN_OFF = "QPushButton{font-size:17px;font-weight:700;padding:14px 8px;min-height:30px}"
+BTN_ON = f"QPushButton{{font-size:17px;font-weight:700;padding:14px 8px;min-height:30px;border:2px solid {GR};color:{GR};background:rgba(65,255,168,40)}}"
+STOP_QSS = f"QPushButton{{font-size:20px;font-weight:700;padding:16px 8px;border:2px solid {RD};color:#fff;background:{RD}}}QPushButton:disabled{{border:1px solid #3a2a30;color:#6a5258;background:rgba(255,90,110,10)}}QPushButton:hover:!disabled{{background:#ff7d8c}}"
+
+
+def esc(x) -> str:
+    return html.escape(str(x if x is not None else ""))
+
+
+def status_of(x: dict) -> "tuple[str, str]":
+    """(大きな表示, 色)。x は lesson の 1 機器ぶん。"""
+    if not x.get("online"):
+        return "つながっていません", MUTE
+    if not x.get("on"):
+        d = x.get("detail") or {}
+        if d.get("result"):
+            return "おわりました(待機中)", MUTE
+        return "待機中 — ロボットは何もしません", MUTE
+    d = x.get("detail") or {}
+    lab = x.get("label") or ""
+    if d.get("turn") == "kid":
+        return f"{lab}: 子どもの番(聞いています)", GR
+    who = x.get("persona") or "ロボット"
+    return f"{lab}: {who}が話しています", CY
+
+
+def detail_html(x: dict) -> str:
+    """いまの遊びの様子(先生向けの、小さめの表示)。"""
+    d = x.get("detail") or {}
+    kind = x.get("kind") or ""
+    lines = []
+    if d.get("msg"):
+        lines.append(f'<span style="font-size:15px">{esc(d["msg"])}</span>')
+    if kind == "shiritori" or (not kind and d.get("chain")):
+        ch = d.get("chain") or []
+        if x.get("on") and d.get("need"):
+            lines.append(f'つぎは「<b style="color:{AM}">{esc(d["need"])}</b>」から')
+        if ch:
+            lines.append(" → ".join(f'<span style="color:{GR if c.get("kid") else AM}">{esc(c.get("word"))}</span>' for c in ch[-8:]) + f'<br><span style="color:{MUTE}">つないだ数 {esc(d.get("score", 0))}</span>')
+    elif kind == "janken" or d.get("hands") is not None:
+        hs = d.get("hands") or []
+        lines.append(f'<span style="color:{MUTE}">勝ち {esc(d.get("wins", 0))} / 負け {esc(d.get("losses", 0))} / あいこ {esc(d.get("draws", 0))}</span>')
+        for h in reversed(hs[-4:]):
+            col = {"kid_win": GR, "robot_win": AM}.get(h.get("res"), MUTE)
+            lines.append(f'<span style="color:{col}">きみ {esc(h.get("kid"))}{"(カメラ)" if h.get("via") == "camera" else ""} / ロボット {esc(h.get("robot"))}</span>')
+    else:
+        if x.get("on") and d.get("big"):
+            lines.append(f'<span style="font-size:24px;color:{AM}"><b>{esc(d["big"])}</b></span>')
+        if x.get("on") and d.get("question"):
+            lines.append(esc(d["question"]))
+        if x.get("on") and d.get("answer"):
+            lines.append(f'<span style="color:{MUTE}">先生用: {esc(d["answer"])}</span>')
+        if d.get("stat"):
+            lines.append(f'<span style="color:{GR}">{esc(d["stat"])}</span>')
+        for h in reversed((d.get("history") or [])[-4:]):
+            lines.append(f'<span style="color:{GR if h.get("ok") else AM}">{"○" if h.get("ok") else "×"}</span> {esc(h.get("q"))}')
+    return "<br>".join(lines)
+
+
+def camera_html(x: dict) -> str:
+    """カメラの見え方(距離の案内)。カメラを使う遊びのときだけ。"""
+    d = x.get("detail") or {}
+    if not x.get("on") or not d.get("cam_label"):
+        return ""
+    st = d.get("cam_state") or ""
+    col = GR if st == "ok" else AM
+    note = ' <span style="color:%s">(見えにくいので、声だけで進めています)</span>' % AM if d.get("cam_muted") else ""
+    return f'カメラ: <b style="color:{col}">{esc(d["cam_label"])}</b>{note}'
+
+
+class DeviceCard(QFrame):
+    def __init__(self, dev_id: str, act):
+        super().__init__()
+        self.dev_id, self.act = dev_id, act
+        self.setObjectName("lcard")
+        self.setStyleSheet("#lcard{background:rgba(10,20,34,0.6);border:1px solid #1d3a55;border-radius:8px}#lcard QLabel{background:transparent}")
+        v = QVBoxLayout(self)
+        v.setSpacing(8)
+        self.head = QLabel()
+        self.head.setTextFormat(Qt.RichText)
+        self.head.setStyleSheet("font-size:18px")
+        v.addWidget(self.head)
+        self.status = QLabel()
+        self.status.setWordWrap(True)
+        self.status.setAlignment(Qt.AlignCenter)
+        self.status.setMinimumHeight(54)
+        v.addWidget(self.status)
+        g = QGridLayout()
+        g.setSpacing(8)
+        self.b: dict = {}
+        for n, (k, lab) in enumerate(KINDS):
+            b = QPushButton(lab)
+            b.setCursor(Qt.PointingHandCursor)
+            b.setStyleSheet(BTN_OFF)
+            b.clicked.connect(lambda _c=False, k=k: self.act("lesson_start", {"kind": k, "id": self.dev_id}, f"{LABEL[k]}を始めます"))
+            g.addWidget(b, n // 2, n % 2)
+            self.b[k] = b
+        v.addLayout(g)
+        self.stop = QPushButton("■ 中止")
+        self.stop.setCursor(Qt.PointingHandCursor)
+        self.stop.setStyleSheet(STOP_QSS)
+        self.stop.clicked.connect(lambda: self.act("lesson_stop", {"id": self.dev_id}, "中止しました"))
+        v.addWidget(self.stop)
+        self.cam = QLabel()
+        self.cam.setTextFormat(Qt.RichText)
+        self.cam.setStyleSheet("font-size:15px")
+        v.addWidget(self.cam)
+        self.body = QLabel()
+        self.body.setTextFormat(Qt.RichText)
+        self.body.setWordWrap(True)
+        self.body.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        self.body.setMinimumHeight(110)
+        v.addWidget(self.body)
+        self.typ = QLineEdit()
+        self.typ.setPlaceholderText("先生の入力(聞き取れないとき): 子どもの言葉を入れて Enter")
+        self.typ.returnPressed.connect(self._type)
+        v.addWidget(self.typ)
+        self.hint = QLabel()
+        self.hint.setWordWrap(True)
+        self.hint.setStyleSheet(f"color:{MUTE};font-size:12px")
+        v.addWidget(self.hint)
+        v.addStretch(1)
+
+    def _type(self) -> None:
+        t = self.typ.text().strip()
+        if t:
+            self.act("lesson_say", {"text": t, "id": self.dev_id})
+            self.typ.clear()
+
+    def render(self, x: dict) -> None:
+        persona = x.get("persona") or ""
+        self.head.setText(f'<b>{esc(x.get("name"))}</b>' + (f' <span style="color:{AM}">({esc(persona)})</span>' if persona else ""))
+        big, col = status_of(x)
+        self.status.setText(f'<span style="font-size:20px;font-weight:700;color:{col}">{esc(big)}</span>')
+        online, on, cur = bool(x.get("online")), bool(x.get("on")), x.get("kind") or ""
+        for k, b in self.b.items():
+            b.setEnabled(online)
+            b.setStyleSheet(BTN_ON if (on and k == cur) else BTN_OFF)
+        self.stop.setEnabled(online and on)
+        self.cam.setText(camera_html(x))
+        self.body.setText(detail_html(x))
+        self.hint.setText(("子どもに言ってもらうこと: " + HINT.get(cur, "")) if on and cur else "")
+        self.typ.setEnabled(online and on)
+
+
+class LessonPage(QWidget):
+    """act(name, body, ok_msg) は、ブリッジへの操作(管理アプリの act)。"""
+
+    def __init__(self, act):
+        super().__init__()
+        self.act = act
+        self.cards: dict = {}
+        self.key = ""
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(10)
+
+        self.mode = QCheckBox("授業モード  (オン: 先生がボタンを押すまで、ロボットは何も話さない・何もしない。翻訳・3人会話・自律会話は止まる)")
+        self.mode.setStyleSheet(f"font-size:15px;font-weight:700;color:{AM};padding:6px")
+        self.mode.toggled.connect(self._mode)
+        lay.addWidget(self.mode)
+
+        self.ready = QLabel("")
+        self.ready.setTextFormat(Qt.RichText)
+        self.ready.setWordWrap(True)
+        lay.addWidget(self.ready)
+
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        lab = QLabel("全台でいっせいに:")
+        lab.setStyleSheet("font-size:14px;font-weight:700")
+        row.addWidget(lab)
+        for k, t in KINDS:
+            b = QPushButton(t)
+            b.setCursor(Qt.PointingHandCursor)
+            b.setStyleSheet("QPushButton{font-size:14px;padding:10px 12px}")
+            b.clicked.connect(lambda _c=False, k=k: self.act("lesson_start", {"kind": k}, f"全台で{LABEL[k]}を始めます"))
+            row.addWidget(b)
+        row.addStretch(1)
+        self.stop_all = QPushButton("■ 全部中止")
+        self.stop_all.setCursor(Qt.PointingHandCursor)
+        self.stop_all.setStyleSheet(STOP_QSS)
+        self.stop_all.clicked.connect(lambda: self.act("lesson_stop", {}, "全部、中止しました"))
+        row.addWidget(self.stop_all)
+        lay.addLayout(row)
+
+        self.wrap = QWidget()
+        self.wrap.setObjectName("lwrap")
+        self.wrap.setStyleSheet("#lwrap{background:transparent}")
+        self.hl = QHBoxLayout(self.wrap)
+        self.hl.setContentsMargins(0, 0, 0, 0)
+        self.hl.setSpacing(10)
+        sa = QScrollArea()
+        sa.setWidgetResizable(True)
+        sa.setStyleSheet("QScrollArea{background:transparent;border:0}")
+        sa.viewport().setStyleSheet("background:transparent")
+        sa.setWidget(self.wrap)
+        lay.addWidget(sa, 1)
+        foot = QLabel("機器どうしは連携しません。各機器が、自分の前の子どもたちと遊びます。ボタンを押すと、その機器でいますぐ始まります(動いている遊びは止めて切り替えます)。「■ 中止」を押すと、声もすぐ止まります。")
+        foot.setWordWrap(True)
+        foot.setStyleSheet(f"color:{MUTE};font-size:12px")
+        lay.addWidget(foot)
+
+    def _mode(self, on: bool) -> None:
+        self.act("edu_set", {"on": on})
+        self.act("teacher_only_set", {"on": on}, "授業モードをオンにしました" if on else "授業モードをオフにしました")
+
+    def render(self, s: dict) -> None:
+        on = bool(s.get("edu_on")) and bool(s.get("teacher_only", True))
+        if self.mode.isChecked() != on and not self.mode.hasFocus():
+            self.mode.blockSignals(True)
+            self.mode.setChecked(on)
+            self.mode.blockSignals(False)
+        self.ready.setText(self._ready_html(s.get("ready")))
+        items = s.get("lesson") or []
+        devs = [x for x in items if x.get("online")] or items
+        struct = json.dumps([(x["id"], x["name"]) for x in devs], ensure_ascii=False)
+        if struct != self.key:                                   # 台数・名前が変わったときだけ、カードを作り直す
+            self.key = struct
+            self.cards = {}
+            while self.hl.count():
+                it = self.hl.takeAt(0)
+                if it.widget():
+                    it.widget().deleteLater()
+            for x in devs:
+                c = DeviceCard(x["id"], self.act)
+                self.hl.addWidget(c, 1)
+                self.cards[x["id"]] = c
+            if not devs:
+                self.hl.addWidget(QLabel("接続中の機器がありません"))
+        for x in devs:
+            c = self.cards.get(x["id"])
+            if c is not None:
+                c.render(x)
+        self.stop_all.setEnabled(any(x.get("on") for x in items))
+
+    @staticmethod
+    def _ready_html(rd: list) -> str:
+        """準備チェックの要約: 直したほうがよいものだけ、1 行で。"""
+        if not isinstance(rd, list) or not rd:
+            return ""
+        bad = [r for r in rd if r.get("ok") is False]
+        if not bad:
+            return f'<span style="color:{GR}">✅ 準備チェック: だいじょうぶです</span>'
+        return f'<span style="color:{AM}">⚠ 準備チェック: ' + " / ".join(esc(f'{r.get("label", "")} {r.get("note", "")}'.strip()) for r in bad[:3]) + "</span>"

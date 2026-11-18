@@ -938,7 +938,10 @@ class Session:
             low = j.get("pct", 100) < 15 and not j.get("chg")
             if low and time.time() - getattr(self, "_batt_warn", 0.0) > 900:
                 self._batt_warn = time.time()
-                self.say("電池が少なくなってきました。充電してください。", "ja" if "ja" in self.pair else self.pair[0])
+                if getattr(admin.HUB, "edu_on", False):                 # 教材モード: 声は出さない(管理画面の準備チェックと記録で知らせる)
+                    admin.HUB.event(f"電池が少ないです: {self.dev_id} ({j.get('pct')}%)")
+                else:
+                    self.say("電池が少なくなってきました。充電してください。", "ja" if "ja" in self.pair else self.pair[0])
             if time.time() - getattr(self, "_batt_log", 0.0) > 300:
                 self._batt_log = time.time()
                 print(f"[bridge] 電池 {j.get('v')}V ({j.get('pct')}%{' 充電中' if j.get('chg') else ''})", flush=True)
@@ -959,8 +962,8 @@ class Session:
         if now - getattr(self, "_pat_at", 0.0) < 10.0 or "ja" not in self.pair:
             return
         g = getattr(admin.HUB, "game", None)
-        if (g is not None and g.on) or admin.HUB.discussing():
-            return
+        if (g is not None and g.on) or admin.HUB.discussing() or getattr(admin.HUB, "edu_on", False) or getattr(admin.HUB, "lesson", None) is not None and any(h.own_on for h in admin.HUB.lesson.hubs()):
+            return                                      # 教材モード・遊びの最中は、何も話さない
         self._pat_at = now
         try:
             k = admin.HUB.discuss.persona_of(self.dev_id) % 3
@@ -1598,6 +1601,8 @@ def main() -> None:
     admin.HUB.janken = janken.JankenHub(admin.HUB, admin.REG, admin.HUB.discuss, lambda: eng)
     import quiz
     admin.HUB.quiz = quiz.QuizHub(admin.HUB, admin.REG, admin.HUB.discuss, lambda: eng)
+    import lesson
+    admin.HUB.lesson = lesson.Lesson(admin.HUB)
     _hubs = [admin.HUB.game, admin.HUB.janken, admin.HUB.quiz]
     for _h in _hubs:
         _h.peers = [x for x in _hubs if x is not _h]              # 同じ機器で 2 つの教材(しりとり・じゃんけん・ほかの遊び)を同時に動かさない

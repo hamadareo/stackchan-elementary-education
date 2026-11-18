@@ -59,6 +59,8 @@ def fresh():
 class HubTests(unittest.TestCase):
     def test_edu_mode(self):
         h = admin.Hub()
+        self.assertTrue(h.edu_on and h.teacher_only)                 # 既定: 先生がボタンを押すまで、ロボットは何もしない
+        self.assertTrue(h.act("edu_set", {"on": False})["ok"])
         self.assertFalse(h.edu_on)
         self.assertTrue(h.act("edu_set", {"on": True})["ok"])
         self.assertTrue(h.edu_on and h.kid_on)
@@ -66,6 +68,16 @@ class HubTests(unittest.TestCase):
         self.assertFalse(r["ok"])
         self.assertTrue(h.act("edu_set", {"on": False})["ok"])
         self.assertFalse(h.edu_on)
+
+    def test_lesson_actions(self):
+        h = admin.Hub()
+        self.assertFalse(h.act("lesson_start", {"kind": "janken"})["ok"])         # 進行役がないときは、断る
+        self.assertTrue(h.act("lesson_stop", {})["ok"])
+        self.assertFalse(h.act("lesson_say", {"text": "ぐー", "id": "a"})["ok"])
+        self.assertTrue(h.act("teacher_only_set", {"on": False})["ok"])
+        self.assertFalse(h.teacher_only)
+        self.assertEqual(h.state()["teacher_only"], False)
+        self.assertEqual(h.state()["lesson"], [])
 
     def test_menu_acts_six_fun_games_and_migration(self):
         h = admin.Hub()

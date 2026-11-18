@@ -40,8 +40,8 @@ def items(hub) -> list:
 
 def tick(hub) -> int:
     """1 回ぶん。一覧を出した機器の数を返す。"""
-    if not getattr(hub, "edu_on", False):
-        return 0
+    if not getattr(hub, "edu_on", False) or getattr(hub, "teacher_only", True):
+        return 0                                             # 先生のボタンだけで始めるときは、子どもに「言える遊び」を出さない(何も出さない)
     names = items(hub)
     if not names:
         return 0
