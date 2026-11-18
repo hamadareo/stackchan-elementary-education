@@ -1171,7 +1171,7 @@ class Win(QMainWindow):
         w = QWidget()
         lay = QVBoxLayout(w)
         lay.setContentsMargins(0, 0, 0, 0)
-        c, l = card("子供たちの教材", "しりとり・じゃんけん・クイズ。ロボット対子供たち。各機器が、自分の前にいる子供たちと、それぞれ独立に遊びます(3台は連携しません)")
+        c, l = card("子供たちの教材", "しりとり・じゃんけん・なぞなぞ・あっちむいてホイ・おみくじ・ものまね。ロボット対子供たち。各機器が、自分の前にいる子供たちと、それぞれ独立に遊びます(3台は連携しません)")
         self.g_first = QComboBox()
         self.g_first.addItem("ロボットから始める", "robot")
         self.g_first.addItem("子どもから始める", "kid")
@@ -1193,9 +1193,9 @@ class Win(QMainWindow):
         row = QHBoxLayout()
         row.addWidget(QLabel("子どもに出す遊び(教材モード。これ以外は話しません。「あそぼう」と言われたら案内します):"))
         self.g_acts = {}
-        for key, label in (("shiritori", "しりとり"), ("janken", "じゃんけん"), ("riddle", "なぞなぞ"), ("quiz", "クイズ"), ("math", "さんすう"), ("kanji", "かんじ"), ("english", "えいご")):
+        for key, label in (("shiritori", "しりとり"), ("janken", "じゃんけん"), ("riddle", "なぞなぞ"), ("hoi", "あっちむいてホイ"), ("omikuji", "おみくじ"), ("mimic", "ものまね")):
             cb = QCheckBox(label)
-            cb.setChecked(key != "english")
+            cb.setChecked(True)
             cb.toggled.connect(lambda _on, self=self: self.act("menu_set", {"acts": [k for k, c in self.g_acts.items() if c.isChecked()]}))
             self.g_acts[key] = cb
             row.addWidget(cb)
@@ -1221,9 +1221,9 @@ class Win(QMainWindow):
         shl.addWidget(sa, 1)
         sub.addTab(sh, "しりとり")
         sub.addTab(self.page_janken(), "じゃんけん")
-        sub.addTab(self.page_quiz(), "クイズ")
+        sub.addTab(self.page_quiz(), "ほかの遊び")
         l.addWidget(sub, 1)
-        l.addWidget(muted("子どもの声は、その機器のマイクだけで聞き取ります。聞き取れないときは、各カードの「先生の入力」に言葉を入れてください。同じ機器で、しりとり・じゃんけん・クイズは同時にできません。"))
+        l.addWidget(muted("子どもの声は、その機器のマイクだけで聞き取ります。聞き取れないときは、各カードの「先生の入力」に言葉を入れてください。同じ機器で、しりとり・じゃんけん・ほかの遊び(なぞなぞ・あっちむいてホイ・おみくじ・ものまね)は同時にできません。"))
         lay.addWidget(c, 1)
         self.g_key = ""
         self.g_struct = ""
@@ -1448,14 +1448,14 @@ class Win(QMainWindow):
             lab = {"kid_win": "きみの勝ち", "robot_win": "ロボットの勝ち", "draw": "あいこ"}
             w["hist"].setText("<br>".join(f'きみ <b>{h["kid"]}</b>{"(カメラ)" if h.get("via") == "camera" else ""} ・ ロボット <b>{h["robot"]}</b> → <span style="color:{col[h["res"]]}">{lab[h["res"]]}</span>' for h in reversed(x["hands"])) or '<span style="color:#6f8aa6">ここに、じゃんけんの結果が出ます</span>')
 
-    # ---------------- クイズ(なぞなぞ・クイズ・さんすう・えいご)
-    QZ_KINDS = [("riddle", "なぞなぞ"), ("quiz", "クイズ"), ("math", "さんすう"), ("kanji", "かんじ"), ("english", "えいご")]
+    # ---------------- ほかの遊び(なぞなぞ・あっちむいてホイ・おみくじ・ものまね)
+    QZ_KINDS = [("riddle", "なぞなぞ"), ("hoi", "あっちむいてホイ"), ("omikuji", "おみくじ"), ("mimic", "ものまね")]
 
     def page_quiz(self) -> QWidget:
         w = QWidget()
         v = QVBoxLayout(w)
         v.setContentsMargins(0, 6, 0, 0)
-        v.addWidget(muted("ロボット対子供たち。各機器が、自分の前にいる子供たちと、独立に なぞなぞ・クイズ(○× と 3たく)・さんすう・えいご を出します(5問で1ラウンド)。問題はすべて内蔵で、ネットがなくても動きます。「ヒント」「わからない」で ヒント→答え。「やめる」で終わります"))
+        v.addWidget(muted("ロボット対子供たち。各機器が、自分の前にいる子供たちと、独立に遊びます。なぞなぞ(5問で1ラウンド。「ヒント」で ヒント→答え)・あっちむいてホイ(じゃんけん→3点先取。顔の向きはカメラか声で判定)・おみくじ(何回でも)・ものまねボイス(5つの言葉を いろんな声で)。すべて内蔵で、ネットがなくても動きます。「やめる」でいつでも終わります"))
         row = [btn(f"▶ 全台で {lab}", lambda k=kd: self.quiz_go(None, k)) for kd, lab in self.QZ_KINDS]
         row.append(btn("■ 全部やめる", lambda: self.act("quiz_stop"), name="bad"))
         v.addLayout(hrow(*row))
@@ -1495,7 +1495,7 @@ class Win(QMainWindow):
             return
         devs = [d for d in (devices or []) if d.get("online")]
         now_on = {x["dev_id"] for x in g.get("games", []) if x.get("on")}
-        if now_on - self.qz_on:                                   # 始まった: クイズの画面に切り替える
+        if now_on - self.qz_on:                                   # 始まった: ほかの遊びの画面に切り替える
             try:
                 self.edu_sub.setCurrentIndex(2)
             except Exception:  # noqa: BLE001
@@ -1543,7 +1543,7 @@ class Win(QMainWindow):
                 hist.setTextFormat(Qt.RichText)
                 hist.setStyleSheet("font-size:14px;padding:4px")
                 typ = QLineEdit()
-                typ.setPlaceholderText("先生の入力(聞き取れないとき): 答えを入れて Enter(○× は まる / ばつ、3たくは 1 / 2 / 3)")
+                typ.setPlaceholderText("先生の入力(聞き取れないとき): なぞなぞは答え / あっちむいてホイは ぐー・ちょき・ぱー と うえ・した・ひだり・みぎ / おみくじは やる・やめる / ものまねは まねしてほしい言葉  → Enter")
                 typ.returnPressed.connect(lambda i=d["id"], e=typ: self.quiz_type(i, e))
                 v.addLayout(hrow(*row))
                 v.addWidget(big)
@@ -1557,7 +1557,7 @@ class Win(QMainWindow):
             if not devs:
                 self.qz_l.addWidget(muted("接続中の機器がありません"))
             self.qz_l.addStretch(1)
-        self.qz_stat.setText(f'ぜんぶの記録: あそんだ回数 {g.get("plays", 0)}　ラウンド {g.get("rounds", 0)}　せいかい {g.get("correct", 0)} / {g.get("answered", 0)}問　ぜんぶせいかい {g.get("perfect", 0)}回')
+        self.qz_stat.setText(f'ぜんぶの記録: あそんだ回数 {g.get("plays", 0)}　なぞなぞ せいかい {g.get("correct", 0)} / {g.get("answered", 0)}問　あっちむいてホイ {g.get("hoi_wins", 0)}勝 / {g.get("hoi_rounds", 0)}回(さいこう {g.get("hoi_streak_best", 0)}れんしょう)　おみくじ {g.get("omikuji_n", 0)}回(大吉 {g.get("omikuji_big", 0)})　ものまね {g.get("mimic_n", 0)}回')
         for d in devs:
             w = self.qz_w.get(d["id"])
             if not w:
@@ -1569,15 +1569,21 @@ class Win(QMainWindow):
                 w["big"].setText("ボタンをおして、はじめよう!"); w["ques"].setText(""); w["msg"].setText(""); w["rec"].setText(""); w["hist"].setText("")
                 continue
             if x["on"]:
-                big = f'{x["kind_label"]}: きみの番!  こたえてね' if x["turn"] == "kid" else (f'{x["persona"]}が話しているよ…' if x["qno"] else "はじまるよ!")
+                big = f'{x["kind_label"]}: きみの番!' if x["turn"] == "kid" else f'{x["kind_label"]}: {x["persona"]}が話しているよ…'
             else:
                 big = "おしまい。またあそぼうね" if x["result"] else "ボタンをおして、はじめよう!"
             w["big"].setText(big)
-            w["ques"].setText((f'<b>{x["qno"]}もんめ</b>　{x["question"]}<br><span style="color:#6f8aa6;font-size:15px">こたえ(先生用): {x["answer"]}</span>') if x["on"] and x["question"] else "")
+            parts = []
+            if x["on"] and x.get("big"):
+                parts.append(f'<span style="font-size:30px;color:{AM}"><b>{x["big"]}</b></span>')
+            if x["on"] and x.get("question"):
+                parts.append(f'{x["question"]}')
+            if x["on"] and x.get("answer"):
+                parts.append(f'<span style="color:#6f8aa6;font-size:15px">先生用: {x["answer"]}</span>')
+            w["ques"].setText("<br>".join(parts))
             w["msg"].setText(x["msg"])
-            lv = f'　レベル {x["level"]}' if x.get("level") else ""
-            w["rec"].setText(f'<span style="color:{GR}">このラウンド: {x["score"]} / {x["rounds"]}</span>　{x["qno"]}もんめ{lv}')
-            w["hist"].setText("<br>".join(f'<span style="color:{GR if h["ok"] else AM}">{"○" if h["ok"] else "×"}</span> {h["q"]}' for h in reversed(x["history"])) or '<span style="color:#6f8aa6">ここに、問題の結果が出ます</span>')
+            w["rec"].setText(f'<span style="color:{GR}">{x.get("stat") or ""}</span>')
+            w["hist"].setText("<br>".join(f'<span style="color:{GR if h["ok"] else AM}">{"○" if h["ok"] else "×"}</span> {h["q"]}' for h in reversed(x["history"])) or '<span style="color:#6f8aa6">ここに、結果が出ます</span>')
 
     def janken_type(self, dev_id, edit):
         t = edit.text().strip()

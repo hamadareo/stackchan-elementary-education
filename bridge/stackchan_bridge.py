@@ -299,7 +299,7 @@ class Engine:
         t._voicevox_synth = synth
         t._prosody_patched = True
 
-    def speech_pcm_as(self, text: str, voice: "str | None", src_dur: float = 0.0, speed: "float | None" = None, emotion: "dict | None" = None) -> np.ndarray:
+    def speech_pcm_as(self, text: str, voice: "str | None", src_dur: float = 0.0, speed: "float | None" = None, emotion: "dict | None" = None, raw: "dict | None" = None) -> np.ndarray:
         """日本語を、指定した声で読む。声の切り替えは排他にし、終わったら必ず「いまの既定の声」へ戻す
         (切り替え中に管理画面で既定の声を変えても、古い声に巻き戻さない)。"""
         with self._voice_lock:
@@ -307,7 +307,7 @@ class Engine:
                 return self._speech_pcm(text, "ja", src_dur, speed)
             self.tts.voices["ja"] = voice or self.voice_ja
             self._install_prosody()
-            self.prosody = tuned_prosody(voice or self.voice_ja, emotion)
+            self.prosody = dict(raw) if raw is not None else tuned_prosody(voice or self.voice_ja, emotion)     # raw: 声の調子をそのまま使う(ものまね)
             try:
                 return self._speech_pcm(text, "ja", src_dur, speed)
             finally:
@@ -1098,7 +1098,7 @@ class Session:
                     if _j is not None and _j.hear(text, lang, getattr(self, "dev_id", "")):   # この機器がじゃんけん中なら、手を教材へ(翻訳しない)
                         continue
                     _q = getattr(admin.HUB, "quiz", None)
-                    if _q is not None and _q.hear(text, lang, getattr(self, "dev_id", "")):   # この機器がクイズ・なぞなぞ・算数・えいご中なら、答えを教材へ(翻訳しない)
+                    if _q is not None and _q.hear(text, lang, getattr(self, "dev_id", "")):   # この機器がなぞなぞ・あっち向いてホイ・おみくじ・ものまね中なら、子どもの声を遊びへ(翻訳しない)
                         continue
                     if self._voice_cmd(text):                  # 「音量上げて」などは翻訳せず端末を操作する
                         continue
@@ -1544,7 +1544,7 @@ def main() -> None:
     admin.HUB.quiz = quiz.QuizHub(admin.HUB, admin.REG, admin.HUB.discuss, lambda: eng)
     _hubs = [admin.HUB.game, admin.HUB.janken, admin.HUB.quiz]
     for _h in _hubs:
-        _h.peers = [x for x in _hubs if x is not _h]              # 同じ機器で 2 つの教材(しりとり・じゃんけん・クイズ)を同時に動かさない
+        _h.peers = [x for x in _hubs if x is not _h]              # 同じ機器で 2 つの教材(しりとり・じゃんけん・ほかの遊び)を同時に動かさない
     admin.HUB.kid = kidchat.KidChat(admin.HUB)
     threading.Thread(target=admin.HUB.kid.run, daemon=True).start()           # 子どもが黙ったとき・静かなときに、自分から話しかける
     admin.HUB.auto = autonomy.Autonomy(admin.HUB, admin.REG, admin.HUB.discuss, lambda: eng)

@@ -12,6 +12,7 @@ import time
 
 import hand as hand_mod
 import shiritori
+from playfx import Picker, tone
 from shiritori import GameHub, Shiritori, to_hira
 
 HANDS = ("gu", "choki", "pa")
@@ -80,6 +81,22 @@ def pick_robot_hand(rnd, history: list) -> str:
     return rnd.choice(hands)
 
 
+JK = {
+    "intro": ["じゃんけんで、あそぼう！ぐー、ちょき、ぱーを、声で言うか、カメラに手を見せてね。", "じゃんけん{d}！ぐー、ちょき、ぱー、どれを だすかな？声でも、カメラでも いいよ！",
+              "じゃんけん しよう！てを カメラに みせても、声で 言っても だいじょうぶ{d}！", "さあ、じゃんけん{d}！ぼくに かてるかな？"],
+    "intro_voice": ["じゃんけんで、あそぼう！ぐー、ちょき、ぱーのどれかを、声で出してね。", "じゃんけん{d}！ぐー、ちょき、ぱーを、声で 言ってね！", "じゃんけん しよう！ぐー、ちょき、ぱー、声で どうぞ！"],
+    "first": ["さいしょはぐー、じゃんけん…ぽん！", "いくよー！さいしょはぐー、じゃんけん…ぽん！", "さいしょは ぐー！じゃんけん…ぽん！", "じゃーんけーん…ぽん！"],
+    "next": ["つぎいくよ！さいしょはぐー、じゃんけん…ぽん！", "もういっかい！じゃんけん…ぽん！", "つぎは まけないよ！じゃんけん…ぽん！", "どんどん いくよ！じゃんけん…ぽん！", "さあ、つぎ！じゃんけん…ぽん！"],
+    "aiko": ["あいこでしょ！", "あいこで…しょ！", "おっと あいこ！あいこで…しょ！", "もういっかい あいこで…しょ！"],
+    "miss": ["もういっかい！ぐー、ちょき、ぱー！手をカメラに見せてもいいよ！", "んー、わからなかった！もういっかい！", "ぐー、ちょき、ぱーで おしえてね！"],
+    "miss_voice": ["もういっかい！ぐー、ちょき、ぱー！", "ぐー、ちょき、ぱーで 言ってね！", "きこえなかった！もういっかい！"],
+    "streak": ["{s}かい れんぞくで きみの かち{d}！すごい！", "また かった！{s}れんしょう{d}！", "{s}れんしょう！むてき{d}！", "すごーい、{s}かい つづけて かった{n}！"],
+    "lose_streak": ["ぼくが {s}かい つづけて かったよ！つぎは かてるかな？", "ぼくの {s}れんしょう！まけないで！"],
+    "record": ["きみの さいこう きろくは {b}れんしょう{d}！", "これまでで いちばんは {b}かい れんぞく{d}！"],
+    "bye": ["たのしかったよ！またあそぼうね！ばいばーい！", "いっぱい あそべた{n}！またね！", "ありがとう！またじゃんけん しようね！", "たのしかった{n}！つぎも まけないよ！"],
+}
+
+
 class Janken(Shiritori):
     LINES = {   # キャラごとの口調。{r}=ロボットの手
         "ずんだ": {"kid_win": ["ぼくは{r}なのだ。きみの勝ちなのだ！", "{r}を出したのだ。くやしいのだ！きみの勝ち！"],
@@ -103,6 +120,8 @@ class Janken(Shiritori):
         self.misses = 0
         self.cam_hand = ""                     # カメラで最後に見分けた手(表示用)
         self.cam_note = ""
+        self.pick = Picker(self.rnd)
+        self.lstreak = 0                       # ロボットの連勝
 
     def cam_enabled(self) -> bool:
         return bool(getattr(self.hub, "janken_cam", True))
@@ -125,7 +144,7 @@ class Janken(Shiritori):
         self.robots = [{"id": r["id"], "name": PERSONAS[self.discuss.persona_of(r["id"])]["name"], "dev_name": r["name"],
                         "voice": PERSONAS[self.discuss.persona_of(r["id"])]["voice"]} for r, _s in pk][:1]
         self.chain, self.need, self.turn, self.msg, self.result, self.score = [], "", "", "", "", 0
-        self.wins = self.losses = self.draws = self.streak = self.misses = 0
+        self.wins = self.losses = self.draws = self.streak = self.misses = self.lstreak = 0
         self.hands = []
         self.cam_hand = self.cam_note = ""
         self.speaking, self.quiet_until = False, 0.0
@@ -140,10 +159,16 @@ class Janken(Shiritori):
         return True, ""
 
     # ---- 進行
+    def _jk(self, scene: str, **kw) -> str:
+        s = tone(self.robots[0]["name"], self.pick(f"jk:{scene}", JK[scene]), self.pick)
+        for k, v in kw.items():
+            s = s.replace("{" + k + "}", str(v))
+        return s
+
     def _line(self, res: str, hand: str) -> str:
         name = self.robots[0]["name"]
         ls = self.LINES.get(name, self.LINES["ずんだ"])[res]
-        return ls[len(self.hands) % len(ls)].format(r=NAME[hand])
+        return self.pick(f"jk:res:{res}", [x.format(r=NAME[hand]) for x in ls])
 
     def _wait_hand(self) -> "tuple[str | None, str | None]":
         """子どもの手を待つ。(聞き取った言葉, カメラで見分けた手)。声が優先で、声で手が決まらなければカメラ。
@@ -204,9 +229,8 @@ class Janken(Shiritori):
     def _run(self, eng) -> None:
         try:
             self.turn = ""
-            self._speak(eng, 0, "じゃんけんで、あそぼう！ぐー、ちょき、ぱーを、声で言うか、カメラに手を見せてね。" if self.cam_enabled() and hand_mod.HandRecognizer.available()
-                        else "じゃんけんで、あそぼう！ぐー、ちょき、ぱーのどれかを、声で出してね。", "excited")
-            call = "さいしょはぐー、じゃんけん…ぽん！"
+            self._speak(eng, 0, self._jk("intro" if self.cam_enabled() and hand_mod.HandRecognizer.available() else "intro_voice"), "excited")
+            call = self._jk("first")
             while not self._stop.is_set():
                 if call:
                     self.msg = call
@@ -219,7 +243,7 @@ class Janken(Shiritori):
                     break
                 if text and QUIT.search(text) and parse_hand(text) is None:
                     self.msg = "またあそぼうね！"
-                    self._say_robot(eng, "たのしかったよ！またあそぼうね！ばいばーい！", "joy")
+                    self._say_robot(eng, self._jk("bye"), "joy")
                     break
                 hand = parse_hand(text) if text else None
                 via = "voice"
@@ -229,10 +253,10 @@ class Janken(Shiritori):
                     self.misses += 1
                     if self.misses >= 5:
                         self.msg = "またあそぼうね！"
-                        self._say_robot(eng, "またあそぼうね！ばいばーい！", "joy")
+                        self._say_robot(eng, self._jk("bye"), "joy")
                         break
                     self.turn = ""
-                    self._say_robot(eng, "もういっかい！ぐー、ちょき、ぱー！手をカメラに見せてもいいよ！" if self.cam_enabled() else "もういっかい！ぐー、ちょき、ぱー！", "doubt")
+                    self._say_robot(eng, self._jk("miss" if self.cam_enabled() else "miss_voice"), "doubt")
                     call = "じゃんけん…ぽん！"
                     continue
                 self.misses = 0
@@ -255,16 +279,28 @@ class Janken(Shiritori):
                 self._save()
                 self.score = self.wins
                 self.msg = f'きみ: {NAME[hand]}{"(カメラ)" if via == "camera" else ""} / ロボット: {NAME[robot]}'
+                foot = "あいこ！" if res == "draw" else ("きみの かち！" if res == "kid_win" else f'{self.robots[0]["name"]}の かち！')
+                self._board(title="じゃんけん", a=(self.robots[0]["name"], NAME[robot]), b=("きみ", NAME[hand]), foot=foot, ms=6000)
                 self._speak(eng, 0, self._line(res, robot), self.EMO[res])
                 if self._stop.is_set():
                     break
-                call = "あいこでしょ！" if res == "draw" else "つぎいくよ！さいしょはぐー、じゃんけん…ぽん！"
+                self.lstreak = self.lstreak + 1 if res == "robot_win" else 0
+                if res == "kid_win" and self.streak >= 2:                       # れんしょうを ほめる
+                    extra = self._jk("streak", s=self.streak)
+                    if self.streak >= 3 and self.streak >= self.stats.get("streak_best", 0):
+                        extra += " " + self._jk("record", b=self.stats["streak_best"])
+                    self._nod(2)
+                    self._speak(eng, 0, extra, "excited")
+                elif res == "robot_win" and self.lstreak >= 3:
+                    self._speak(eng, 0, self._jk("lose_streak", s=self.lstreak), "joy")
+                call = self._jk("aiko") if res == "draw" else self._jk("next")
         except Exception as e:  # noqa: BLE001
             self.msg = f"エラー: {type(e).__name__}"
         finally:
             if not self.result:
                 self.result = "stopped"
             self.turn = ""
+            self._board_clear()
             self._face("neutral")
             self.on = False
             self.hub.event(f"じゃんけん終了(勝ち {self.wins}・負け {self.losses}・あいこ {self.draws})")

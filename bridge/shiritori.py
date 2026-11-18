@@ -15,6 +15,7 @@ import random
 import re
 import threading
 import time
+from playfx import Stage
 
 # ロボットが言える言葉(よみ)。「ん」で終わる言葉は入れない(ロボットが自分で負けないように)。
 WORDS = """
@@ -122,8 +123,14 @@ DAKU.update({"が": "か", "ぎ": "き", "ぐ": "く", "げ": "け", "ご": "こ
              "で": "て", "ど": "と", "ば": "は", "び": "ひ", "ぶ": "ふ", "べ": "へ", "ぼ": "ほ", "ぱ": "は", "ぴ": "ひ", "ぷ": "ふ", "ぺ": "へ", "ぽ": "ほ"})
 DAKU = {k: v for k, v in DAKU.items() if len(k) == 1 and k in "がぎぐげござじずぜぞだぢづでどばびぶべぼぱぴぷぺぽ"}
 
-CHEER = ["すごい!", "いいね!", "さすが!", "やるね!", "おみごと!", "その調子!"]
-NUDGE = ["ゆっくり考えてね。", "だいじょうぶ、まってるよ。", "ヒントがほしかったら言ってね。"]
+CHEER = ["すごい!", "いいね!", "さすが!", "やるね!", "おみごと!", "その調子!", "いい言葉だね!", "ぴったりだね!", "かっこいい!", "どんどん つなごう!", "うまい!", "おもしろい言葉!"]
+NUDGE = ["ゆっくり考えてね。", "だいじょうぶ、まってるよ。", "ヒントがほしかったら言ってね。", "あせらなくて いいよ。", "なんでも いいから 言ってみて!", "おーい、思いついたかな?", "ゆっくりで いいからね。"]
+INTRO = ["しりとりで、あそぼう!言葉の最後の文字から、つぎの言葉をつなげるよ。「ん」がついたら負けだよ!", "しりとりを しよう!最後の文字で つなげていくよ。「ん」で おわる言葉は だめだよ!",
+         "さあ、しりとり{d}!言葉の さいごの文字から、つぎの言葉を 言ってね。「ん」がついたら まけだよ!", "しりとり、はじめるよ!さいごの文字を よく きいてね。「ん」に ならないように ね!"]
+LOSE_ROBOT = ["あっ、「ん」がついちゃった!ざんねん、わたしたちの勝ち!でも、すっごく楽しかったよ!", "「ん」だ!ここまでだね。でも、いい しりとり だったよ!また あそぼう!", "あれれ、「ん」がついたよ!ぼくの勝ち!でも たのしかった!また やろうね!"]
+WIN_KID = ["うわー、思いつかない!まいったのだ。きみの勝ちだよ!", "まいった!もう ことばが ないよ。きみの勝ち!すごいね!", "うーん、でてこない!きみの勝ちだよ!つよいね!"]
+WIN_KID_PLAIN = ["まいりました。あなたの勝ちです!", "ことばが つきました。あなたの勝ちです!おみごとです!", "お手あげです。あなたの勝ちです!"]
+NEXT_Q = ["つづき、やる?", "もういっかい、しりとり する?", "もっと あそぶ?"]
 RETRY_MAX = 3
 
 
@@ -210,7 +217,7 @@ def judge(reading: str, need: str, used: set) -> "tuple[str, str]":
     return "ok", ""
 
 
-class Shiritori:
+class Shiritori(Stage):
     PERSONA = {"ずんだ": {"word": "{w}なのだ!", "emo": "excited"}, "めたん": {"word": "{w}、ですね。", "emo": "neutral"},
                "つむぎ": {"word": "{w}、かな?", "emo": "joy"}}
 
@@ -321,8 +328,9 @@ class Shiritori:
                 except Exception:  # noqa: BLE001
                     pass
 
-    def _speak(self, eng, i: int, text: str, emo: str = "joy", caption: "str | None" = None) -> None:
-        """ロボット i が声に出す(顔と字幕つき)。話している間と直後は、聞き取りを捨てる。"""
+    def _speak(self, eng, i: int, text: str, emo: str = "joy", caption: "str | None" = None, raw: "dict | None" = None, face: "str | None" = None) -> None:
+        """ロボット i が声に出す(顔と字幕つき)。話している間と直後は、聞き取りを捨てる。
+        raw: 声の調子を直接指定する(speed/pitch/intonation/volume。ものまねなど。省略なら感情 emo の調子)。face: 顔を感情と別に指定。"""
         from discuss import EMOTIONS
         s = self._sess(i)
         if s is None:
@@ -333,11 +341,14 @@ class Shiritori:
             for k in range(len(self.robots)):
                 sk = self._sess(k)
                 if sk is not None:
-                    sk.send({"t": "face", "state": pr[2] if k == i else "listening"})
+                    sk.send({"t": "face", "state": (face or pr[2]) if k == i else "listening"})
                     if k != i:
                         sk.send({"t": "caption", "lang": "ja", "to": "ja", "orig": f'{self.robots[i]["name"]}: {caption or text}', "trans": "", "final": True})
             try:
-                pcm = eng.speech_pcm_as(text, self.robots[i]["voice"], emotion=pr[1])
+                if raw is not None:
+                    pcm = eng.speech_pcm_as(text, self.robots[i]["voice"], raw=raw)
+                else:
+                    pcm = eng.speech_pcm_as(text, self.robots[i]["voice"], emotion=pr[1])
             except TypeError:
                 pcm = eng.speech_pcm_as(text, self.robots[i]["voice"])
             dur = s._send_pcm(pcm, caption=caption or text, lang="ja")
@@ -387,19 +398,23 @@ class Shiritori:
         w = choose_word(self.need, self._used(), self.level, self.rnd)
         if w is None:
             self.result = "kid_win"
-            self._say_robot(eng, "うわー、思いつかない!まいったのだ。きみの勝ちだよ!" if name == "ずんだ" else "まいりました。あなたの勝ちです!", "surprise", i)
+            self._board(title="しりとり", a=(name, "まいった"), b=("きみ", "かち！"), foot="きみの かち！", ms=7000)
+            self._wobble()
+            self._say_robot(eng, self.rnd.choice(WIN_KID) if name == "ずんだ" else self.rnd.choice(WIN_KID_PLAIN), "surprise", i)
             return False
         self.chain.append({"who": name, "word": w, "reading": w, "kid": False})
         self.need = last_char(w)
         P = self.PERSONA.get(name, self.PERSONA["ずんだ"])
         self.msg = f"{name}: {w}"
+        kid_prev = next((c["word"] for c in reversed(self.chain[:-1]) if c["kid"]), "")
+        self._board(title="しりとり", a=(name, w), b=("きみ", kid_prev), foot=f"つぎは「{self.need}」から", ms=9000)
         self._speak(eng, i, P["word"].format(w=w) + (f" つぎは『{self.need}』だよ。" if self.rnd.random() < 0.5 else ""), P["emo"])
         return True
 
     def _run(self, eng, robot_first: bool) -> None:
         try:
             self.turn = ""
-            self._speak(eng, 0, "しりとりで、あそぼう!言葉の最後の文字から、つぎの言葉をつなげるよ。「ん」がついたら負けだよ!", "excited")
+            self._speak(eng, 0, self.rnd.choice(INTRO).replace("{d}", "だよ" if self.robots[0]["name"] != "ずんだ" else "なのだ"), "excited")
             if len(self.robots) > 1 and not self._stop.is_set():
                 self._speak(eng, 1, "ことばは、ひとつだけ言ってね。わたしたちが、じゅんばんにこたえます。", "joy")
             r = 0
@@ -445,11 +460,15 @@ class Shiritori:
                     self.score += 1
                     self.need = last_char(reading)
                     self.msg = f"あなた: {clean_word(text)}"
+                    self._board(title="しりとり", a=("", ""), b=("きみ", clean_word(text)), foot=f"つぎは「{self.need}」から", ms=6000)
                     if self.score > self.stats["best"]:
                         self.stats["best"] = self.score
                         self._save()
                     self._face("happy")
-                    if self.rnd.random() < 0.5:                 # ほめる(話者はランダム)
+                    if self.score and self.score % 5 == 0:             # 5 つ つなぐごとに、おおきく ほめる
+                        self._nod(2)
+                        self._say_robot(eng, f"{self.score}こ つながったよ!すごい、すごーい!", "excited")
+                    elif self.rnd.random() < 0.5:                 # ほめる(話者はランダム)
                         self._say_robot(eng, self.rnd.choice(CHEER), "joy")
                     if not self._robot_turn(eng, r):
                         self.score = max(self.score, 1)
@@ -459,7 +478,9 @@ class Shiritori:
                     self.chain.append({"who": "あなた", "word": clean_word(text), "reading": reading, "kid": True})
                     self.result = "robot_win"
                     self.msg = f"あなた: {clean_word(text)}(ん)"
-                    self._say_robot(eng, "あっ、「ん」がついちゃった!ざんねん、わたしたちの勝ち!でも、すっごく楽しかったよ!", "joy")
+                    self._board(title="しりとり", a=("", "ん"), b=("きみ", clean_word(text)), foot="「ん」が ついた！", ms=7000)
+                    self._wobble()
+                    self._say_robot(eng, self.rnd.choice(LOSE_ROBOT), "joy")
                     return
                 else:                                          # やり直し(同じ番のまま)
                     retries += 1
@@ -474,6 +495,8 @@ class Shiritori:
             if not self.result:
                 self.result = "stopped"
             self.turn = ""
+            self._front()                                      # 首を動かしていたら、正面へ
+            self._board_clear()
             self._face("neutral")
             self.on = False
             self.hub.event(f"しりとり終了({self.result}・つないだ数 {self.score})")
@@ -501,7 +524,7 @@ class GameHub:
         self.rnd = rnd
         self.games: dict = {}
         self.lock = threading.Lock()
-        self.peers: list = []                   # ほかの教材(しりとり・じゃんけん・クイズ)。同じ機器で 2 つ同時に動かさないために見る
+        self.peers: list = []                   # ほかの教材(しりとり・じゃんけん・ほかの遊び)。同じ機器で 2 つ同時に動かさないために見る
         self.stats = {k: 0 for k in self.KEYS}
         try:
             d = json.load(open(self.path))

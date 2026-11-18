@@ -1170,7 +1170,7 @@ class JankenGameTests(GameHubTests):
         self.assertTrue(self._wait(lambda: len(g.hands) == 1))
         self.assertEqual(g.hands[0]["kid"], "gu")
         self.assertEqual(g.wins + g.losses + g.draws, 1)
-        self.assertTrue(any("ぼく" in c or "わたし" in c for _n, c in said))
+        self.assertTrue(self._wait(lambda: any("勝ち" in c or "あいこ" in c for _n, c in said)))      # 手を出したあと、ロボットが自分の手を話す
         jh.stop()
         self.assertTrue(self._wait(lambda: not g.on))
         self.assertEqual(json.load(open(hub.path))["janken"]["plays"], 1)

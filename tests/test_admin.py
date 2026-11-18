@@ -67,6 +67,30 @@ class HubTests(unittest.TestCase):
         self.assertTrue(h.act("edu_set", {"on": False})["ok"])
         self.assertFalse(h.edu_on)
 
+    def test_menu_acts_six_fun_games_and_migration(self):
+        h = admin.Hub()
+        self.assertEqual(h.menu_acts, ["shiritori", "janken", "riddle", "hoi", "omikuji", "mimic"])      # 既定は 6 個すべて
+        self.assertEqual(h.state()["menu_acts"], h.menu_acts) if hasattr(h, "state") else None
+        self.assertTrue(h.act("menu_set", {"acts": ["janken", "hoi", "quiz", "math", "english", "kanji", "mimic"]})["ok"])
+        self.assertEqual(h.menu_acts, ["janken", "hoi", "mimic"])                  # 勉強の遊びは受け付けない
+        old = admin.Hub.__dict__.get("path")
+        import json as _j
+        p = os.environ["SC_SETTINGS"]
+        _j.dump({"menu_acts": ["shiritori", "janken", "riddle", "quiz", "math", "kanji"]}, open(p, "w"))
+        h2 = admin.Hub()
+        h2.load() if hasattr(h2, "load") else None
+        self.assertEqual(h2.menu_acts, list(admin.ACTS))                           # 古い保存値(勉強入り)は、新しい 6 個に直る
+        _j.dump({"menu_acts": ["janken", "omikuji"]}, open(p, "w"))
+        h3 = admin.Hub()
+        h3.load() if hasattr(h3, "load") else None
+        self.assertEqual(h3.menu_acts, ["janken", "omikuji"])                       # 新しい形式の保存値は、そのまま
+        os.remove(p)
+
+    def test_quiz_api_unknown_kind(self):
+        h = admin.Hub()
+        self.assertFalse(h.act("quiz_start", {"kind": "riddle"})["ok"])             # 遊びの管理役が無い(未対応)
+        self.assertFalse(h.act("quiz_say", {"text": "x"})["ok"])
+
     def test_face_style(self):
         import devices
         h = admin.Hub()

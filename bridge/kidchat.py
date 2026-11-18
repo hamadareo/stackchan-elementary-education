@@ -69,15 +69,15 @@ def clean_reply(out: str, prev: str = "neutral") -> "tuple[str, str]":
 
 
 ASOBO = re.compile(r"あそぼ|遊ぼ|あそびたい|遊びたい|なにしよう|何しよう|なにして遊|なにしてあそ")
-ACT_LABEL = {"shiritori": "しりとり", "janken": "じゃんけん", "riddle": "なぞなぞ", "quiz": "クイズ", "math": "さんすう", "kanji": "かんじ", "english": "えいご"}
-ACT_DEFAULT = ["shiritori", "janken", "riddle", "quiz", "math", "kanji"]      # 子どもに出す遊びは、この6個だけ(ほかのことはしない)
-MENU = "しりとり、じゃんけん、なぞなぞ、クイズ、さんすう、かんじが、できるよ！やりたいのを、言ってね！"
+ACT_LABEL = {"shiritori": "しりとり", "janken": "じゃんけん", "riddle": "なぞなぞ", "hoi": "あっちむいてホイ", "omikuji": "おみくじ", "mimic": "ものまね"}
+ACT_DEFAULT = ["shiritori", "janken", "riddle", "hoi", "omikuji", "mimic"]      # 子どもに出す遊びは、この6個だけ(ほかのことはしない)
+MENU = "しりとり、じゃんけん、なぞなぞ、あっちむいてホイ、おみくじ、ものまねが、できるよ！やりたいのを、言ってね！"
 GUIDE_GAP = 7.0         # 遊びを選ぶ案内を、同じ機器でくり返すまでの最短の秒数
 
 
 def menu_text(acts: list, lead: str = "") -> str:
     """出せる遊びを読み上げる文。例: 「しりとり、じゃんけん、なぞなぞの、どれで あそぶ？ えらんでね！」"""
-    names = [ACT_LABEL[a] for a in ACT_DEFAULT + ["english"] if a in acts]
+    names = [ACT_LABEL[a] for a in ACT_DEFAULT if a in acts]
     if not names:
         return lead or "こんにちは！"
     return lead + "、".join(names) + "の、どれで あそぶ？ えらんでね！"
@@ -85,20 +85,11 @@ JANKEN = re.compile(r"じゃんけん|ジャンケン|じゃん拳")
 SHIRITORI = re.compile(r"しりとり|尻取り|しりとろ|しり取り")
 
 
-# 自分から話しかける(子どもが黙ったとき・しばらく誰も話さないとき)。こわくない・むずかしくない・答えやすい質問
-OPENERS = ["ねえねえ、きょうの きゅうしょくは なんだった？", "すきな どうぶつは なあに？", "いちばん すきな あそびは なに？", "きょうは、がっこうで なにを したの？",
-           "すきな たべものを おしえて！", "おおきくなったら、なにに なりたい？", "さいきん、たのしかったことは ある？", "すきな いろは なにいろ？",
-           "どんな おうちに すんでるの？", "いちばん とくいな ことは なあに？", "すきな うたは ある？", "きのうの よるは、なにを したの？"]
+# 自分から話しかける(子どもが黙ったとき)。こわくない・むずかしくない・答えやすい一言
 NUDGES = ["ねえ、ほかにも おはなし しよう！", "ぼくは、もっと きいてみたいな。なにか おしえて！", "つぎは、なんの おはなしを する？", "しりとりか じゃんけんも できるよ！"]
-# 人(子ども)が見えたときの、ロボットからのあいさつ。{n} はそのキャラの名前。名前をたずねて、会話のきっかけにする
-GREETS = ["こんにちは！ぼくは{n}だよ。きみの なまえを おしえて！", "あっ、こんにちは！{n}だよ。いっしょに あそぼう！", "やあ、こんにちは！きょうは、なにして あそんだの？",
-          "こんにちは！{n}だよ。なぞなぞか、しりとりか、じゃんけんを しようよ！"]
-GREET_COOLDOWN = 120.0   # 同じ機器で、あいさつし直すまでの最短の秒数
-GREET_WAIT = 20.0        # 見つけてから、この秒数のうちに話せなければ、あいさつはやめる
 NUDGE_S = 9.0           # 子どもの返事が止まってから、自分から続きを話すまでの秒数
 ENGAGED_S = 120.0       # 子どもが最後に話してから、この間は「会話中」とみなす
 NUDGE_MAX = 2           # 返事がないとき、続けて話しかける回数(超えたら静かに待つ)
-IDLE_S = (150.0, 260.0)  # しばらく誰も話しかけないとき、自分から話しかける間隔(ゆらぎ)
 
 
 def nudge_msgs(k: int, name: str, hist: list) -> list:
@@ -115,17 +106,17 @@ def nudge_msgs(k: int, name: str, hist: list) -> list:
     return msgs
 
 
-# 「なぞなぞしよう」「クイズしよう」…(短く言うか、しよう・やろう などの言葉つきのとき)。通訳の指示(「えいごにして」)とは区別する
+# 「なぞなぞしよう」「おみくじ」…(短く言うか、しよう・やろう などの言葉つきのとき)。通訳の指示(「えいごにして」)とは区別する
 PLAY = re.compile(r"しよう|しよ|やろう|やろ|あそぼ|遊ぼ|したい|やりたい|やって|出して|だして|おしえて|ちょうだい|しましょう|やりましょう|やる|して$")
 NOT_PLAY = re.compile(r"にして|に翻訳|に訳|通訳|で言って|でいって|で話|でしゃべ|ほんやく")
-KIND_PAT = [("kanji", re.compile(r"(?<![いなのそこ])かんじ|漢字|カンジ|よみがな")),      # 「漢字クイズ」は、クイズより先に かんじ と判定する
-            ("riddle", re.compile(r"なぞなぞ|ナゾナゾ|謎々|謎謎")), ("quiz", re.compile(r"クイズ|くいず")),
-            ("add", re.compile(r"たしざん|足し算|たし算")), ("sub", re.compile(r"ひきざん|引き算|ひき算")), ("kuku", re.compile(r"九九|くく|かけざん|掛け算|かけ算")),
-            ("math", re.compile(r"さんすう|算数|けいさん|計算")), ("english", re.compile(r"えいご|英語|えいたんご|英単語|イングリッシュ"))]
+KIND_PAT = [("hoi", re.compile(r"あっち.{0,2}むいて|アッチ.{0,2}ムイテ|あっち向い|アッチ向い|あっちむいてほい")),      # 「あっちむいてホイ」は、じゃんけんより先に見る
+            ("omikuji", re.compile(r"おみくじ|オミクジ|お神籤|御神籤|おみくじ")),
+            ("mimic", re.compile(r"ものまね|モノマネ|物まね|物真似|まねっこ|マネッコ|おうむがえし|オウム返し|まねして|マネして|真似して")),
+            ("riddle", re.compile(r"なぞなぞ|ナゾナゾ|謎々|謎謎"))]
 
 
 def quiz_kind(text: str) -> "str | None":
-    """子どもの言葉から、始めたい遊び(quiz.py の種類)を決める。なければ None。"""
+    """子どもの言葉から、始めたい遊び(quiz.py / fun.py の種類)を決める。なければ None。"""
     t = (text or "").strip()
     if NOT_PLAY.search(t):
         return None
@@ -176,24 +167,15 @@ class KidChat:
         """この機器で聞き取った言葉。返事をする(別スレッド)なら True。しないなら、ふつうの翻訳に任せる(False)。"""
         if lang != "ja" or not worth_answering(text) or self.blocked():
             return False
-        k_name = None
         guided = bool(getattr(self.hub, "edu_on", False))           # 教材モード: 決まった遊びだけ。自由なおしゃべりはしない
         acts = self.acts()
         try:
-            import quiz as _quiz
             if getattr(self.hub, "quiz", None) is not None:
-                dev0 = getattr(sess, "dev_id", "")
-                kp = self.hub.discuss.persona_of(dev0) if getattr(self.hub, "discuss", None) else 0
-                k_name = PERSONAS[kp % len(PERSONAS)]["name"]
-                tl = _quiz.today_reply(text, k_name) if not guided else None
-                if tl:                                              # 「きょうは何日？」「いま何時？」: 決まった返事
-                    self._say_once(sess, tl, "happy")
-                    return True
                 kind = quiz_kind(text)
                 if kind and (not guided or kind in acts) and self._start_quiz(sess, kind):           # 「なぞなぞしよう」など: その機器で始める
                     return True
         except Exception as e:  # noqa: BLE001
-            print(f"[bridge] クイズの判定に失敗: {type(e).__name__}: {e}", flush=True)
+            print(f"[bridge] 遊びの判定に失敗: {type(e).__name__}: {e}", flush=True)
         if ASOBO.search(text) and not (JANKEN.search(text) or SHIRITORI.search(text)):   # 「あそぼう」: できる遊びを教える
             self._menu(sess)
             return True
@@ -232,34 +214,11 @@ class KidChat:
             h.listen = True
             ok, _err = q.start(kind, "", [dev])
         except Exception as e:  # noqa: BLE001
-            print(f"[bridge] クイズ開始失敗: {type(e).__name__}: {e}", flush=True)
+            print(f"[bridge] 遊びの開始失敗: {type(e).__name__}: {e}", flush=True)
             return False
         if ok:
             print(f"[bridge] 子どもの声で{kind}を始めました", flush=True)
         return bool(ok)
-
-    def _say_once(self, sess, text: str, face: str = "happy") -> None:
-        """決まった一言を、その機器の声で話す(返事中は何もしない)。"""
-        if not self.busy.acquire(blocking=False):
-            return
-        self.speaking = True
-
-        def go():
-            try:
-                eng = sess.eng
-                voice = getattr(sess, "voice", None) or PERSONAS[0]["voice"]
-                sess.send({"t": "face", "state": face})
-                pcm = eng.speech_pcm_as(text, voice)
-                dur = sess._send_pcm(pcm, caption=text, lang="ja")
-                time.sleep((dur or 0) + 0.3)
-            except Exception as e:  # noqa: BLE001
-                print(f"[bridge] 一言の読み上げに失敗: {type(e).__name__}: {e}", flush=True)
-            finally:
-                self.speaking = False
-                self.quiet_until = self.clock() + 1.4
-                self.last_end[getattr(sess, "dev_id", "")] = self.clock()
-                self.busy.release()
-        threading.Thread(target=go, daemon=True).start()
 
     def _start_janken(self, sess) -> bool:
         h = self.hub

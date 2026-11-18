@@ -25,6 +25,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 import devices as _devices
 REG = _devices.Registry()          # 機器台帳(初めて見た機器は自動で登録する)
 TOKEN = os.environ.get("SC_ADMIN_TOKEN", "")
+ACTS = ("shiritori", "janken", "riddle", "hoi", "omikuji", "mimic")     # 子どもに出す遊び(教材モード)。これ以外は出さない
 
 
 class Hub:
@@ -35,10 +36,10 @@ class Hub:
         self.auto = None                 # 完全自立モード(自分たちで話題を決めて話し始める)
         self.game = None                 # 子供たちの教材(しりとり)
         self.janken = None               # 子供たちの教材(じゃんけん)
-        self.quiz = None                 # 子供たちの教材(なぞなぞ・クイズ・算数・えいご)
+        self.quiz = None                 # 子供たちの遊び(なぞなぞ・あっち向いてホイ・おみくじ・ものまね)
         self.kid = None                  # 子どもモード(子どもが話しかけたら、キャラが返事をする)
         self.kid_on = True
-        self.menu_acts = ["shiritori", "janken", "riddle", "quiz", "math", "kanji"]     # 教材モードで子どもに出す遊び(これ以外はしない)
+        self.menu_acts = list(ACTS)     # 教材モードで子どもに出す遊び(これ以外はしない)
         self.kid_auto = True             # 子どもモードで、ロボットが自分から話しかける
         self.hand_cache: dict = {}       # 機器ID → 手の確認の結果 {ts, src, jpeg, info}(管理画面が見ている機器だけ計算する)
         self.hand_lock = threading.Lock()
@@ -118,7 +119,8 @@ class Hub:
         self.kid_on = bool(d.get("kid_on", True))
         self.kid_auto = bool(d.get("kid_auto", True))
         if isinstance(d.get("menu_acts"), list):
-            self.menu_acts = [a for a in d["menu_acts"] if a in ("shiritori", "janken", "riddle", "quiz", "math", "kanji", "english")]
+            old = {"quiz", "math", "kanji", "english"} & set(d["menu_acts"])           # 勉強の遊びを廃止する前の保存値: 新しい 6 個の既定に直す
+            self.menu_acts = list(ACTS) if old else [a for a in d["menu_acts"] if a in ACTS]
         self.edu_on = bool(d.get("edu_on", False))
         self.janken_cam = bool(d.get("janken_cam", True))
         if isinstance(d.get("phrases"), list):
@@ -686,7 +688,7 @@ class Hub:
                     self.quiz.stop(None)
             self.event("教材モード: " + ("オン(翻訳・3人会話・自律会話はオフ)" if self.edu_on else "オフ(ふつうの通訳に戻ります)"))
             return {"ok": True}
-        if name == "quiz_start":                          # なぞなぞ・クイズ・算数・えいごを始める(機器ごとに独立。会話・自律は先に止める)
+        if name == "quiz_start":                          # なぞなぞ・あっち向いてホイ・おみくじ・ものまねを始める(機器ごとに独立。会話・自律は先に止める)
             if not self.quiz:
                 return {"ok": False, "error": "未対応"}
             if self.auto:
@@ -706,7 +708,7 @@ class Hub:
             if self.quiz:
                 self.quiz.stop(str(body.get("id", "")) or None)
             return {"ok": True}
-        if name == "quiz_say":                            # 先生が、子どもの代わりに答えを入れる
+        if name == "quiz_say":                            # 先生が、子どもの代わりに答え・向き・言葉を入れる
             if not self.quiz or not self.quiz.say(str(body.get("text", "")).strip()[:40], str(body.get("id", ""))):
                 return {"ok": False, "error": "いまは子どもの番ではありません"}
             return {"ok": True}
@@ -723,7 +725,7 @@ class Hub:
             self.event("自分から話しかける: " + ("オン" if self.kid_auto else "オフ(話しかけられたときだけ返事)"))
             return {"ok": True}
         if name == "menu_set":                            # 教材モードで子どもに出す遊びを選ぶ
-            self.menu_acts = [a for a in body.get("acts", []) if a in ("shiritori", "janken", "riddle", "quiz", "math", "kanji", "english")]
+            self.menu_acts = [a for a in body.get("acts", []) if a in ACTS]
             self.event("子どもに出す遊び: " + "、".join(self.menu_acts or ["なし"]))
             return {"ok": True}
         if name == "kid_say":                             # 先生が、子どもの代わりに話しかける(声が聞き取れないとき・動作確認)
