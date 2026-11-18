@@ -1091,6 +1091,9 @@ class Session:
                     if not text or not lang:
                         continue
                     self.eng.last_voice = time.time()
+                    _k = getattr(admin.HUB, "kid", None)
+                    if _k is not None and lang == "ja" and _k.switch(self, text):            # 遊びの途中で、べつの遊びを「〜しよう」と言われた: 切り替える
+                        continue
                     _g = getattr(admin.HUB, "game", None)
                     if _g is not None and _g.hear(text, lang, getattr(self, "dev_id", "")):   # この機器がしりとり中なら、子どもの声を教材へ(翻訳しない)
                         continue
@@ -1100,9 +1103,8 @@ class Session:
                     _q = getattr(admin.HUB, "quiz", None)
                     if _q is not None and _q.hear(text, lang, getattr(self, "dev_id", "")):   # この機器がなぞなぞ・あっち向いてホイ・おみくじ・ものまね中なら、子どもの声を遊びへ(翻訳しない)
                         continue
-                    if self._voice_cmd(text):                  # 「音量上げて」などは翻訳せず端末を操作する
+                    if not getattr(admin.HUB, "edu_on", False) and self._voice_cmd(text):     # 「音量上げて」などは翻訳せず端末を操作する(教材モードでは、言語の切り替えなどの誤爆を防ぐため使わない)
                         continue
-                    _k = getattr(admin.HUB, "kid", None)
                     if _k is not None and _k.hear(self, text, lang):        # 子どもが話しかけた: キャラが返事をする(翻訳しない)
                         continue
                     if getattr(admin.HUB, "edu_on", False):                 # 教材モード: 翻訳はしない(教材と関係ない聞き取りは捨てる)
@@ -1547,6 +1549,8 @@ def main() -> None:
         _h.peers = [x for x in _hubs if x is not _h]              # 同じ機器で 2 つの教材(しりとり・じゃんけん・ほかの遊び)を同時に動かさない
     admin.HUB.kid = kidchat.KidChat(admin.HUB)
     threading.Thread(target=admin.HUB.kid.run, daemon=True).start()           # 子どもが黙ったとき・静かなときに、自分から話しかける
+    import menuboard
+    menuboard.start(admin.HUB)                                                 # 教材モード: 遊んでいない機器の画面に、言える遊びの一覧を出す
     admin.HUB.auto = autonomy.Autonomy(admin.HUB, admin.REG, admin.HUB.discuss, lambda: eng)
     threading.Thread(target=admin.HUB.auto.run, daemon=True).start()
     try:                                                              # Ubuntu の USB に挿した機器を認識し、新品なら書き込む

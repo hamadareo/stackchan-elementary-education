@@ -344,6 +344,32 @@ class HealthTests(unittest.TestCase):
         self.assertIn("USB有線 2台", r["devices"]["note"])
 
 
+class MenuBoardTests(unittest.TestCase):
+    def test_menu_only_for_idle_devices_in_edu(self):
+        import menuboard
+        sent = []
+        class S:
+            def __init__(s, d): s.dev_id = d
+            def send(s, j): sent.append((s.dev_id, j))
+        class G:
+            def __init__(s, on): s.on = on
+            def snapshot(s): return {"games": [{"dev_id": "a", "on": s.on}]}
+        class Hub:
+            edu_on = True; menu_acts = ["shiritori", "janken", "riddle", "hoi", "omikuji", "mimic"]
+            game = G(False); janken = G(True); quiz = None
+            def live(s): return [S("a"), S("b")]
+        h = Hub()
+        self.assertEqual(menuboard.tick(h), 1)                     # a は じゃんけん中 → b だけに出す
+        self.assertEqual(sent[0][0], "b")
+        self.assertEqual(sent[0][1]["ls"], ["しりとり", "じゃんけん", "なぞなぞ", "あっちむいて", "おみくじ", "ものまね"])
+        h.edu_on = False
+        self.assertEqual(menuboard.tick(h), 0)                     # 教材モードでなければ出さない
+        h.edu_on = True; h.menu_acts = ["janken"]
+        sent.clear(); h.janken = G(False)
+        self.assertEqual(menuboard.tick(h), 2)
+        self.assertEqual(sent[0][1]["ls"], ["じゃんけん"])
+
+
 if __name__ == "__main__":
     unittest.main()
 

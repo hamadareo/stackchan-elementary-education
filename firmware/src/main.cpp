@@ -311,6 +311,17 @@ static void onWs(WStype_t type, uint8_t *p, size_t n) {
       } else if (t == "board") {                          // 遊びの表示カード(じゃんけんの手・おみくじの結果など)
         if (d["clear"] | false) {
           zface::clearBoard();
+        } else if (d["ls"].is<JsonArray>()) {              // 一覧(言える遊びの名前)
+          static char items[6][32];
+          const char *ptr[6];
+          int n = 0;
+          for (JsonVariant v : d["ls"].as<JsonArray>()) {
+            if (n >= 6) break;
+            strlcpy(items[n], v.as<const char *>() ? v.as<const char *>() : "", sizeof items[n]);
+            ptr[n] = items[n];
+            n++;
+          }
+          zface::setBoardList(d["title"] | "", ptr, n, d["foot"] | "", d["ms"] | 8000);
         } else {
           auto arr = [](const char *a) { return !strcmp(a, "up") ? 1 : !strcmp(a, "down") ? 2 : !strcmp(a, "left") ? 3 : !strcmp(a, "right") ? 4 : 0; };
           auto ico = [](const char *a) { return !strcmp(a, "gu") ? 1 : !strcmp(a, "choki") ? 2 : !strcmp(a, "pa") ? 3 : 0; };

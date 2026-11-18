@@ -102,6 +102,7 @@ static void setBoard(const char *title, const char *aWho, const char *aBig, int 
   strlcpy(b.foot, foot ? foot : "", sizeof b.foot);
   b.aArrow = (uint8_t)aArrow; b.bArrow = (uint8_t)bArrow;
   b.aIcon = (uint8_t)aIcon; b.bIcon = (uint8_t)bIcon; b.fx = (uint8_t)fx;
+  b.nList = 0;
   b.on = true;
   m5avatar::avatarBoardSeq++;
   boardUntil = millis() + (ms ? ms : 6000);
@@ -113,6 +114,20 @@ static void writeCaption(const char *t) {                // 排他つきで字�
   m5avatar::avatarCaptionSeq++;
 }
 static void setCaption(const char *t) { writeCaption(t); capUntil = (t && *t) ? millis() + 14000 : 0; }   // 14秒たつと消える
+// 一覧のカード(言える遊びの名前)。items は最大 6 つ
+static void setBoardList(const char *title, const char *const *items, int n, const char *foot, uint32_t ms) {
+  m5avatar::avatarBoardSeq++;
+  auto &b = m5avatar::avatarBoard;
+  strlcpy(b.title, title ? title : "", sizeof b.title);
+  b.aWho[0] = b.aBig[0] = b.bWho[0] = b.bBig[0] = 0;
+  strlcpy(b.foot, foot ? foot : "", sizeof b.foot);
+  b.aArrow = b.bArrow = b.aIcon = b.bIcon = b.fx = 0;
+  b.nList = (uint8_t)(n > 6 ? 6 : n);
+  for (int i = 0; i < b.nList; i++) strlcpy(b.list[i], items[i] ? items[i] : "", sizeof b.list[i]);
+  b.on = true;
+  m5avatar::avatarBoardSeq++;
+  boardUntil = millis() + (ms ? ms : 6000);
+}
 static void update() {                                   // 表情・字幕の時間切れ(loop から呼ぶ)
   if (capUntil && millis() > capUntil) { capUntil = 0; writeCaption(""); }
   if (boardUntil && millis() > boardUntil) clearBoard();

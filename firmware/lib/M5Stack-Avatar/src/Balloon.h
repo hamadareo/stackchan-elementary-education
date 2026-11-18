@@ -27,6 +27,8 @@ struct AvatarBoard {
   uint8_t aArrow, bArrow;
   uint8_t aIcon, bIcon;                    // 手の絵 0=なし 1=ぐー 2=ちょき 3=ぱー
   uint8_t fx;                              // 演出 0=なし 1=勝ち(きらきら)
+  uint8_t nList;                           // 一覧(遊びの名前)の数。0 なら通常のカード
+  char list[6][32];
   bool on;
 };
 extern AvatarBoard avatarBoard;
@@ -102,7 +104,7 @@ class Balloon final : public Drawable {
       if (q == avatarBoardSeq) { b = t; seenSeq = q; }
     }
     if (!b.on) return;
-    const int x0 = 6, y0 = 26, w = 308, h = 128;
+    const int x0 = 6, y0 = 26, w = 308, h = b.nList ? 150 : 128;
     spi->fillRoundRect(x0, y0, w, h, 10, fg);
     spi->fillRoundRect(x0 + 2, y0 + 2, w - 4, h - 4, 9, bg);
     spi->setTextColor(fg, bg);
@@ -110,6 +112,24 @@ class Balloon final : public Drawable {
     spi->setFont(&fonts::efontJA_16);
     spi->setTextSize(1);
     if (b.title[0]) spi->drawString(b.title, x0 + w / 2, y0 + 5);
+    if (b.nList) {                                             // 一覧: 2 列×3 行。長い名前は小さい字にする
+      const int colW = w / 2 - 12, rowH = 36;
+      for (int i = 0; i < b.nList && i < 6; i++) {
+        int cx = x0 + (i % 2 ? 3 * w / 4 : w / 4), cy = y0 + 32 + (i / 2) * rowH;
+        spi->setFont(&fonts::efontJA_24);
+        spi->setTextSize(1);
+        if (spi->textWidth(b.list[i]) > colW) spi->setFont(&fonts::efontJA_16);
+        spi->drawString(b.list[i], cx, cy + 4);
+        spi->drawRoundRect(x0 + (i % 2 ? w / 2 + 6 : 6), cy - 2, w / 2 - 12, rowH - 4, 8, fg);
+      }
+      if (b.foot[0]) {
+        spi->setFont(&fonts::efontJA_16);
+        spi->setTextSize(1);
+        spi->drawString(b.foot, x0 + w / 2, y0 + h - 22);
+      }
+      spi->setTextDatum(TL_DATUM);
+      return;
+    }
     bool two = b.bBig[0] || b.bArrow || b.bWho[0];
     int colA = two ? x0 + w / 4 : x0 + w / 2, colB = x0 + 3 * w / 4;
     for (int c = 0; c < (two ? 2 : 1); c++) {
