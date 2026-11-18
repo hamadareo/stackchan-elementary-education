@@ -219,6 +219,9 @@ class Hoi(Play, Janken):
             if d:
                 self.turn = ""
                 return d, "voice"
+            if text and QUIT.search(text):                       # 判定の待ち時間でも「やめよう」を取りこぼさない
+                self._front()
+                return None, "stop"
         if not back:
             self._front()
         self.turn = ""
@@ -521,6 +524,8 @@ STYLES = [
     ("うたうような こえ", "うた", {"speed": 0.8, "pitch": 0.1, "intonation": 2.0, "volume": 1.15}, "happy"),
 ]
 MIMIC_MAX = 5
+# まねしない言葉(悪口・おとなの言葉)。「うんち」などの子どもが好きなおかしな言葉は、そのまま まねする
+INSULT = re.compile(r"ばか|バカ|馬鹿|あほ|アホ|きもい|キモい|うざい|ウザい|くそ|クソ|ちんちん|おっぱい|まんこ|ちんこ|うるさい|だまれ|しね|死ね|ぶす|ブス|でぶ|デブ|はげ|ハゲ")
 MIMIC = {
     "intro": ["ものまねボイスを しよう！なにか ことばを 言ってね。いろんな こえで まねっこ するよ！", "まねっこ あそび{d}！ぼくに ことばを おしえてね。へんな こえで まねするよ！",
               "ものまね たいかい{d}！すきな ことばを 言ってみて。ぼくが まねするよ！", "おうむがえし あそび{d}！なんでも いいよ、ことばを 言ってね。"],
@@ -608,7 +613,7 @@ class Mimic(Play):
                 self._echo(eng, self.last)
                 continue
             word = clean_echo(text)
-            if SENSITIVE.search(word):                              # 子どもに まねさせない言葉は、まねせず、ことば遊びに もどす
+            if SENSITIVE.search(word) or INSULT.search(re.sub(r"[ー\s、。]", "", word)):          # 子どもに まねさせない言葉は、まねせず、ことば遊びに もどす
                 self._say(eng, self._m("redirect"), "joy", face="happy")
                 continue
             if not worth_answering(word):                           # 雑音・あいづち・動画の決まり文句

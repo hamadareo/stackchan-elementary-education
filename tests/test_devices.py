@@ -1174,8 +1174,12 @@ class KidChatTests(unittest.TestCase):
         self.hub.kid_on = False
         self.assertFalse(self.run_reply("こんにちは")[1])                        # オフ
         self.hub.kid_on = True
-        self.hub.game = type("G", (), {"on": True})()
-        self.assertFalse(self.run_reply("こんにちは")[1])                        # しりとり中
+        self.hub.game = type("G", (), {"on": True, "dev_busy": lambda s, d: d == "d1"})()
+        self.assertFalse(self.run_reply("こんにちは")[1])                        # この機器がしりとり中
+        self.hub.game = type("G", (), {"on": True, "dev_busy": lambda s, d: False})()    # ほかの機器が遊んでいても、この機器は返事をする(3 台は独立)
+        self.assertTrue(self.run_reply("こんにちは")[1])
+        self.hub.game = None
+        self.spoke.clear()
         self.assertEqual(self.spoke, [])
 
     def test_sensitive_gets_safe_answer_and_reply_is_trimmed(self):

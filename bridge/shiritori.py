@@ -17,6 +17,8 @@ import threading
 import time
 from playfx import Stage
 
+START_LOCK = threading.RLock()                  # 遊びの開始(どの教材でも)は 1 つずつ。同じ機器で 2 つ同時に始まらないように
+
 # ロボットが言える言葉(よみ)。「ん」で終わる言葉は入れない(ロボットが自分で負けないように)。
 WORDS = """
 あり あひる あめ あさがお あじ あおむし あくび あいす 
@@ -116,7 +118,7 @@ KANJI = {"林檎": "りんご", "犬": "いぬ", "猫": "ねこ", "象": "ぞう
          "人参": "にんじん", "胡瓜": "きゅうり", "南瓜": "かぼちゃ", "豆": "まめ", "太陽": "たいよう", "雲": "くも", "風": "かぜ", "水": "みず", "火": "ひ",
          "鼠": "ねずみ", "狸": "たぬき", "狐": "きつね", "鰐": "わに", "鷲": "わし", "蝶々": "ちょうちょう", "兜虫": "かぶとむし", "蜻蛉": "とんぼ", "蜂": "はち"}
 
-FILLERS = re.compile(r"^(えーと|えっと|えーっと|あのー?|うーん|んーと|えー|うん|はい|じゃあ|ええと)[、,\s]*")
+FILLERS = re.compile(r"^((えーと|えっと|えーっと|あのー?|うーん|んーと|えー|うん|はい|じゃあ|ええと|あのね|そうだなあ|ぼくは|わたしは|あたしは|おれは|ぼくの|こたえは)[、,\s]*)+")
 SMALL = {"ゃ": "や", "ゅ": "ゆ", "ょ": "よ", "ぁ": "あ", "ぃ": "い", "ぅ": "う", "ぇ": "え", "ぉ": "お", "ゎ": "わ"}
 DAKU = {c: b for b, cs in {"か": "がぎぐげご", "さ": "ざじずぜぞ", "た": "だぢづでど", "は": "ばびぶべぼぱぴぷぺぽ"}.items() for c in cs}
 DAKU.update({"が": "か", "ぎ": "き", "ぐ": "く", "げ": "け", "ご": "こ", "ざ": "さ", "じ": "し", "ず": "す", "ぜ": "せ", "ぞ": "そ", "だ": "た", "ぢ": "ち", "づ": "つ",
@@ -139,8 +141,9 @@ def to_hira(s: str) -> str:
 
 
 def kana_only(s: str) -> str:
-    """ひらがな・かたかなと「ー」だけを残し、ひらがなにして返す。"""
-    return re.sub(r"[^ぁ-ゖー]", "", to_hira(s or ""))
+    """ひらがな・かたかなと「ー」だけを残し、ひらがなにして返す(言い終わりの のばす棒・小さい「っ」は、聞き取りのゆれなので落とす)。"""
+    r = re.sub(r"[^ぁ-ゖー]", "", to_hira(s or ""))
+    return re.sub(r"[ーっ]+$", "", r) if len(r) > 2 else r
 
 
 def last_char(reading: str) -> str:
@@ -333,7 +336,14 @@ class Shiritori(Stage):
         raw: 声の調子を直接指定する(speed/pitch/intonation/volume。ものまねなど。省略なら感情 emo の調子)。face: 顔を感情と別に指定。"""
         from discuss import EMOTIONS
         s = self._sess(i)
+        for _ in range(60):                                  # 機器が切れていたら、つなぎ直すのを少し待つ(6 秒)。戻らなければ遊びを終える
+            if s is not None or self._stop.is_set():
+                break
+            time.sleep(0.1)
+            s = self._sess(i)
         if s is None:
+            self._stop.set()
+            self.q.put(None)
             return
         self.speaking = True
         try:
@@ -574,7 +584,10 @@ class GameHub:
         g = self.games.get(dev_id)
         return bool(g and g.on)
     def _guard_for(self, me):
-        return lambda: any(g is not me and (g.speaking or g.clock() < g.quiet_until) for g in self.games.values())
+        def guard() -> bool:
+            kid = getattr(self.hub, "kid", None)                 # 子どもモードの返事・案内が別の機器で鳴っている間も、聞き取らない(声の回り込み)
+            return any(g is not me and (g.speaking or g.clock() < g.quiet_until) for g in self.games.values()) or bool(kid is not None and getattr(kid, "speaking", False))
+        return guard
 
     def start(self, first: str = "robot", level: str = "easy", dev_ids: "list | None" = None) -> "tuple[bool, str]":
         """dev_ids の機器それぞれで、独立にしりとりを始める(省略なら、接続中の全機器)。"""
@@ -585,20 +598,21 @@ class GameHub:
         if not ids:
             return False, "接続中の機器がありません"
         started, err = [], ""
-        for i in ids:
-            busy = next((p for p in self.peers if p.dev_busy(i)), None)
-            if busy is not None:
-                err = f"この機器は、いま{busy.LABEL}で遊んでいます"
-                continue
-            g = self.games.get(i)
-            if g is None:
-                g = self.games[i] = (self.CLS or Shiritori)(self.hub, self.reg, self.discuss, self.eng_getter, self.path, self.rnd, stats=self.stats, save_cb=self.save)
-                g.guard = self._guard_for(g)
-            ok, e = g.start(first, level, dev_id=i)
-            if ok:
-                started.append(i)
-            else:
-                err = e
+        with START_LOCK:
+            for i in ids:
+                busy = next((p for p in self.peers if p.dev_busy(i)), None)
+                if busy is not None:
+                    err = f"この機器は、いま{busy.LABEL}で遊んでいます"
+                    continue
+                g = self.games.get(i)
+                if g is None:
+                    g = self.games[i] = (self.CLS or Shiritori)(self.hub, self.reg, self.discuss, self.eng_getter, self.path, self.rnd, stats=self.stats, save_cb=self.save)
+                    g.guard = self._guard_for(g)
+                ok, e = g.start(first, level, dev_id=i)
+                if ok:
+                    started.append(i)
+                else:
+                    err = e
         return (True, "") if started else (False, err)
 
     def stop(self, dev_id: "str | None" = None) -> None:

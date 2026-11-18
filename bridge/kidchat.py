@@ -107,7 +107,7 @@ def nudge_msgs(k: int, name: str, hist: list) -> list:
 
 
 # 「なぞなぞしよう」「おみくじ」…(短く言うか、しよう・やろう などの言葉つきのとき)。通訳の指示(「えいごにして」)とは区別する
-PLAY = re.compile(r"しよう|しよ|やろう|やろ|あそぼ|遊ぼ|したい|やりたい|やって|出して|だして|おしえて|ちょうだい|しましょう|やりましょう|やる|して$")
+PLAY = re.compile(r"しよう|しよ|やろう|やろ|あそぼ|遊ぼ|したい|やりたい|やって|出して|だして|おしえて|ちょうだい|しましょう|やりましょう|やる|して$|ひきたい|ひく|ひこう|ひいて|ひかせて|引き|ひきましょう")
 NOT_PLAY = re.compile(r"にして|に翻訳|に訳|通訳|で言って|でいって|で話|でしゃべ|ほんやく")
 KIND_PAT = [("hoi", re.compile(r"あっち.{0,2}むいて|アッチ.{0,2}ムイテ|あっち向い|アッチ向い|あっちむいてほい")),      # 「あっちむいてホイ」は、じゃんけんより先に見る
             ("omikuji", re.compile(r"おみくじ|オミクジ|お神籤|御神籤|おみくじ")),
@@ -143,6 +143,8 @@ class KidChat:
         self.next_idle: dict = {}         # 機器 → 次に自分から話しかける時刻
         self.used: dict = {}              # 機器 → 使った話しかけ(重ならないように)
         self.rnd = __import__("random").Random()
+        self._sw_lock = threading.Lock()
+        self._switching: set = set()
         self.last_guide: dict = {}        # 機器 → 遊びを案内した時刻
         self.greet_req: dict = {}         # 機器 → 人を見つけた時刻(あいさつ待ち)
         self.last_greet: dict = {}        # 機器 → 最後にあいさつした時刻
@@ -151,21 +153,37 @@ class KidChat:
     def enabled(self) -> bool:
         return bool(getattr(self.hub, "kid_on", True))      # 設定は管理画面(Hub)が持ち、保存される
 
-    def blocked(self) -> str:
-        """子どもモードが返事をしてはいけない理由(なければ空)。"""
+    GAME_HUBS = ("game", "janken", "quiz")              # しりとり・じゃんけん・なぞなぞ/ホイ/おみくじ/ものまね の管理役
+
+    def playing(self, dev: str) -> str:
+        """この機器で遊んでいる遊びの管理役の名前(なければ空)。ほかの機器の遊びは関係ない(3 台は独立)。"""
+        for n in self.GAME_HUBS:
+            h = getattr(self.hub, n, None)
+            try:
+                if h is not None and dev and h.dev_busy(dev):
+                    return n
+            except Exception:  # noqa: BLE001
+                continue
+        return ""
+
+    def blocked(self, dev: "str | None" = None) -> str:
+        """子どもモードが返事をしてはいけない理由(なければ空)。dev を渡すと、遊びはその機器のものだけを見る(省略なら、どの機器でも)。"""
         if not self.enabled:
             return "子どもモードがオフです"
         if getattr(self.hub, "discussing", None) and self.hub.discussing():
             return "3人会話中です"
-        if getattr(getattr(self.hub, "game", None), "on", False):
-            return "しりとり中です"
+        if dev is not None:
+            if self.playing(dev):
+                return "この機器は遊んでいます"
+        elif any(getattr(getattr(self.hub, n, None), "on", False) for n in self.GAME_HUBS):
+            return "遊んでいます"
         if self.speaking or self.clock() < self.quiet_until:
             return "ロボットが話している間です"
         return ""
 
     def hear(self, sess, text: str, lang: str) -> bool:
         """この機器で聞き取った言葉。返事をする(別スレッド)なら True。しないなら、ふつうの翻訳に任せる(False)。"""
-        if lang != "ja" or not worth_answering(text) or self.blocked():
+        if lang != "ja" or not worth_answering(text) or self.blocked(getattr(sess, "dev_id", "")):
             return False
         guided = bool(getattr(self.hub, "edu_on", False))           # 教材モード: 決まった遊びだけ。自由なおしゃべりはしない
         acts = self.acts()
@@ -195,6 +213,71 @@ class KidChat:
         dev = getattr(sess, "dev_id", "")
         self.last_kid[dev], self.nudges[dev] = self.clock(), 0          # 子どもが話した: 会話中にして、話しかけの回数を数え直す
         threading.Thread(target=self._reply, args=(sess, text.strip()), daemon=True).start()
+        return True
+
+    def want(self, text: str) -> "str | None":
+        """はっきり「〜しよう」と言われた遊び(shiritori / janken / 遊びの種類)。名前だけでは決めない(しりとりの言葉や答えと区別するため)。"""
+        t = (text or "").strip()
+        if not t or NOT_PLAY.search(t) or not PLAY.search(t) or len(t) > 24:
+            return None
+        if JANKEN.search(t) and not KIND_PAT[0][1].search(t):
+            return "janken"
+        if SHIRITORI.search(t):
+            return "shiritori"
+        for kind, pat in KIND_PAT:
+            if pat.search(t):
+                return kind
+        return None
+
+    def current(self, dev: str) -> str:
+        """この機器で遊んでいる遊びの種類(shiritori / janken / riddle / hoi / omikuji / mimic)。"""
+        n = self.playing(dev)
+        if n == "game":
+            return "shiritori"
+        if n == "janken":
+            return "janken"
+        if n == "quiz":
+            g = self.hub.quiz.games.get(dev)
+            return getattr(g, "kind", "") or "riddle"
+        return ""
+
+    def switch(self, sess, text: str) -> bool:
+        """遊びの途中で、べつの遊びを「〜しよう」と言われたら、いまの遊びを終えて、新しい遊びを始める。切り替えを始めたら True。"""
+        dev = getattr(sess, "dev_id", "")
+        if not dev or not self.enabled:
+            return False
+        cur = self.current(dev)
+        want = self.want(text)
+        if not cur or not want or want == cur:
+            return False
+        if getattr(self.hub, "edu_on", False) and want not in self.acts():
+            return False
+        with self._sw_lock:
+            if dev in self._switching:
+                return True
+            self._switching.add(dev)
+
+        def go():
+            try:
+                for n in self.GAME_HUBS:
+                    h = getattr(self.hub, n, None)
+                    if h is not None:
+                        h.stop(dev)
+                t0 = time.time()
+                while self.playing(dev) and time.time() - t0 < 8.0:
+                    time.sleep(0.1)
+                if self.playing(dev):
+                    return
+                if want == "janken":
+                    self._start_janken(sess)
+                elif want == "shiritori":
+                    self._start_shiritori(sess)
+                else:
+                    self._start_quiz(sess, want)
+            finally:
+                with self._sw_lock:
+                    self._switching.discard(dev)
+        threading.Thread(target=go, daemon=True).start()
         return True
 
     def acts(self) -> list:
@@ -326,14 +409,12 @@ class KidChat:
     def pending(self, sess, now: float) -> str:
         """この機器が、いま自分から話しかけるべきか。"nudge"(子どもが黙った) / ""。"""
         dev = getattr(sess, "dev_id", "")
-        if not dev or not self.auto_on or self.blocked() or getattr(sess, "talking", False):
+        if not dev or not self.auto_on or self.blocked(dev) or getattr(sess, "talking", False):
             return ""
         if getattr(self.hub, "edu_on", False):
             return ""                                           # 教材モード: 遊びが選ばれるまで、ロボットから話さない
         eng = getattr(sess, "eng", None)
         if now - getattr(eng, "last_voice", 0.0) < 4.0:            # 誰かが話している最中は、話しかけない
-            return ""
-        if any(getattr(getattr(self.hub, n, None), "on", False) for n in ("janken", "quiz")):
             return ""
         kid_t, end_t = self.last_kid.get(dev, 0.0), self.last_end.get(dev, 0.0)
         if kid_t and now - kid_t < ENGAGED_S and self.nudges.get(dev, 0) < NUDGE_MAX:

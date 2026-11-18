@@ -15,7 +15,7 @@ import unicodedata
 
 import quizdata as qd
 from playfx import COMMON, QUIT, YES, NO, Picker, tone
-from shiritori import GameHub, Shiritori, to_hira
+from shiritori import START_LOCK, GameHub, Shiritori, to_hira
 
 ROUND = 5                       # なぞなぞ 1 ラウンドの問題数
 IDLE_WAIT = 20.0                # 答えを待つ秒数(超えたらやさしく声をかける)
@@ -412,23 +412,24 @@ class QuizHub(GameHub):
         if not ids:
             return False, "接続中の機器がありません"
         started, err = [], ""
-        for i in ids:
-            busy = next((p for p in self.peers if p.dev_busy(i)), None)
-            if busy is not None:
-                err = f"この機器は、いま{busy.LABEL}で遊んでいます"
-                continue
-            g = self.games.get(i)
-            if g is not None and g.on:
-                err = "すでに遊んでいます(やめてから始めてください)"
-                continue
-            if g is None or type(g) is not cls:                    # 違う遊びを始めるときは、その遊びの入れ物に替える
-                g = self.games[i] = cls(self.hub, self.reg, self.discuss, self.eng_getter, self.path, self.rnd, stats=self.stats, save_cb=self.save)
-                g.guard = self._guard_for(g)
-            ok, e = g.start(kind, level, dev_id=i)
-            if ok:
-                started.append(i)
-            else:
-                err = e
+        with START_LOCK:
+            for i in ids:
+                busy = next((p for p in self.peers if p.dev_busy(i)), None)
+                if busy is not None:
+                    err = f"この機器は、いま{busy.LABEL}で遊んでいます"
+                    continue
+                g = self.games.get(i)
+                if g is not None and g.on:
+                    err = "すでに遊んでいます(やめてから始めてください)"
+                    continue
+                if g is None or type(g) is not cls:                    # 違う遊びを始めるときは、その遊びの入れ物に替える
+                    g = self.games[i] = cls(self.hub, self.reg, self.discuss, self.eng_getter, self.path, self.rnd, stats=self.stats, save_cb=self.save)
+                    g.guard = self._guard_for(g)
+                ok, e = g.start(kind, level, dev_id=i)
+                if ok:
+                    started.append(i)
+                else:
+                    err = e
         return (True, "") if started else (False, err)
 
     def snapshot(self) -> dict:
