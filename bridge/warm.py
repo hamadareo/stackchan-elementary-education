@@ -173,6 +173,9 @@ def build_plan(names: list) -> list:
     return plan
 
 
+REST_RATIO = float(os.environ.get("SC_WARM_REST", "1.0") or 1.0)       # 作った時間 × この倍率ぶん休む
+
+
 class Warmer:
     """先読みの管理。step() が 1 文ずつ進める(テストしやすいように、スレッドと分けてある)。"""
 
@@ -282,12 +285,14 @@ class Warmer:
         if self.stop_flag.wait(20.0):
             return
         while not self.stop_flag.is_set():
+            t0 = time.time()
             try:
                 ok = self.step()
             except Exception:  # noqa: BLE001 - 先読みは落とさない
                 ok = False
                 self.state = "error"
             if ok:
-                time.sleep(0.02)
+                # 作った時間と同じだけ休む(CPU を半分までしか使わない。授業中の聞き取り・返事を遅くしない)
+                self.stop_flag.wait(max(0.02, (time.time() - t0) * REST_RATIO))
             else:
                 self.stop_flag.wait(60.0 if self.state in ("waiting_voice", "full", "done", "idle") else 3.0)
