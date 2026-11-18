@@ -313,7 +313,9 @@ static void onWs(WStype_t type, uint8_t *p, size_t n) {
           zface::clearBoard();
         } else {
           auto arr = [](const char *a) { return !strcmp(a, "up") ? 1 : !strcmp(a, "down") ? 2 : !strcmp(a, "left") ? 3 : !strcmp(a, "right") ? 4 : 0; };
-          zface::setBoard(d["title"] | "", d["aw"] | "", d["ab"] | "", arr(d["aa"] | ""), d["bw"] | "", d["bb"] | "", arr(d["ba"] | ""), d["foot"] | "", d["ms"] | 6000);
+          auto ico = [](const char *a) { return !strcmp(a, "gu") ? 1 : !strcmp(a, "choki") ? 2 : !strcmp(a, "pa") ? 3 : 0; };
+          zface::setBoard(d["title"] | "", d["aw"] | "", d["ab"] | "", arr(d["aa"] | ""), d["bw"] | "", d["bb"] | "", arr(d["ba"] | ""), d["foot"] | "", d["ms"] | 6000,
+                          ico(d["ai"] | ""), ico(d["bi"] | ""), !strcmp(d["fx"] | "", "win") ? 1 : 0);
         }
         lastActivity = millis();
       } else if (t == "look") {                          // 画面中心からのずれ(-1..1)で首と目を向ける

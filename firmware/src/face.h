@@ -91,7 +91,7 @@ static void clearBoard() {
   boardUntil = 0;
 }
 // 遊びの表示カードを出す(ms 後に消える)。arrow: 0=なし 1=上 2=下 3=左 4=右
-static void setBoard(const char *title, const char *aWho, const char *aBig, int aArrow, const char *bWho, const char *bBig, int bArrow, const char *foot, uint32_t ms) {
+static void setBoard(const char *title, const char *aWho, const char *aBig, int aArrow, const char *bWho, const char *bBig, int bArrow, const char *foot, uint32_t ms, int aIcon = 0, int bIcon = 0, int fx = 0) {
   m5avatar::avatarBoardSeq++;
   auto &b = m5avatar::avatarBoard;
   strlcpy(b.title, title ? title : "", sizeof b.title);
@@ -101,6 +101,7 @@ static void setBoard(const char *title, const char *aWho, const char *aBig, int 
   strlcpy(b.bBig, bBig ? bBig : "", sizeof b.bBig);
   strlcpy(b.foot, foot ? foot : "", sizeof b.foot);
   b.aArrow = (uint8_t)aArrow; b.bArrow = (uint8_t)bArrow;
+  b.aIcon = (uint8_t)aIcon; b.bIcon = (uint8_t)bIcon; b.fx = (uint8_t)fx;
   b.on = true;
   m5avatar::avatarBoardSeq++;
   boardUntil = millis() + (ms ? ms : 6000);

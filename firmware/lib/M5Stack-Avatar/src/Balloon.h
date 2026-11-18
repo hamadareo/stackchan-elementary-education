@@ -25,6 +25,8 @@ namespace m5avatar {
 struct AvatarBoard {
   char title[48], aWho[48], aBig[32], bWho[48], bBig[32], foot[96];
   uint8_t aArrow, bArrow;
+  uint8_t aIcon, bIcon;                    // 手の絵 0=なし 1=ぐー 2=ちょき 3=ぱー
+  uint8_t fx;                              // 演出 0=なし 1=勝ち(きらきら)
   bool on;
 };
 extern AvatarBoard avatarBoard;
@@ -57,6 +59,39 @@ class Balloon final : public Drawable {
     else if (dir == 3) spi->fillTriangle(cx - r, cy, cx + r, cy - r, cx + r, cy + r, col);
     else if (dir == 4) spi->fillTriangle(cx + r, cy, cx - r, cy - r, cx - r, cy + r, col);
   }
+  // 手の絵(じゃんけん)。cx,cy は中心。s は大きさ(1.0 で幅 約48px)。単純な図形だけで描く
+  static void hand(M5Canvas *spi, int cx, int cy, int icon, uint16_t fg, uint16_t bg) {
+    auto S = [](int v) { return (int)(v * 0.8f); };
+    if (icon == 1) {                                           // ぐー: こぶし+指のくぼみ+親指
+      spi->fillRoundRect(cx - S(32), cy - S(26), S(64), S(56), S(18), fg);
+      for (int i = -1; i <= 1; i++) spi->drawFastVLine(cx + S(i * 16), cy - S(24), S(20), bg);
+      spi->fillRoundRect(cx - S(42), cy + S(4), S(28), S(16), S(8), fg);
+      spi->drawRoundRect(cx - S(42), cy + S(4), S(28), S(16), S(8), bg);
+    } else if (icon == 2) {                                    // ちょき: 立てた 2 本の指+たたんだ指+手のひら
+      spi->fillRoundRect(cx - S(16), cy - S(36), S(12), S(44), S(6), fg);
+      spi->fillRoundRect(cx + S(4), cy - S(36), S(12), S(44), S(6), fg);
+      spi->fillRoundRect(cx - S(26), cy - S(2), S(52), S(34), S(12), fg);
+      spi->drawFastVLine(cx - S(10), cy + S(4), S(12), bg);
+      spi->drawFastVLine(cx + S(10), cy + S(4), S(12), bg);
+    } else if (icon == 3) {                                    // ぱー: 5 本の指+手のひら
+      const int xs[4] = {-24, -11, 2, 15}, hs[4] = {36, 44, 44, 36};
+      for (int i = 0; i < 4; i++) spi->fillRoundRect(cx + S(xs[i]), cy - S(hs[i]) + S(6), S(10), S(hs[i]), S(5), fg);
+      spi->fillRoundRect(cx - S(28), cy + S(2), S(56), S(32), S(12), fg);
+      spi->fillRoundRect(cx - S(40), cy + S(8), S(20), S(11), S(5), fg);
+    }
+  }
+  // 勝ちの演出: 枠のまわりのきらきら(時間で位置が変わる)
+  static void sparkle(M5Canvas *spi, int x0, int y0, int w, int h, uint16_t fg) {
+    uint32_t t = millis() / 220;
+    for (int i = 0; i < 10; i++) {
+      uint32_t r = (t * 2654435761u) ^ (i * 40503u + 977u);
+      r ^= r >> 13; r *= 1274126177u; r ^= r >> 16;
+      int x = x0 + 4 + (int)(r % (uint32_t)(w - 8)), y = y0 + 4 + (int)((r >> 9) % (uint32_t)(h - 8));
+      int z = 2 + (int)((r >> 20) % 3);
+      spi->drawFastHLine(x - z, y, z * 2 + 1, fg);
+      spi->drawFastVLine(x, y - z, z * 2 + 1, fg);
+    }
+  }
   // 遊びの表示カード(字幕の上)。2 列なら左右、a だけなら中央に大きく出す
   static void drawBoard(M5Canvas *spi, uint16_t fg, uint16_t bg) {
     static AvatarBoard b;
@@ -84,7 +119,10 @@ class Balloon final : public Drawable {
       spi->setFont(&fonts::efontJA_16);
       spi->setTextSize(1);
       if (who[0]) spi->drawString(who, cx, y0 + 28);
-      if (ar) {
+      uint8_t ic = c ? b.bIcon : b.aIcon;
+      if (ic) {
+        hand(spi, cx, y0 + 76, ic, fg, bg);
+      } else if (ar) {
         arrow(spi, cx, y0 + 74, 26, ar, fg);
       } else if (big[0]) {
         spi->setFont(&fonts::efontJA_24);
@@ -94,6 +132,7 @@ class Balloon final : public Drawable {
       }
     }
     if (two) spi->drawFastVLine(x0 + w / 2, y0 + 30, h - 60, fg);
+    if (b.fx == 1) sparkle(spi, x0, y0, w, h, fg);
     if (b.foot[0]) {
       spi->setFont(&fonts::efontJA_16);
       spi->setTextSize(1);
