@@ -81,26 +81,59 @@ def pick_robot_hand(rnd, history: list) -> str:
     return rnd.choice(hands)
 
 
+def lose_run(history: list) -> int:
+    """子どもが負け(ロボットが勝ち)つづけている回数。あいこは数えず、いちど子どもが勝つと 0。"""
+    n = 0
+    for h in reversed(history):
+        r = h.get("res")
+        if r == "robot_win":
+            n += 1
+        elif r == "draw":
+            continue
+        else:
+            break
+    return n
+
+
+def mercy_p(run: int) -> float:
+    """負けが続いた子に、勝ち・あいこを出す確率。2 連敗までは 0、そのあと すこしずつ上がる(上限 0.5)。"""
+    return 0.0 if run < 2 else min(0.5, 0.2 + 0.15 * (run - 2))
+
+
+def mercy_hand(rnd, kid: str, robot: str, history: list, run: int) -> str:
+    """子どもが負け続けていたら、確率で、子どもが勝つ(3 : あいこ 1)手に かえる。同じ手が 3 回続かないきまりは、かならず守る。"""
+    if rnd.random() >= mercy_p(run):
+        return robot
+    lose_to_kid = next(h for h in HANDS if BEATS[kid] == h)          # 子どもの手が かつ手(=ロボットが負ける手)
+    want = lose_to_kid if rnd.random() < 0.75 else kid
+    last2 = [h.get("robot") for h in history[-2:]]
+    if len(last2) == 2 and last2[0] == last2[1] == want:
+        return robot
+    return want
+
+
 JK = {
     "intro": ["じゃんけんで、あそぼう！ぐー、ちょき、ぱーを、声で言うか、カメラに手を見せてね。", "じゃんけん{d}！ぐー、ちょき、ぱー、どれを だすかな？声でも、カメラでも いいよ！",
-              "じゃんけん しよう！てを カメラに みせても、声で 言っても だいじょうぶ{d}！", "さあ、じゃんけん{d}！ぼくに かてるかな？"],
+              "じゃんけん しよう！てを カメラに みせても、声で 言っても だいじょうぶ{d}！", "さあ、じゃんけん{d}！{me}に かてるかな？"],
     "intro_voice": ["じゃんけんで、あそぼう！ぐー、ちょき、ぱーのどれかを、声で出してね。", "じゃんけん{d}！ぐー、ちょき、ぱーを、声で 言ってね！", "じゃんけん しよう！ぐー、ちょき、ぱー、声で どうぞ！"],
     "first": ["さいしょはぐー、じゃんけん…ぽん！", "いくよー！さいしょはぐー、じゃんけん…ぽん！", "さいしょは ぐー！じゃんけん…ぽん！", "じゃーんけーん…ぽん！"],
     "next": ["つぎいくよ！さいしょはぐー、じゃんけん…ぽん！", "もういっかい！じゃんけん…ぽん！", "つぎは まけないよ！じゃんけん…ぽん！", "どんどん いくよ！じゃんけん…ぽん！", "さあ、つぎ！じゃんけん…ぽん！"],
     "aiko": ["あいこでしょ！", "あいこで…しょ！", "おっと あいこ！あいこで…しょ！", "もういっかい あいこで…しょ！"],
     "miss": ["もういっかい！ぐー、ちょき、ぱー！手をカメラに見せてもいいよ！", "んー、わからなかった！もういっかい！", "ぐー、ちょき、ぱーで おしえてね！"],
+    "miss2": ["ぐー、ちょき、ぱーの どれかな？", "ゆっくり おしえてね！", "てを カメラに みせても いいよ！"],
+    "miss_voice2": ["ぐー、ちょき、ぱーの どれかな？", "ゆっくり おおきな こえで どうぞ！", "ひとつずつ、ゆっくり 言ってね！"],
     "miss_voice": ["もういっかい！ぐー、ちょき、ぱー！", "ぐー、ちょき、ぱーで 言ってね！", "きこえなかった！もういっかい！"],
-    "streak": ["{s}かい れんぞくで きみの かち{d}！すごい！", "また かった！{s}れんしょう{d}！", "{s}れんしょう！むてき{d}！", "すごーい、{s}かい つづけて かった{n}！"],
-    "lose_streak": ["ぼくが {s}かい つづけて かったよ！つぎは かてるかな？", "ぼくの {s}れんしょう！まけないで！"],
-    "record": ["きみの さいこう きろくは {b}れんしょう{d}！", "これまでで いちばんは {b}かい れんぞく{d}！"],
-    "bye": ["たのしかったよ！またあそぼうね！ばいばーい！", "いっぱい あそべた{n}！またね！", "ありがとう！またじゃんけん しようね！", "たのしかった{n}！つぎも まけないよ！"],
+    "streak": ["{s}かい つづけて きみの かち{d}！すごい！", "また かった！{s}れんしょう{d}！", "{s}れんしょう！きみ さいきょう{d}！", "すごーい、{s}かい つづけて かった{v}！"],
+    "lose_streak": ["{me}が {s}かい つづけて かったよ！つぎは かてるかな？", "{me}の {s}れんしょう！まけないで！"],
+    "record": ["きみの いちばん すごいのは {b}れんしょう{d}！", "これまでで いちばんは {b}かい つづけて かった こと{d}！"],
+    "bye": ["たのしかったよ！またあそぼうね！ばいばーい！", "いっぱい あそべた{v}！またね！", "ありがとう！またじゃんけん しようね！", "たのしかった{n}！つぎも まけないよ！"],
 }
 
 
 class Janken(Shiritori):
     LINES = {   # キャラごとの口調。{r}=ロボットの手
-        "ずんだ": {"kid_win": ["ぼくは{r}なのだ。きみの勝ちなのだ！", "{r}を出したのだ。くやしいのだ！きみの勝ち！"],
-                 "robot_win": ["ぼくは{r}なのだ。ぼくの勝ちなのだ！", "{r}なのだ！やったのだ、ぼくの勝ち！"],
+        "ずんだ": {"kid_win": ["ぼくは{r}なのだ。きみの かちなのだ！", "{r}を だしたのだ。くやしいのだ！きみの かち！"],
+                 "robot_win": ["ぼくは{r}なのだ。ぼくの かちなのだ！", "{r}なのだ！やったのだ、ぼくの かち！"],
                  "draw": ["ぼくも{r}なのだ！あいこなのだ！"]},
         "めたん": {"kid_win": ["わたしは{r}です。あなたの勝ちですね。", "{r}でした。くやしいですが、あなたの勝ちです。"],
                  "robot_win": ["わたしは{r}です。わたしの勝ちですね。", "{r}です。ふふ、わたしの勝ちです。"],
@@ -153,6 +186,8 @@ class Janken(Shiritori):
         self._stop.clear()
         self.on = True
         self.stats["plays"] += 1
+        self._ev("plays")
+        self._daily_done, self._cel_key, self._filler_t = False, None, -1e9
         self._save()
         self.hub.event("じゃんけんを始めます")
         threading.Thread(target=self._run, args=(eng,), daemon=True).start()
@@ -243,6 +278,7 @@ class Janken(Shiritori):
                     break
                 if text and QUIT.search(text) and parse_hand(text) is None:
                     self.msg = "またあそぼうね！"
+                    self._daily(eng)
                     self._say_robot(eng, self._jk("bye"), "joy")
                     break
                 hand = parse_hand(text) if text else None
@@ -253,20 +289,25 @@ class Janken(Shiritori):
                     self.misses += 1
                     if self.misses >= 5:
                         self.msg = "またあそぼうね！"
+                        self._daily(eng)
                         self._say_robot(eng, self._jk("bye"), "joy")
                         break
                     self.turn = ""
-                    self._say_robot(eng, self._jk("miss" if self.cam_enabled() else "miss_voice"), "doubt")
+                    scene = ("miss" if self.cam_enabled() else "miss_voice") + ("2" if self.misses >= 2 else "")      # 「もういっかい」は 1 回だけ。つづくときは言い方をかえる
+                    self._say_robot(eng, self._jk(scene), "doubt")
                     call = "じゃんけん…ぽん！"
                     continue
                 self.misses = 0
                 self.turn = self.robots[0]["name"]
+                robot = mercy_hand(self.rnd, hand, robot, self.hands, lose_run(self.hands))     # 負けが続いたら、すこし勝たせる
                 res = judge(hand, robot)
                 self.hands.append({"kid": hand, "robot": robot, "res": res, "via": via})
                 del self.hands[:-30]
                 if res == "kid_win":
                     self.wins += 1
                     self.streak += 1
+                    self._ev("janken_win")
+                    self._ev("janken_streak", self.streak)
                     self.stats["wins"] += 1
                     self.stats["streak_best"] = max(self.stats["streak_best"], self.streak)
                 elif res == "robot_win":
@@ -280,7 +321,7 @@ class Janken(Shiritori):
                 self.score = self.wins
                 self.msg = f'きみ: {NAME[hand]}{"(カメラ)" if via == "camera" else ""} / ロボット: {NAME[robot]}'
                 foot = "あいこ！" if res == "draw" else ("きみの かち！" if res == "kid_win" else f'{self.robots[0]["name"]}の かち！')
-                self._board(title="じゃんけん", a=(self.robots[0]["name"], NAME[robot]), b=("きみ", NAME[hand]), foot=foot, ms=6000)
+                self._board(title="じゃんけん", a=(self.robots[0]["name"], NAME[robot]), b=("きみ", NAME[hand]), foot=foot, ms=6000, a_icon=robot, b_icon=hand, fx="win" if res == "kid_win" else "")
                 self._speak(eng, 0, self._line(res, robot), self.EMO[res])
                 if self._stop.is_set():
                     break
@@ -293,6 +334,7 @@ class Janken(Shiritori):
                     self._speak(eng, 0, extra, "excited")
                 elif res == "robot_win" and self.lstreak >= 3:
                     self._speak(eng, 0, self._jk("lose_streak", s=self.lstreak), "joy")
+                self._celebrate(eng, len(self.hands) + self.stats.get("plays", 0) * 1000)
                 call = self._jk("aiko") if res == "draw" else self._jk("next")
         except Exception as e:  # noqa: BLE001
             self.msg = f"エラー: {type(e).__name__}"

@@ -11,7 +11,7 @@ import statistics
 import threading
 
 import board
-from janken import NAME, QUIT as J_QUIT, Janken, judge, parse_hand, pick_robot_hand
+from janken import NAME, QUIT as J_QUIT, Janken, judge, lose_run, mercy_hand, parse_hand, pick_robot_hand
 from playfx import AGAIN, QUIT, Stage, fold
 from quiz import IDLE_MAX, IDLE_WAIT, Play
 
@@ -26,6 +26,10 @@ FOOL_RATE = 0.3                # 子どもが指さしたとき、ロボット�
 HOI_WINDOW = 3.4               # ロボットが「ホイ」で向いてから、子どもの顔の向きを見る秒数
 HOI_HOLD = 1.5                 # ロボットが向いたままでいる秒数
 ROBOT_PAN, ROBOT_TILT = 220, 120      # ロボットが向く大きさ(0.1度。ゆっくり・小さめ)
+RAW_AMUITE = {"speed": 0.75, "pitch": 0.04, "intonation": 1.5, "volume": 1.1}     # 「あっちむいて〜」の溜める声
+RAW_HOI = {"speed": 1.3, "pitch": 0.08, "intonation": 1.8, "volume": 1.3}         # 「ホイ！」の勢いのある声
+RAW_RATTLE = {"speed": 1.15, "pitch": 0.05, "intonation": 1.6, "volume": 1.2}     # おみくじの「ガラガラ…」
+RAW_DAIKICHI = {"speed": 1.1, "pitch": 0.08, "intonation": 1.8, "volume": 1.3}    # 大吉の声
 MIRROR = False                 # カメラの映像が左右反転しているとき True(子どもの みぎ/ひだり が逆になる)
 TX, TY = 0.26, 0.20            # 顔の向きの判定のしきい値(目の間隔に対する、鼻の動き)
 
@@ -84,30 +88,32 @@ def baseline(metrics: list) -> "tuple[float, float]":
 HOI = {
     "intro": ["あっちむいてホイを しよう！まず じゃんけん。かった ほうが ゆびで さして、あっちむいてホイ！さきに 3てん とった ほうの かち{d}！",
               "あっちむいてホイ{d}！じゃんけんに かったら ゆびを さすよ。さきに 3てん とったら かち！ぐー、ちょき、ぱーを 声で言うか、カメラに 手を みせてね。",
-              "あっちむいてホイ、はじめるよ！じゃんけんで かって、ゆびを さした ほうに むかなければ かち{d}！3てん せんしゅ{d}！",
-              "さあ、あっちむいてホイ{d}！ぼくと しょうぶ！さきに 3てん とったら かち{d}！じゃんけん、いくよー！"],
+              "あっちむいてホイ、はじめるよ！じゃんけんで かって、ゆびを さした ほうに むかなければ かち{d}！さきに 3てん とったら かち{d}！",
+              "さあ、あっちむいてホイ{d}！{me}と しょうぶ！さきに 3てん とったら かち{d}！じゃんけん、いくよー！"],
     "jan_call": ["さいしょはぐー、じゃんけん…ぽん！", "じゃんけん…ぽん！", "いくよー！じゃんけん…ぽん！", "じゃーんけーん…ぽん！", "つぎ いくよ！じゃんけん…ぽん！", "しょうぶ{d}！じゃんけん…ぽん！"],
     "aiko": ["{r}！あいこで…しょ！", "おなじ{d}！あいこで…しょ！", "あいこ{d}！あいこで…しょ！", "{r}で あいこ！あいこで…しょ！", "あらら あいこ！もういっかい、あいこで…しょ！"],
-    "r_win": ["{r}！ぼくの かち{d}！{cheer} こんどは ぼくが ゆびを さす{n}！", "やったー！{r}で ぼくの かち{d}！", "ぼくは{r}！かった{n}！あっちむいてホイ、いくよ！",
-              "{cheer} ぼくの かち！あっちむいてホイ、じゅんびは いい？", "{r}を だしたら かった！ぼくの ばん{d}！"],
-    "k_win": ["{r}！{oops} きみの かち{d}！ゆびを さして！", "ぼくは{r}。まけちゃった！きみの かち{d}！あっちむいてホイ、どうぞ！", "{oops} きみの かち{d}！さあ、あっちむいてホイ！",
-              "{r}を だしたけど まけた{n}！きみの ばん{d}！"],
-    "k_ask": ["「あっちむいてホイ！」って 言いながら、ゆびを さしてね。ゆびの ほうこうは、うえ、した、ひだり、みぎで おしえてね！", "ゆびを さす ほうこうを 言ってね。うえ、した、ひだり、みぎ！",
+    "r_win": ["{r}！{me}の かち{d}！{cheer} こんどは {me}が ゆびを さす{v}！", "やったー！{r}で {me}の かち{d}！", "{me}は{r}！かった{v}！あっちむいてホイ、いくよ！",
+              "{cheer} {me}の かち！あっちむいてホイ、じゅんびは いい？", "{r}を だしたら かった！{me}の ばん{d}！"],
+    "k_win": ["{r}！{oops} きみの かち{d}！ゆびを さして！", "{me}は{r}。まけちゃった！きみの かち{d}！あっちむいてホイ、どうぞ！", "{oops} きみの かち{d}！さあ、あっちむいてホイ！",
+              "{r}を だしたけど まけた{v}！きみの ばん{d}！"],
+    "jan_miss2": ["ぐー、ちょき、ぱーの どれかな？", "ゆっくり おしえてね！", "てを カメラに みせても いいよ！"],
+    "jan_miss": ["もういっかい！ぐー、ちょき、ぱー！", "ぐー、ちょき、ぱーで おしえてね！", "てを カメラに みせても いいよ！もういっかい！"],
+    "k_ask": ["「あっちむいてホイ！」って 言いながら、ゆびを さしてね。ゆびの むきは、うえ、した、ひだり、みぎで おしえてね！", "ゆびを さす むきを 言ってね。うえ、した、ひだり、みぎ！",
               "どっちを さす？うえ、した、ひだり、みぎ、どれかな？"],
     "k_ask2": ["どっちを さしたの？うえ、した、ひだり、みぎ で おしえてね！", "もういっかい おしえて！うえ、した、ひだり、みぎ！"],
     "amuite": ["あっちむいて〜…", "あっちむいて〜〜…", "あっち〜、むいて〜…", "いくよ、あっちむいて〜…"],
     "hoi": ["ホイ！", "ホーイ！", "ホイッ！"],
-    "r_hit": ["やったー！おなじ むき{d}！ぼくの 1てん！", "ひっかかった{n}！ぼくの 1てん{d}！{cheer}", "{dir}を むいたね！ぼくの かち{d}！", "せいこう！{cheer} ぼくの 1てん！"],
-    "r_miss": ["あー、よけられた！やるね！", "{oops} よけられちゃった！", "うまい！こっちを むかなかった{n}！", "セーフ{d}！やるね！", "ざんねん、つぎは ねらう{n}！"],
-    "k_hit": ["あっ、{dir}を むいちゃった！きみの 1てん{d}！{cheer}", "やられた！{dir}を むいちゃった{n}！きみの 1てん！", "{oops} ひっかかった！きみの かち{d}！", "あー！つられちゃった！きみの 1てん{d}！"],
-    "k_miss": ["セーフ{d}！ぼくは {dir}を むいた{n}！", "よけたよ！ぼくは {dir}！ざんねん！", "ざんねん、ぼくは {dir}を むいた{n}！つぎ いこう！", "ふふふ、{dir}を むいたよ！つられない{n}！"],
-    "score": ["いま、きみ {ks}、ぼく {rs}！", "きみが {ks}てん、ぼくが {rs}てん{d}！", "{ks} たい {rs}！", "ここまで、きみ {ks}、ぼく {rs}！"],
+    "r_hit": ["やったー！おなじ むき{d}！{me}の 1てん！", "ひっかかった{v}！{me}の 1てん{d}！{cheer}", "{dir}を むいたね！{me}の かち{d}！", "せいこう！{cheer} {me}の 1てん！"],
+    "r_miss": ["あー、よけられた！やるね！", "{oops} よけられちゃった！", "うまい！こっちを むかなかった{v}！", "セーフ{d}！やるね！", "ざんねん、つぎは ねらう{v}！"],
+    "k_hit": ["あっ、{dir}を むいちゃった！きみの 1てん{d}！{cheer}", "やられた！{dir}を むいちゃった{v}！きみの 1てん！", "{oops} ひっかかった！きみの かち{d}！", "あー！つられちゃった！きみの 1てん{d}！"],
+    "k_miss": ["セーフ{d}！{me}は {dir}を むいた{v}！", "よけたよ！{me}は {dir}！ざんねん！", "ざんねん、{me}は {dir}を むいた{v}！つぎ いこう！", "ふふふ、{dir}を むいたよ！つられない{v}！"],
+    "score": ["いま、きみ {ks}、{me} {rs}！", "きみが {ks}てん、{me}が {rs}てん{d}！", "{ks} たい {rs}！", "ここまで、きみ {ks}、{me} {rs}！"],
     "unseen": ["ごめん、みえなかった！もういっかい やろう！", "あれ、どっちか わからなかった！もういっかい！", "うーん、みえなかった。もういっかい じゃんけん！"],
-    "kid_round": ["きみの かち{d}！{cheer} {ks}たい{rs}！", "ぼくの まけ{d}！きみ、つよいね！{ks}たい{rs}！", "きみが ゆうしょう{d}！{cheer} {ks}たい{rs}！", "まいった！きみの かち{d}！{ks}たい{rs}！"],
-    "robot_round": ["ぼくの かち{d}！でも いい しょうぶ{d}！{rs}たい{ks}！", "ぼくが かった{n}！きみも つよかった{n}よ！{rs}たい{ks}！", "{rs}たい{ks}で ぼくの かち！もういっかい やれば かてる{n}よ！"],
+    "kid_round": ["きみの かち{d}！{cheer} {ks}たい{rs}！", "{me}の まけ{d}！きみ、つよいね！{ks}たい{rs}！", "きみが いちばん{d}！{cheer} {ks}たい{rs}！", "まいった！きみの かち{d}！{ks}たい{rs}！"],
+    "robot_round": ["{me}の かち{d}！でも いい しょうぶ{d}！{rs}たい{ks}！", "{me}が かった{v}！きみも つよかった{n}！{rs}たい{ks}！", "{rs}たい{ks}で {me}の かち！もういっかい やれば かてる{v}！"],
     "draw_round": ["ひきわけ{d}！いい しょうぶ{d}！{ks}たい{rs}！", "どっちも おなじ！ひきわけ{d}！{ks}たい{rs}！"],
-    "streak": ["{s}かい れんぞくで きみの かち{d}！{cheer}", "すごい！{s}しょう れんぞく{d}！", "{s}れんしょう！きみ むてき{d}！"],
-    "bye": ["たのしかった{n}！また あっちむいてホイ しようね！", "いい しょうぶ だった{n}！またね！", "ありがとう！また ぼくと しょうぶ しようね！"],
+    "streak": ["{s}かい つづけて きみの かち{d}！{cheer}", "すごい！{s}かい つづけて かったね！", "{s}れんしょう！きみ さいきょう{d}！"],
+    "bye": ["たのしかった{n}！また あっちむいてホイ しようね！", "いい しょうぶ だった{v}！またね！", "ありがとう！また {me}と しょうぶ しようね！"],
 }
 
 
@@ -125,8 +131,8 @@ class Hoi(Play, Janken):
     def _h(self, scene: str, **kw) -> str:
         return self.L(scene, HOI[scene] if scene in HOI else None, **kw)
 
-    def _board(self, title: str = "あっちむいてホイ", a=("", ""), b=("", ""), foot="", ms=6000, a_arrow="", b_arrow="") -> None:
-        Stage._board(self, title, a, b, foot, ms, a_arrow, b_arrow)
+    def _board(self, title: str = "あっちむいてホイ", a=("", ""), b=("", ""), foot="", ms=6000, a_arrow="", b_arrow="", a_icon="", b_icon="", fx="") -> None:
+        Stage._board(self, title, a, b, foot, ms, a_arrow, b_arrow, a_icon, b_icon, fx)
 
     def _set_stat(self) -> None:
         self.stat = f"きみ {self.kp}てん ・ ロボット {self.rp}てん ・ れんしょう {self.round_streak}"
@@ -158,16 +164,17 @@ class Hoi(Play, Janken):
                 misses += 1
                 if misses >= 4:
                     return ("idle",)
-                self._say(eng, self.L("jan_miss", ["もういっかい！ぐー、ちょき、ぱー！", "ぐー、ちょき、ぱーで おしえてね！", "てを カメラに みせても いいよ！もういっかい！"]), "doubt", face="doubt")
+                self._say(eng, self._h("jan_miss2" if misses >= 2 else "jan_miss"), "doubt", face="doubt")
                 call = "じゃんけん…ぽん！"
                 continue
             misses = 0
+            robot = mercy_hand(self.rnd, hand, robot, self.hands, lose_run(self.hands))
             res = judge(hand, robot)
             self.hands.append({"kid": hand, "robot": robot, "res": res, "via": "voice"})
             del self.hands[:-30]
             self.qtext = f"じゃんけん: きみ {NAME[hand]} / ロボット {NAME[robot]}"
             foot = "あいこ！" if res == "draw" else ("きみの かち！" if res == "kid_win" else f"{self.name}の かち！")
-            self._board(title="じゃんけん", a=(self.name, NAME[robot]), b=("きみ", NAME[hand]), foot=foot, ms=5000)
+            self._board(title="じゃんけん", a=(self.name, NAME[robot]), b=("きみ", NAME[hand]), foot=foot, ms=5000, a_icon=robot, b_icon=hand, fx="win" if res == "kid_win" else "")
             if res == "draw":
                 call = self._h("aiko", r=NAME[robot])
                 continue
@@ -236,12 +243,12 @@ class Hoi(Play, Janken):
         self.atext = f"先生用: ロボットは「{DIR_NAME[d]}」を向きます。子どもが向いた向きを言葉で入れられます(うえ/した/ひだり/みぎ)"
         self._say(eng, self._h("r_win", r=NAME[self.hands[-1]["robot"]]), "excited", face="giggle")
         base = baseline(self._kid_metrics(eng, [x for x in list(self._frames) if x[0] >= self.clock() - 6.0]))
-        self._say(eng, self._h("amuite"), "surprise", face="surprise", raw={"speed": 0.75, "pitch": 0.04, "intonation": 1.5, "volume": 1.1})
+        self._say(eng, self._h("amuite"), "surprise", face="surprise", raw=RAW_AMUITE)
         self._sleep(0.35)                                       # ちょっと ためる
         t_hoi = self.clock()
         self._turn_head(d)
         self._board(a=(self.name, "ホイ！"), foot=f"ぼくは {DIR_NAME[d]}を ゆびさした！", ms=5000, a_arrow=d)
-        self._say(eng, self._h("hoi"), "excited", face="surprise", raw={"speed": 1.3, "pitch": 0.08, "intonation": 1.8, "volume": 1.3})
+        self._say(eng, self._h("hoi"), "excited", face="surprise", raw=RAW_HOI)
         kd, how = self._watch_kid(eng, t_hoi, base)
         self._front()
         if self._stop.is_set() or how == "stop":
@@ -290,13 +297,13 @@ class Hoi(Play, Janken):
         self.fails = 0
         self.big = f"きみ: {DIR_NAME[kd]}"
         self._board(b=("きみ", ""), foot=f"きみは {DIR_NAME[kd]}を ゆびさした", ms=4000, b_arrow=kd)
-        self._say(eng, self._h("amuite"), "surprise", face="surprise", raw={"speed": 0.75, "pitch": 0.04, "intonation": 1.5, "volume": 1.1})
+        self._say(eng, self._h("amuite"), "surprise", face="surprise", raw=RAW_AMUITE)
         self._sleep(0.35)
         fooled = self.rnd.random() < FOOL_RATE
         rd = kd if fooled else self.rnd.choice([x for x in DIRS if x != kd])
         self._turn_head(rd)
         self._board(a=(self.name, ""), b=("きみ", ""), foot="", ms=5500, a_arrow=rd, b_arrow=kd)
-        self._say(eng, self._h("hoi"), "excited", face="surprise", raw={"speed": 1.3, "pitch": 0.08, "intonation": 1.8, "volume": 1.3})
+        self._say(eng, self._h("hoi"), "excited", face="surprise", raw=RAW_HOI)
         self._sleep(HOI_HOLD - 0.6)
         self._front()
         hit = rd == kd
@@ -343,6 +350,7 @@ class Hoi(Play, Janken):
             self.stats["hoi_points"] += self.kp
             if self.kp > self.rp:
                 self.round_streak += 1
+                self._ev("hoi_win")
                 self.stats["hoi_wins"] += 1
                 self.stats["hoi_streak_best"] = max(self.stats["hoi_streak_best"], self.round_streak)
                 key, emo, face = "kid_round", "excited", "giggle"
@@ -360,6 +368,7 @@ class Hoi(Play, Janken):
             self._say(eng, self._h(key, ks=self.kp, rs=self.rp), emo, face=face)
             if key == "kid_round" and self.round_streak >= 2 and not self._stop.is_set():
                 self._say(eng, self._h("streak", s=self.round_streak), "excited", face="giggle")
+            self._celebrate(eng, f"h{self.stats['hoi_rounds']}")
             if self._stop.is_set():
                 return
             if not self._again(eng):
@@ -370,6 +379,7 @@ class Hoi(Play, Janken):
 
     def _bye(self, eng, res: str) -> None:
         self.msg = "またあそぼうね！"
+        self._daily(eng)
         self._say(eng, self.L("bye" if res == "idle" else "quit"), "joy")
 
     def snapshot(self) -> dict:
@@ -387,31 +397,31 @@ ITEMS = ["えんぴつ", "おにぎり", "くつした", "ハンカチ", "どん
          "てぶくろ", "マフラー", "ぬいぐるみ", "ブロック", "しゃぼんだま", "ふうせん", "ビーだま", "おりがみ", "クレヨン", "たいこ", "ふえ", "スプーン", "ノート", "じてんしゃ",
          "ぼうえんきょう", "ひまわり", "たんぽぽ", "クッキー", "みかん", "いちご", "ほうき", "シール", "わゴム"]
 OMIKUJI_MSG = {
-    "だいきち": ["きょうは さいこうの いちにち{d}！なんでも うまく いくよ！", "とっても いい ことが ありそう{d}！", "ともだちと もっと なかよく なれるよ！", "ちょうせんしたら、きっと うまく いくよ！",
-               "きらきら ひかる いちにちに なるよ！", "びっくりする いい ことが あるかも！", "おおきな こえで あいさつ すると、もっと いい ことが あるよ！", "きょうの きみは むてき{d}！"],
+    "だいきち": ["きょうは さいこうの いちにち{d}！なんでも うまく いくよ！", "とっても いい ことが ありそう{d}！", "ともだちと もっと なかよく なれるよ！", "やってみたら、きっと うまく いくよ！",
+               "きらきら ひかる いちにちに なるよ！", "びっくりする いい ことが あるかも！", "おおきな こえで あいさつ すると、もっと いい ことが あるよ！", "きょうの きみは さいきょう{d}！"],
     "ちゅうきち": ["いい ことが ありそうな よかん{d}！", "ともだちに やさしく すると、もっと いいよ！", "ちょっと がんばると、いい けっかが でるよ！", "えがおで すごすと、しあわせが ふえるよ！",
                 "おもしろい ことが おきるかも！", "きょうは、あたらしい ことを ためすと いいよ！", "やさしい きもちが、いい ことを よぶよ！"],
     "しょうきち": ["ちいさな しあわせが みつかるよ！", "ゆっくり いけば、うまく いくよ！", "いつもより ちょっと だけ いい ことが あるよ！", "まわりを よく みると、いい ものが みつかるよ！",
                 "おともだちと わらうと、もっと いいよ！", "きょうは ていねいに やると いいよ！", "ありがとうを 言うと、いい ことが あるよ！"],
     "きち": ["ふつうに いい いちにち{d}！", "いつもどおり がんばれば だいじょうぶ！", "おひるごはんが おいしく なりそう{d}！", "きょうは のんびり すごすと いいよ！",
-           "ちょっと いい ことが あるかも！", "げんきに すごせる いちにち{d}！", "なかよく あそぶと、たのしい{d}！"],
+           "ちょっと いい ことが あるかも！", "げんきに すごせる いちにち{d}！", "なかよく あそぶと、たのしい{n}！"],
     "すえきち": ["あとから どんどん よく なるよ！", "ゆっくり でも、だいじょうぶ！", "すこしずつ いい ことが ふえていくよ！", "おわりの ほうに いい ことが あるよ！",
                "あせらず いこうね！きっと うまく いくよ！", "あしたは もっと いい ひに なるよ！", "ゆうがたに、うれしい ことが あるかも！"],
 }
 OMIKUJI = {
-    "intro": ["おみくじを ひくよ！「もういっかい」で なんどでも ひけるよ。いくよ、ガラガラ〜！", "おみくじ{d}！きょうの うんせいを みてあげる{n}。ガラガラ、まわすよ！",
+    "intro": ["おみくじを ひくよ！「もういっかい」で なんどでも ひけるよ。いくよ、ガラガラ〜！", "おみくじ{d}！きょうの うんせいを みてあげる{v}。ガラガラ、まわすよ！",
               "きょうの うんせいを うらなうよ！ドキドキ するね。ガラガラ〜！", "おみくじの じかん{d}！なにが でるかな？いくよー！"],
     "rattle": ["ガラガラ、ガラガラ…", "ガラガラガラ…", "ガラ、ガラ、ガラガラ〜…", "ガラガラ〜、ガラガラ〜…"],
     "pon": ["ぽん！でたよ！", "コロン！でた！", "ぽとん！でました！", "でた でた！"],
     "rank": {"だいきち": ["{rank}！！おおよろこび{d}！{cheer}", "なんと {rank}！やったね！{cheer}", "{rank}{d}！すごい！いちばん いい やつ{d}！"],
              "ちゅうきち": ["{rank}{d}！いいね！", "{rank}！{cheer}", "おお、{rank}！いい うんせい{d}！"],
-             "しょうきち": ["{rank}{d}！", "{rank}！いい ちょうし{d}！", "{rank}が でた{n}！"],
+             "しょうきち": ["{rank}{d}！", "{rank}！いい ちょうし{d}！", "{rank}が でた{v}！"],
              "きち": ["{rank}{d}！", "{rank}！ばっちり{d}！", "{rank}が でたよ！"],
-             "すえきち": ["{rank}{d}！", "{rank}！あとから よく なるよ！", "{rank}が でた{n}！"]},
+             "すえきち": ["{rank}{d}！", "{rank}！あとから よく なるよ！", "{rank}が でた{v}！"]},
     "lucky": ["ラッキーカラーは「{color}」、ラッキーな ものは「{item}」{d}！", "きょうの ラッキーカラーは「{color}」！ラッキーな ものは「{item}」{d}！",
               "「{color}」いろの ものを みつけてね。ラッキーな ものは「{item}」{d}！", "ラッキーな ものは「{item}」！ラッキーカラーは「{color}」{d}！"],
     "more": ["おみくじ、{n}かい ひいたね！", "{n}かい めだね！たのしい？", "どんどん ひいちゃおう！{n}かい め{d}！"],
-    "bye": ["いい うんせい だった{n}！また ひこうね！", "たのしかった{n}！またね、ばいばい！", "また ひきたく なったら、よんでね！", "ありがとう！きょうも いい いちにちに なるよ！"],
+    "bye": ["いい うんせい だった{v}！また ひこうね！", "たのしかった{n}！またね、ばいばい！", "また ひきたく なったら、よんでね！", "ありがとう！きょうも いい いちにちに なるよ！"],
 }
 
 
@@ -452,7 +462,7 @@ class Omikuji(Play):
         t = threading.Thread(target=go, daemon=True)
         t.start()
         try:
-            self._say(eng, text, "excited", face="surprise", raw={"speed": 1.15, "pitch": 0.05, "intonation": 1.6, "volume": 1.2})
+            self._say(eng, text, "excited", face="surprise", raw=RAW_RATTLE)
         finally:
             stop.set()
             t.join(1.0)
@@ -465,7 +475,9 @@ class Omikuji(Play):
         self.ri = (self.ri + [d["item"]])[-6:]
         self.draws += 1
         self.stats["omikuji_n"] += 1
+        self._ev("omikuji")
         if d["yomi"] == "だいきち":
+            self._ev("daikichi")
             self.big_n += 1
             self.stats["omikuji_big"] += 1
         self._save()
@@ -481,10 +493,11 @@ class Omikuji(Play):
         self._board(title="おみくじ", a=("きょうの うんせい", d["rank"]), foot=f"{d['color']} / {d['item']}", ms=9000)
         if d["nod"]:
             self._nod(d["nod"])
-        self._say(eng, self.L("rank", OMIKUJI["rank"][d["yomi"]], rank=d["yomi"]), d["emo"], face=d["face"], raw={"speed": 1.1, "pitch": 0.08, "intonation": 1.8, "volume": 1.3} if d["yomi"] == "だいきち" else None)
+        self._say(eng, self.L("rank", OMIKUJI["rank"][d["yomi"]], rank=d["yomi"]), d["emo"], face=d["face"], raw=RAW_DAIKICHI if d["yomi"] == "だいきち" else None)
         self._say(eng, tone_text(self, d["msg"]), d["emo"] if d["yomi"] != "すえきち" else "joy", face="happy")
         self._say(eng, self._o("lucky", color=d["color"], item=d["item"]), "joy", face="happy")
         self.history.append({"q": f"{d['rank']}  {d['color']} / {d['item']}", "ok": d["yomi"] in ("だいきち", "ちゅうきち")})
+        self._celebrate(eng, f"o{self.draws}")
         self.stat = f"ひいた かず {self.draws} ・ 大吉 {self.big_n}"
 
     def _run(self, eng) -> None:
@@ -495,7 +508,7 @@ class Omikuji(Play):
             if self._stop.is_set():
                 return
             if self.draws in (3, 6, 10) and not self._stop.is_set():
-                self._say(eng, self._o("more", n=self.draws), "joy", face="happy")
+                self._say(eng, self._o("more", cnt=self.draws), "joy", face="happy")
             if not self._again(eng):
                 self._say(eng, self._o("bye"), "joy", face="happy")
                 return
@@ -527,15 +540,15 @@ MIMIC_MAX = 5
 # まねしない言葉(悪口・おとなの言葉)。「うんち」などの子どもが好きなおかしな言葉は、そのまま まねする
 INSULT = re.compile(r"ばか|バカ|馬鹿|あほ|アホ|きもい|キモい|うざい|ウザい|くそ|クソ|ちんちん|おっぱい|まんこ|ちんこ|うるさい|だまれ|しね|死ね|ぶす|ブス|でぶ|デブ|はげ|ハゲ")
 MIMIC = {
-    "intro": ["ものまねボイスを しよう！なにか ことばを 言ってね。いろんな こえで まねっこ するよ！", "まねっこ あそび{d}！ぼくに ことばを おしえてね。へんな こえで まねするよ！",
-              "ものまね たいかい{d}！すきな ことばを 言ってみて。ぼくが まねするよ！", "おうむがえし あそび{d}！なんでも いいよ、ことばを 言ってね。"],
+    "intro": ["ものまねボイスを しよう！なにか ことばを 言ってね。いろんな こえで まねっこ するよ！", "まねっこ あそび{d}！{me}に ことばを おしえてね。へんな こえで まねするよ！",
+              "ものまね たいかい{d}！すきな ことばを 言ってみて。{me}が まねするよ！", "おうむがえし あそび{d}！なんでも いいよ、ことばを 言ってね。"],
     "announce": ["{label}で いくよ！", "{label}で まねっこ！", "つぎは {label}！", "こんどは {label}で どうぞ！", "{label}に へんしん！"],
     "react": ["どう？にてた？", "おもしろい でしょ？", "ふふふ、たのしい！", "どうかな？", "へんな こえ{d}！", "にてるかな？"],
     "next": ["つぎの ことばを 言ってね！「もういっかい」で べつの こえで まねするよ！", "ほかの ことばも 言ってみて！", "つぎは なんて 言う？", "もっと まねっこ するよ！ことばを どうぞ！",
              "「もういっかい」って 言うと、べつの こえで まねするよ！"],
     "ok_word": ["いいね！", "おもしろい ことば{d}！", "よーし、まねするよ！", "それ いいね！", "まかせて！"],
     "redirect": ["それは ちょっと むずかしいな。ほかの ことばで あそぼう！", "うーん、ほかの ことばを 言ってみて！すきな たべものとか、どうぶつとか！", "ことばあそびを しよう。すきな ことばを 言ってね！"],
-    "done": ["5つ まねしたね！たくさん あそんだ{n}！", "いっぱい まねしたね！おもしろかった{n}！", "5つ できたね！ものまね めいじん{d}！"],
+    "done": ["5つ まねしたね！たくさん あそんだ{v}！", "いっぱい まねしたね！おもしろかった{n}！", "5つ できたね！ものまね めいじん{d}！"],
     "bye": ["たのしかった{n}！また ものまね しようね！", "いろんな こえで あそべて うれしかった{n}！またね！", "ありがとう！また まねっこ しようね！"],
 }
 
@@ -607,6 +620,7 @@ class Mimic(Play):
             idle = 0
             if QUIT.search(text) and not AGAIN.search(text):
                 self.msg = "またあそぼうね！"
+                self._daily(eng)
                 self._say(eng, self.L("quit"), "joy")
                 return
             if AGAIN.search(text) and self.last:                    # 「もういっかい」: 同じ ことばを、べつの こえで
@@ -626,12 +640,15 @@ class Mimic(Play):
             self.last = word
             self.words += 1
             self.score = self.words
+            self._ev("mimic")
             self._echo(eng, word)
+            self._celebrate(eng, f"m{self.stats.get('mimic_n', 0)}")
             if self.words >= MIMIC_MAX:
                 self.stats["mimic_rounds"] += 1
                 self._save()
                 self.big = "おしまい！"
                 self._say(eng, self._m("done"), "excited", face="giggle")
+                self._daily(eng)
                 self._say(eng, self._m("bye"), "joy", face="happy")
                 self.msg = "またあそぼうね！"
                 return

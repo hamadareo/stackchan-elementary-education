@@ -79,3 +79,19 @@ RIDDLES = [
     ("しろくろの もようで、たけを たべる、ちゅうごくの にんきものは なあに？", ["パンダ", "ぱんだ"], "どうぶつえんの アイドルだよ。"),
     ("たいこの おとが ドーンと なって、よるの そらに さく おおきな はなは なあに？", ["はなび", "花火", "ハナビ"], "なつの おまつりで みるよ。"),
 ]
+
+
+def level(entry) -> int:
+    """なぞなぞのむずかしさ。0=かんたん 1=ふつう 2=ちょっとむずかしい。
+    ことばあそび(「〜でも」「うえから よんでも」)と、こたえが長いものは むずかしめ。短い名前のこたえで、問いが短いものは かんたん。"""
+    q, ans, _h = entry
+    n = max((len(a) for a in ans if all("぀" <= c <= "ゟ" or c == "ー" for c in a)), default=len(ans[0]))
+    play = ("でも" in q) or ("うえから" in q) or ("さかさ" in q)
+    if play or n >= 6:
+        return 2
+    if n <= 3 and len(q) <= 40:
+        return 0
+    return 1
+
+
+LEVELS = [level(r) for r in RIDDLES]

@@ -40,6 +40,7 @@ class Hub:
         self.kid = None                  # 子どもモード(子どもが話しかけたら、キャラが返事をする)
         self.kid_on = True
         self.menu_acts = list(ACTS)     # 教材モードで子どもに出す遊び(これ以外はしない)
+        self.warm = None                 # 遊びの台詞の先読み(warm.Warmer)
         self.kid_auto = True             # 子どもモードで、ロボットが自分から話しかける
         self.hand_cache: dict = {}       # 機器ID → 手の確認の結果 {ts, src, jpeg, info}(管理画面が見ている機器だけ計算する)
         self.hand_lock = threading.Lock()
@@ -457,6 +458,10 @@ class Hub:
         st["auto"] = self.auto.snapshot() if self.auto else None
         st["kid_on"] = self.kid_on
         st["kid_auto"] = self.kid_auto
+        try:
+            st["warm"] = self.warm.snapshot() if self.warm is not None else None
+        except Exception:  # noqa: BLE001
+            st["warm"] = None
         st["menu_acts"] = list(self.menu_acts)
         st["hand"] = self.hand_status()
         st["edu_on"] = self.edu_on

@@ -104,6 +104,7 @@ class Play(Shiritori):
         self.atext = ""                   # 先生用のこたえ・ヒント
         self.pick = Picker(self.rnd)
         self._frames: list = []
+        self._unclear_t = -1e9
 
     # ---- 開始
     def start(self, first: str = "", level: str = "", dev_id: "str | None" = None) -> "tuple[bool, str]":
@@ -137,6 +138,8 @@ class Play(Shiritori):
         self._stop.clear()
         self.on = True
         self.stats["plays"] += 1
+        self._ev("plays")
+        self._daily_done, self._cel_key, self._filler_t = False, None, -1e9
         self._save()
         self.hub.event(f"{KINDS[self.kind]}を始めます")
         threading.Thread(target=self._guarded_run, args=(eng,), daemon=True).start()
@@ -185,10 +188,15 @@ class Play(Shiritori):
     def L(self, scene: str, options=None, **kw) -> str:
         """場面 scene の台詞を、直近と重ならないように選び、キャラの口調にして返す。{k} などは kw で置きかえる。"""
         opts = options if options is not None else COMMON[scene]
+        if scene == "unclear" and options is None:                       # 「もういっかい」を 連発しない: 2 回目からは、ことなる言い方
+            now = self.clock()
+            if now - self._unclear_t < 60.0:
+                opts = COMMON["unclear2"]
+            self._unclear_t = now
         s = self.pick(f"{self.kind}:{scene}", opts)
         cnt = kw.pop("cnt", None)
         if cnt is not None:
-            s = s.replace("{n}もん", f"{cnt}もん")          # 「{n}もん」の {n} は数(口調の記号ではない)
+            s = s.replace("{n}もん", f"{cnt}もん").replace("{n}かい", f"{cnt}かい")          # 「{n}もん」「{n}かい」の {n} は数(口調の記号ではない)
         s = tone(self.name, s, self.pick)
         for k, v in kw.items():
             s = s.replace("{" + k + "}", str(v))
@@ -212,8 +220,12 @@ class Play(Shiritori):
         self.turn = ""
         return (text or "").strip()
 
+    def _tell(self, eng, text: str, emo: str = "joy", face: "str | None" = None) -> None:
+        self._say(eng, text, emo, face=face)
+
     def _again(self, eng) -> bool:
         """「もういっかい？」を聞く。続けるなら True。"""
+        self._daily(eng)
         self._say(eng, self.L("again_q"), "joy")
         text = self._wait(AGAIN_WAIT)
         if not text or not YES.search(text) or (NO.search(text) and not re.search(r"もういっかい|やる", text)):
@@ -248,17 +260,17 @@ class Play(Shiritori):
 # ---------------------------------------------------------------- なぞなぞ
 LINES = {
     "intro": ["なぞなぞを しよう！ぜんぶで5もん。わからないときは、ヒントって言ってね。", "なぞなぞの じかん{d}！5もん だすよ。ヒントも あるから あんしんしてね。",
-              "さあ、なぞなぞ{d}！あたまを やわらかくして きいてね。ヒントって言うと、ヒントが でるよ。", "なぞなぞ しよう！5もん あるよ。わからなくても だいじょうぶ、ヒントを あげる{n}。",
+              "さあ、なぞなぞ{d}！あたまを やわらかくして きいてね。ヒントって言うと、ヒントが でるよ。", "なぞなぞ しよう！5もん あるよ。わからなくても だいじょうぶ、ヒントを あげる{v}。",
               "なぞなぞ たいかい、はじまるよ！5もん、がんばろうね！"],
     "head": ["{k}もんめ！", "つぎは、{k}もんめ！", "さあ、{k}もんめ いくよ！", "{k}もんめ、いくよー！", "では、{k}もんめ！", "{k}もんめ、いってみよう！"],
-    "ok": ["せいかい{d}！{cheer}", "あたり{d}！{cheer}", "そのとおり{d}！{cheer}", "ピンポーン！せいかい{d}！", "すごい、よく わかった{n}！", "{cheer} だいせいかい{d}！",
+    "ok": ["せいかい{d}！{cheer}", "あたり{d}！{cheer}", "そのとおり{d}！{cheer}", "ピンポーン！せいかい{d}！", "すごい、よく わかった{v}！", "{cheer} だいせいかい{d}！",
            "ばっちり{d}！{cheer}", "ぴったり せいかい！{cheer}", "さすが{d}！せいかい！"],
-    "streak": ["{s}もん れんぞく せいかい{d}！{cheer}", "すごい！{s}もん れんぞく{d}！とまらない{n}！", "{s}れんぞく！{cheer}", "また せいかい！{s}もん つづけて{d}！{cheer}"],
-    "retry": ["{oops} もういっかい かんがえてみて！", "ちがうよー。もういちど、ちょうせん{d}！", "おしい！もうすこし{d}！", "うーん、ちょっと ちがうかな。もういっかい！",
-              "あとすこし！かんがえてみて！", "いいところまで きてる{n}！もういっかい！"],
-    "reveal": ["こたえは「{a}」{d}！つぎは がんばろう！", "ざんねん！こたえは「{a}」{d}。", "おしえるね。こたえは「{a}」{d}！", "うーん、こたえは「{a}」だった{n}！",
+    "streak": ["{s}もん つづけて せいかい{d}！{cheer}", "すごい！{s}もん つづけて せいかい{d}！とまらない{n}！", "{s}もん つづけて！{cheer}", "また せいかい！{s}もん つづけて{d}！{cheer}"],
+    "retry": ["{oops} もういっかい かんがえてみて！", "ちがうよー。もういちど、やってみよう！", "おしい！もうすこし{d}！", "うーん、ちょっと ちがうかな。もういっかい！",
+              "あとすこし！かんがえてみて！", "いいところまで きてる{v}！もういっかい！"],
+    "reveal": ["こたえは「{a}」{d}！つぎは がんばろう！", "ざんねん！こたえは「{a}」{d}。", "おしえるね。こたえは「{a}」{d}！", "うーん、こたえは「{a}」だった{v}！",
                "こたえは「{a}」{d}。むずかしかったね！", "「{a}」が こたえ{d}！つぎは いけるよ！"],
-    "hint": ["ヒントを あげる{n}。{h}", "じゃあ ヒント！{h}", "ヒント{d}！{h}", "こんな ヒントは どうかな？{h}", "ヒント いくよ！{h}"],
+    "hint": ["ヒントを あげる{v}。{h}", "じゃあ ヒント！{h}", "ヒント{d}！{h}", "こんな ヒントは どうかな？{h}", "ヒント いくよ！{h}"],
     "all": ["ぜんぶ せいかい{d}！{cheer}", "5もん ぜんぶ あたり！{cheer} てんさい{d}！", "ぜんぶ わかったね！{cheer}", "かんぺき！ぜんぶ せいかい{d}！{cheer}"],
     "good": ["{n}もん せいかい{d}！よくできました！", "{n}もん あたり！すごいね！", "{n}もん せいかい！なかなか やるね！"],
     "try": ["{n}もん せいかい{d}！がんばったね！", "{n}もん あたり！つぎは もっと とれるよ！", "{n}もん せいかい！いい ちょうし{d}！"],
@@ -272,21 +284,55 @@ class Quiz(Play):
         super().__init__(*a, **k)
         self.used: dict = {}
         self.streak = 0
+        self.cok = self.cng = 0
 
     def _line(self, scene: str, **kw) -> str:
         return self.L(scene, LINES[scene] if scene in LINES else None, **kw)
 
-    def _pick(self, key: str, n: int) -> int:
+    def _pick(self, key: str, idx) -> int:
+        """idx(候補の番号)から、まだ出していないものを選ぶ。出しきったら、また最初から。"""
+        idx = list(range(idx)) if isinstance(idx, int) else list(idx)
         used = self.used.setdefault(key, [])
-        left = [i for i in range(n) if i not in used] or list(range(n))
-        if len(left) == n:
-            used.clear()
+        left = [i for i in idx if i not in used]
+        if not left:
+            used[:] = [i for i in used if i not in idx]
+            left = idx
         i = self.rnd.choice(left)
         used.append(i)
         return i
 
+    # ---- 自動のむずかしさ(0=かんたん 1=ふつう 2=ちょっとむずかしい): 2 問つづけて正解でひとつ上、2 問つづけてまちがいでひとつ下
+    def _diff(self) -> int:
+        try:
+            return self._rw().get_diff(self._dev())
+        except Exception:  # noqa: BLE001
+            return 1
+
+    def _adapt(self, ok: bool) -> None:
+        if ok:
+            self.cok, self.cng = self.cok + 1, 0
+        else:
+            self.cok, self.cng = 0, self.cng + 1
+        d = self._diff()
+        nd = d
+        if self.cok >= 2:
+            nd, self.cok = min(2, d + 1), 0
+        elif self.cng >= 2:
+            nd, self.cng = max(0, d - 1), 0
+        if nd != d:
+            try:
+                self._rw().set_diff(self._dev(), nd)
+            except Exception:  # noqa: BLE001
+                pass
+            self.hub.event(f"なぞなぞ: むずかしさ {['かんたん', 'ふつう', 'むずかしい'][nd]}")
+
     def _make(self) -> Item:
-        q, ans, hint = qd.RIDDLES[self._pick("riddle", len(qd.RIDDLES))]
+        d = self._diff()
+        n = len(qd.RIDDLES)
+        idx = [i for i in range(n) if qd.LEVELS[i] == d]
+        if len(idx) < 4:                                          # その むずかしさが少ないときは、となりも まぜる
+            idx = [i for i in range(n) if abs(qd.LEVELS[i] - d) <= 1]
+        q, ans, hint = qd.RIDDLES[self._pick("riddle", idx)]
         return Item(q, ans[0], answers=ans, hint=hint, tries=2)
 
     def _ask(self, eng, it: Item, n: int) -> str:
@@ -295,7 +341,8 @@ class Quiz(Play):
         self.qtext = it.show
         self.atext = it.answer_text()
         self.big = f"{n + 1}もんめ"
-        self._say(eng, f'{self._line("head", k=n + 1)}{it.prompt}', "neutral", face="neutral")
+        self._say(eng, self._line("head", k=n + 1), "neutral", face="neutral")      # 「3もんめ！」と、問題は別に話す(問題の文は先に声にしておける)
+        self._say(eng, it.prompt, "neutral", face="neutral")
         tries = idle = unclear = 0
         hinted = False
         while not self._stop.is_set():
@@ -315,6 +362,8 @@ class Quiz(Play):
                 self.score += 1
                 self.streak += 1
                 self.stats["correct"] += 1
+                self._ev("riddle_ok")
+                self._adapt(True)
                 self.stats["answered"] += 1
                 self.history.append({"q": it.show, "ok": True})
                 self._save()
@@ -346,6 +395,7 @@ class Quiz(Play):
     def _reveal(self, eng, it: Item) -> str:
         self.stats["answered"] += 1
         self.streak = 0
+        self._adapt(False)
         self.history.append({"q": it.show, "ok": False})
         self._save()
         self.big = "ざんねん…"
@@ -355,6 +405,7 @@ class Quiz(Play):
 
     def _bye(self, eng, res: str) -> None:
         self.msg = "またあそぼうね！"
+        self._daily(eng)
         self._say(eng, self.L("bye" if res == "idle" else "quit"), "joy")
 
     def _run(self, eng) -> None:
@@ -376,10 +427,12 @@ class Quiz(Play):
             self.stats["rounds"] += 1
             if self.score == ROUND:
                 self.stats["perfect"] += 1
+                self._ev("riddle_perfect")
             self._save()
             key = "all" if self.score == ROUND else "good" if self.score >= 3 else "try"
             self.big = f"{self.score} / {ROUND} もん せいかい"
             self._say(eng, self._line(key, cnt=self.score), "excited" if self.score >= 3 else "joy", face="giggle" if self.score >= 3 else "happy")
+            self._celebrate(eng, f"r{self.stats['rounds']}")
             if self._stop.is_set():
                 return
             if not self._again(eng):

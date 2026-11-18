@@ -149,6 +149,9 @@ class Engine:
         self.pace = PaceController(priority="clear")
         self.last_speed = 1.0
         self._pcm_cache: "collections.OrderedDict" = collections.OrderedDict()
+        self._line_cache: "collections.OrderedDict" = collections.OrderedDict()      # 声の作り置き: キー → (音, 先読みか)
+        self._line_bytes = {True: 0, False: 0}
+        self._line_lock = threading.Lock()
         self.speed_scale = 1.0                                 # 管理画面の「話速」(1.0 が標準)
 
     def watch(self, every: float = 3.0) -> None:
@@ -299,20 +302,71 @@ class Engine:
         t._voicevox_synth = synth
         t._prosody_patched = True
 
-    def speech_pcm_as(self, text: str, voice: "str | None", src_dur: float = 0.0, speed: "float | None" = None, emotion: "dict | None" = None, raw: "dict | None" = None) -> np.ndarray:
+    LINE_PIN_BYTES = int(float(os.environ.get("SC_WARM_MB", "400")) * (1 << 20))      # 先読みした定型の台詞(消さない)の上限
+    LINE_FREE_BYTES = 48 << 20                                                         # その場で作った台詞の作り置きの上限(古い順に捨てる)
+
+    def _line_key(self, text: str, voice: "str | None", pros: "dict | None") -> tuple:
+        return (text, voice or self.voice_ja, round(self.speed_scale, 2), tuple(sorted((pros or {}).items())))
+
+    def line_cached(self, text: str, voice: "str | None", emotion: "dict | None" = None, raw: "dict | None" = None) -> bool:
+        pros = dict(raw) if raw is not None else tuned_prosody(voice or self.voice_ja, emotion)
+        return self._line_key(text, voice, pros) in self._line_cache
+
+    def line_key_for(self, text: str, voice: "str | None", emotion: "dict | None" = None, raw: "dict | None" = None) -> tuple:
+        pros = dict(raw) if raw is not None else tuned_prosody(voice or self.voice_ja, emotion)
+        return self._line_key(text, voice, pros)
+
+    def line_store(self, key: tuple, pcm: np.ndarray) -> None:
+        self._line_put(key, pcm, True)
+
+    def _line_put(self, key: tuple, pcm: np.ndarray, pin: bool) -> None:
+        with self._line_lock:
+            old = self._line_cache.pop(key, None)
+            if old is not None:
+                self._line_bytes[old[1]] -= old[0].nbytes
+            self._line_cache[key] = (pcm, pin)
+            self._line_bytes[pin] += pcm.nbytes
+            if not pin:                                                       # その場の分だけ、古い順に捨てる(先読みの分は消さない)
+                for k in list(self._line_cache):
+                    if self._line_bytes[False] <= self.LINE_FREE_BYTES:
+                        break
+                    v = self._line_cache[k]
+                    if not v[1]:
+                        self._line_bytes[False] -= v[0].nbytes
+                        del self._line_cache[k]
+
+    def speech_pcm_as(self, text: str, voice: "str | None", src_dur: float = 0.0, speed: "float | None" = None, emotion: "dict | None" = None, raw: "dict | None" = None,
+                      pin: bool = False) -> np.ndarray:
         """日本語を、指定した声で読む。声の切り替えは排他にし、終わったら必ず「いまの既定の声」へ戻す
-        (切り替え中に管理画面で既定の声を変えても、古い声に巻き戻さない)。"""
+        (切り替え中に管理画面で既定の声を変えても、古い声に巻き戻さない)。
+        同じ文・声・調子は作り置きを使う(遊びの定型の台詞は、先に作っておく=warm.py)。pin=True は消さない作り置き。"""
+        pros = dict(raw) if raw is not None else tuned_prosody(voice or self.voice_ja, emotion)
+        cacheable = src_dur <= 0 and speed is None and bool(text)
+        key = self._line_key(text, voice, pros) if cacheable else None
+        if key is not None:
+            with self._line_lock:
+                hit = self._line_cache.get(key)
+                if hit is not None:
+                    self._line_cache.move_to_end(key)
+                    if pin and not hit[1]:
+                        self._line_bytes[False] -= hit[0].nbytes
+                        self._line_cache[key] = (hit[0], True)
+                        self._line_bytes[True] += hit[0].nbytes
+                    return hit[0]
         with self._voice_lock:
             if self.tts is None:
                 return self._speech_pcm(text, "ja", src_dur, speed)
             self.tts.voices["ja"] = voice or self.voice_ja
             self._install_prosody()
-            self.prosody = dict(raw) if raw is not None else tuned_prosody(voice or self.voice_ja, emotion)     # raw: 声の調子をそのまま使う(ものまね)
+            self.prosody = dict(raw) if raw is not None else pros     # raw: 声の調子をそのまま使う(ものまね)
             try:
-                return self._speech_pcm(text, "ja", src_dur, speed)
+                pcm = self._speech_pcm(text, "ja", src_dur, speed)
             finally:
                 self.prosody = None
                 self.tts.voices["ja"] = self.voice_ja
+        if key is not None and len(pcm) and (not pin or self._line_bytes[True] + pcm.nbytes <= self.LINE_PIN_BYTES):
+            self._line_put(key, pcm, pin)
+        return pcm
 
     def prewarm(self, items) -> None:
         """定型フレーズを先に声にしておく(押したらすぐ鳴る)。"""
@@ -1548,6 +1602,34 @@ def main() -> None:
     for _h in _hubs:
         _h.peers = [x for x in _hubs if x is not _h]              # 同じ機器で 2 つの教材(しりとり・じゃんけん・ほかの遊び)を同時に動かさない
     admin.HUB.kid = kidchat.KidChat(admin.HUB)
+    try:                                                              # 遊びの定型の台詞を、背景で先に声にしておく(待ち時間の短縮)
+        import warm as _warm
+
+        def _warm_busy() -> bool:
+            h = admin.HUB
+            k = getattr(h, "kid", None)
+            return bool(any(getattr(x, "on", False) for x in (h.game, h.janken, h.quiz)) or (k is not None and k.speaking) or (h.discuss is not None and h.discuss.on)
+                        or time.time() - getattr(eng, "last_voice", 0.0) < 6.0)
+
+        def _warm_names() -> list:
+            from discuss import PERSONAS
+            ids = [r["id"] for r in admin.REG.all()] if admin.REG is not None else []
+            names = [PERSONAS[admin.HUB.discuss.persona_of(i) % len(PERSONAS)]["name"] for i in ids[:3]]
+            return names or [PERSONAS[0]["name"]]
+
+        def _voicevox_up() -> bool:
+            u = getattr(getattr(eng, "s", None), "voicevox_url", "") or getattr(getattr(eng, "tts", None), "voicevox_url", "")
+            if not u:
+                return True
+            import requests
+            try:
+                return requests.get(u.rstrip("/") + "/version", timeout=1.5).ok
+            except Exception:  # noqa: BLE001
+                return False
+        admin.HUB.warm = _warm.Warmer(lambda: eng, _warm_names, busy=_warm_busy, voice_ok=_voicevox_up)
+        threading.Thread(target=admin.HUB.warm.run, daemon=True).start()
+    except Exception as e:  # noqa: BLE001
+        print("声の先読みを始められません:", e, flush=True)
     threading.Thread(target=admin.HUB.kid.run, daemon=True).start()           # 子どもが黙ったとき・静かなときに、自分から話しかける
     import menuboard
     menuboard.start(admin.HUB)                                                 # 教材モード: 遊んでいない機器の画面に、言える遊びの一覧を出す

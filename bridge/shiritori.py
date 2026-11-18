@@ -17,7 +17,8 @@ import threading
 import time
 from playfx import Stage
 
-START_LOCK = threading.RLock()                  # 遊びの開始(どの教材でも)は 1 つずつ。同じ機器で 2 つ同時に始まらないように
+START_LOCK = threading.RLock()
+FILE_LOCK = threading.Lock()                # 記録ファイル(~/.sokutsu_game.json)の読み書き。教材ごとに別々に書くので、順番に行う                  # 遊びの開始(どの教材でも)は 1 つずつ。同じ機器で 2 つ同時に始まらないように
 
 # ロボットが言える言葉(よみ)。「ん」で終わる言葉は入れない(ロボットが自分で負けないように)。
 WORDS = """
@@ -129,11 +130,18 @@ CHEER = ["すごい!", "いいね!", "さすが!", "やるね!", "おみごと!"
 NUDGE = ["ゆっくり考えてね。", "だいじょうぶ、まってるよ。", "ヒントがほしかったら言ってね。", "あせらなくて いいよ。", "なんでも いいから 言ってみて!", "おーい、思いついたかな?", "ゆっくりで いいからね。"]
 INTRO = ["しりとりで、あそぼう!言葉の最後の文字から、つぎの言葉をつなげるよ。「ん」がついたら負けだよ!", "しりとりを しよう!最後の文字で つなげていくよ。「ん」で おわる言葉は だめだよ!",
          "さあ、しりとり{d}!言葉の さいごの文字から、つぎの言葉を 言ってね。「ん」がついたら まけだよ!", "しりとり、はじめるよ!さいごの文字を よく きいてね。「ん」に ならないように ね!"]
-LOSE_ROBOT = ["あっ、「ん」がついちゃった!ざんねん、わたしたちの勝ち!でも、すっごく楽しかったよ!", "「ん」だ!ここまでだね。でも、いい しりとり だったよ!また あそぼう!", "あれれ、「ん」がついたよ!ぼくの勝ち!でも たのしかった!また やろうね!"]
+LOSE_ROBOT = ["あっ、「ん」がついちゃった!ざんねん、わたしたちの勝ち!でも、すっごく楽しかったよ!", "「ん」だ!ここまでだね。でも、いい しりとり だったよ!また あそぼう!", "あれれ、「ん」がついたよ!わたしの勝ち!でも たのしかった!また やろうね!"]
 WIN_KID = ["うわー、思いつかない!まいったのだ。きみの勝ちだよ!", "まいった!もう ことばが ないよ。きみの勝ち!すごいね!", "うーん、でてこない!きみの勝ちだよ!つよいね!"]
 WIN_KID_PLAIN = ["まいりました。あなたの勝ちです!", "ことばが つきました。あなたの勝ちです!おみごとです!", "お手あげです。あなたの勝ちです!"]
 NEXT_Q = ["つづき、やる?", "もういっかい、しりとり する?", "もっと あそぶ?"]
 RETRY_MAX = 3
+
+
+def robot_word_line(name: str, w: str, need: str) -> str:
+    """ロボットが言う 1 語ぶんの台詞。「つぎは『○』だよ」を付けるかは、言葉ごとに決まる(先に声にしておけるように)。"""
+    import zlib
+    P = Shiritori.PERSONA.get(name, Shiritori.PERSONA["ずんだ"])
+    return P["word"].format(w=w) + (f" つぎは『{need}』だよ。" if zlib.crc32(w.encode()) % 2 == 0 else "")
 
 
 def to_hira(s: str) -> str:
@@ -288,6 +296,8 @@ class Shiritori(Stage):
         self._stop.clear()
         self.on = True
         self.stats["plays"] += 1
+        self._ev("plays")
+        self._daily_done, self._cel_key, self._filler_t = False, None, -1e9
         self._save()
         self.hub.event(f"しりとりを始めます({len(self.robots)}台・{self.level})")
         threading.Thread(target=self._run, args=(eng, first == "robot"), daemon=True).start()
@@ -331,6 +341,122 @@ class Shiritori(Stage):
                 except Exception:  # noqa: BLE001
                     pass
 
+    # ---- ごほうび(称号・きょうの記録)と、待ち時間の つなぎ
+    FILLER = "えーっと…"
+    FILLER_AFTER = 0.9                                      # 声を作るのに これより かかるとき、「えーっと…」と つなぐ
+    FILLER_GAP = 25.0                                       # つなぎの声は、これ以上 あけて(連発しない)
+    _filler_t = -1e9
+    _cel_key = None
+    _daily_done = False
+
+    def _rw(self):
+        import rewards
+        return rewards.shared(self.path)
+
+    def _dev(self) -> str:
+        return self.robots[0]["id"] if self.robots else ""
+
+    def _ev(self, event: str, v: int = 1) -> None:
+        try:
+            self._rw().record(self._dev(), event, v)
+        except Exception:  # noqa: BLE001 - 記録できなくても、遊びは続ける
+            pass
+
+    def _tell(self, eng, text: str, emo: str = "joy", face: "str | None" = None) -> None:
+        self._say_robot(eng, text, emo)
+
+    def _celebrate(self, eng, key=None) -> bool:
+        """もらった称号があれば、1 つだけ祝う(画面・声・うれしい顔)。同じ ラウンド(key)では 2 回しない。"""
+        if self._stop.is_set() or (key is not None and key == self._cel_key):
+            return False
+        try:
+            t = self._rw().take_pending(self._dev())
+        except Exception:  # noqa: BLE001
+            t = None
+        if t is None:
+            return False
+        import rewards
+        self._cel_key = key
+        self.hub.event(f"しょうごう: {t[1]}")
+        nm = self.robots[0]["name"] if self.robots else "ずんだ"
+        self._board(title="しょうごう ゲット！", a=(nm, "★"), b=("きみ", t[1]), foot=t[4], ms=8000, fx="win")
+        try:
+            self._nod(3)
+        except Exception:  # noqa: BLE001
+            pass
+        self._tell(eng, rewards.title_line(nm, t[1]), "excited", face="giggle")
+        if not self._stop.is_set():
+            self._tell(eng, t[4], "joy", face="happy")
+        return True
+
+    def _daily(self, eng) -> bool:
+        """「きょうは 3かい あそんだね」。1 回の遊びで 1 度だけ(おわる とき・もういっかい？の とき)。"""
+        if self._daily_done or self._stop.is_set():
+            return False
+        import rewards
+        try:
+            n = self._rw().today_plays(self._dev())
+        except Exception:  # noqa: BLE001
+            return False
+        if n < rewards.DAILY_MIN:
+            return False
+        self._daily_done = True
+        nm = self.robots[0]["name"] if self.robots else "ずんだ"
+        self._tell(eng, rewards.daily_line(nm, n), "joy", face="happy")
+        return True
+
+    def _synth(self, eng, i: int, text: str, emo_params, raw):
+        """声を作る。作るのに時間がかかりそうなときは、先に「えーっと…」と つなぐ(作り置きの声は、待たない)。"""
+        v = self.robots[i]["voice"]
+        from playfx import yomi
+        text = yomi(text)                                     # 読みまちがえやすい漢字は、ひらがなにして声にする(字幕は そのまま)
+
+        def call():
+            try:
+                if raw is not None:
+                    return eng.speech_pcm_as(text, v, raw=raw)
+                return eng.speech_pcm_as(text, v, emotion=emo_params)
+            except TypeError:
+                return eng.speech_pcm_as(text, v)
+        cached = getattr(eng, "line_cached", None)
+        if cached is None:
+            return call()
+        try:
+            if cached(text, v, emo_params if raw is None else None, raw):
+                return call()
+        except Exception:  # noqa: BLE001
+            return call()
+        box: list = []
+
+        def work():
+            try:
+                box.append(("ok", call()))
+            except Exception as e:  # noqa: BLE001
+                box.append(("err", e))
+        th = threading.Thread(target=work, daemon=True)
+        th.start()
+        th.join(self.FILLER_AFTER)
+        if th.is_alive() and not self._stop.is_set() and self.clock() - self._filler_t > self.FILLER_GAP:
+            from discuss import EMOTIONS
+            neutral = EMOTIONS["neutral"][1]
+            try:
+                if cached(self.FILLER, v, neutral, None):
+                    fp = eng.speech_pcm_as(self.FILLER, v, emotion=neutral)
+                    s = self._sess(i)
+                    if s is not None and len(fp):
+                        self._filler_t = self.clock()
+                        dur = s._send_pcm(fp, caption=self.FILLER, lang="ja")
+                        t0 = self.clock()
+                        while self.clock() - t0 < (dur or 0) + 0.1 and not self._stop.is_set():
+                            time.sleep(0.05)
+            except Exception:  # noqa: BLE001
+                pass
+        th.join()
+        kind, val = box[0] if box else ("err", RuntimeError("synth"))
+        if kind == "err":
+            raise val
+        return val
+
     def _speak(self, eng, i: int, text: str, emo: str = "joy", caption: "str | None" = None, raw: "dict | None" = None, face: "str | None" = None) -> None:
         """ロボット i が声に出す(顔と字幕つき)。話している間と直後は、聞き取りを捨てる。
         raw: 声の調子を直接指定する(speed/pitch/intonation/volume。ものまねなど。省略なら感情 emo の調子)。face: 顔を感情と別に指定。"""
@@ -354,13 +480,7 @@ class Shiritori(Stage):
                     sk.send({"t": "face", "state": (face or pr[2]) if k == i else "listening"})
                     if k != i:
                         sk.send({"t": "caption", "lang": "ja", "to": "ja", "orig": f'{self.robots[i]["name"]}: {caption or text}', "trans": "", "final": True})
-            try:
-                if raw is not None:
-                    pcm = eng.speech_pcm_as(text, self.robots[i]["voice"], raw=raw)
-                else:
-                    pcm = eng.speech_pcm_as(text, self.robots[i]["voice"], emotion=pr[1])
-            except TypeError:
-                pcm = eng.speech_pcm_as(text, self.robots[i]["voice"])
+            pcm = self._synth(eng, i, text, pr[1], raw)
             dur = s._send_pcm(pcm, caption=caption or text, lang="ja")
             t0 = self.clock()
             while self.clock() - t0 < (dur or 0) + 0.3 and not self._stop.is_set():
@@ -418,7 +538,7 @@ class Shiritori(Stage):
         self.msg = f"{name}: {w}"
         kid_prev = next((c["word"] for c in reversed(self.chain[:-1]) if c["kid"]), "")
         self._board(title="しりとり", a=(name, w), b=("きみ", kid_prev), foot=f"つぎは「{self.need}」から", ms=9000)
-        self._speak(eng, i, P["word"].format(w=w) + (f" つぎは『{self.need}』だよ。" if self.rnd.random() < 0.5 else ""), P["emo"])
+        self._speak(eng, i, robot_word_line(name, w, self.need), P["emo"])
         return True
 
     def _run(self, eng, robot_first: bool) -> None:
@@ -475,11 +595,13 @@ class Shiritori(Stage):
                         self.stats["best"] = self.score
                         self._save()
                     self._face("happy")
+                    self._ev("shiritori_chain", self.score)
                     if self.score and self.score % 5 == 0:             # 5 つ つなぐごとに、おおきく ほめる
                         self._nod(2)
                         self._say_robot(eng, f"{self.score}こ つながったよ!すごい、すごーい!", "excited")
                     elif self.rnd.random() < 0.5:                 # ほめる(話者はランダム)
                         self._say_robot(eng, self.rnd.choice(CHEER), "joy")
+                    self._celebrate(eng, f"s{self.score}")
                     if not self._robot_turn(eng, r):
                         self.score = max(self.score, 1)
                         return
@@ -544,23 +666,26 @@ class GameHub:
             pass
 
     def save(self) -> None:
-        """記録ファイルは、ほかの教材と共有する。自分の分だけ書き換える。"""
-        try:
+        """記録ファイルは、ほかの教材と共有する。自分の分だけ書き換える(読み→書きを順番に行い、途中で壊れないよう置き換えで書く)。"""
+        with FILE_LOCK:
             try:
-                allv = json.load(open(self.path))
-                if not isinstance(allv, dict):
+                try:
+                    allv = json.load(open(self.path))
+                    if not isinstance(allv, dict):
+                        allv = {}
+                except (OSError, ValueError):
                     allv = {}
-            except (OSError, ValueError):
-                allv = {}
-            if self.SKEY:
-                allv[self.SKEY] = dict(self.stats)
-            else:
-                allv.update(self.stats)
-            fd = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-            with os.fdopen(fd, "w") as f:
-                json.dump(allv, f)
-        except OSError:
-            pass
+                if self.SKEY:
+                    allv[self.SKEY] = dict(self.stats)
+                else:
+                    allv.update(self.stats)
+                tmp = f"{self.path}.tmp{os.getpid()}"
+                fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                with os.fdopen(fd, "w") as f:
+                    json.dump(allv, f)
+                os.replace(tmp, self.path)
+            except OSError:
+                pass
 
     @property
     def peer(self):
