@@ -57,6 +57,7 @@ def expand(name: str, tpl: str, extra: "dict | None" = None, cnt: "list | None" 
 
 def build_plan(names: list) -> list:
     """[(優先, 台詞, 感情キー or None, 声の調子 raw or None)]。優先が小さいほど先。同じ (台詞, 感情, raw) は 1 つ。"""
+    import camguide
     import fun
     import rewards
     import janken as jk
@@ -152,6 +153,9 @@ def build_plan(names: list) -> list:
             for tpl in jk.Janken.LINES.get(name, jk.Janken.LINES["ずんだ"])[res]:
                 for h in HANDS:
                     add(1, tpl.format(r=h), emo)
+        # ---- カメラの見え方の案内(近すぎ・遠すぎ・見えない・暗い…)
+        for t in camguide.all_lines(name):
+            add(1, t, "joy")
         # ---- しりとり
         d = "なのだ" if name == "ずんだ" else "だよ"
         for t in sh.INTRO:

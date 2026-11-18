@@ -10,6 +10,7 @@ import re
 import threading
 import time
 
+import camguide
 import hand as hand_mod
 import shiritori
 from playfx import Picker, tone
@@ -155,9 +156,111 @@ class Janken(Shiritori):
         self.cam_note = ""
         self.pick = Picker(self.rnd)
         self.lstreak = 0                       # ロボットの連勝
+        self.cam_state = ""                    # カメラでの子どもの見え方(camguide.STATES。まだ確認していなければ空)
+        self.cam_label = ""
+        self._coach_obj = camguide.Coach(self.clock)
+        self._cam_need = True                  # 次の「ぽん」の前に、子どもの位置を確認する
+        self._face_need = True                 # (あっち向いてホイ)次の「ホイ」の前に、顔の向きを読める位置か確認する
 
     def cam_enabled(self) -> bool:
-        return bool(getattr(self.hub, "janken_cam", True))
+        return bool(getattr(self.hub, "janken_cam", True)) and not self._coach_obj.gave_up       # うまく見えないと判断したあとは、声だけで進める
+
+    # ---- カメラの見え方の案内(近すぎ・遠すぎ・見えない・暗い…のとき、声と画面で子どもに知らせる)
+    def _cam_reset(self) -> None:
+        self._coach_obj = camguide.Coach(self.clock)
+        self._cam_need = self._face_need = True
+        self.cam_state = self.cam_label = ""
+
+    def _nap(self, sec: float) -> None:
+        """待つ(中止がかかったらすぐ抜ける。演出の早送り(FAST)の影響は受けない)。"""
+        t0 = time.time()
+        while time.time() - t0 < sec and not self._stop.is_set():
+            time.sleep(0.05)
+
+    def _cam_grab(self, secs: float = camguide.GRAB_S, n: int = camguide.GRAB_N) -> list:
+        """その機器のカメラ画像(JPEG)を、n 枚か secs 秒ぶん集める。画像の受け口は、集め終わったらもとに戻す。"""
+        sess = self.hub.by_id(self.robots[0]["id"]) if hasattr(self.hub, "by_id") and self.robots else None
+        if sess is None:
+            return []
+        frames: list = []
+        prev = getattr(sess, "hand_cb", None)
+
+        def cb(j):
+            frames.append(j)
+            if prev is not None:
+                try:
+                    prev(j)
+                except Exception:  # noqa: BLE001
+                    pass
+
+        sess.hand_cb = cb
+        t0 = time.time()
+        try:
+            while time.time() - t0 < secs and not self._stop.is_set():
+                if len(frames) >= n:
+                    break
+                time.sleep(0.05)
+        finally:
+            sess.hand_cb = prev
+        return list(frames)
+
+    def _cam_set(self, state: str) -> None:
+        self.cam_state = "" if state == "unknown" else state
+        self.cam_label = camguide.LABEL.get(state, "")
+
+    def _cam_say(self, eng, state: str) -> None:
+        """指示を、画面(大きな字)と声で出す。"""
+        text = camguide.line(self.robots[0]["name"], state, self.pick)
+        big, foot = camguide.board_text(state)
+        self.turn = ""
+        self.msg = text
+        self._board(title=camguide.TITLE, a=("", big), foot=foot, ms=int((camguide.FIX_WAIT_S + 5) * 1000))
+        self._speak(eng, 0, text, "joy")
+
+    def _cam_giveup(self, eng, kind: str) -> None:
+        """うまく見えないので、声だけで進める(以後、この遊びでは カメラを使わない)。"""
+        text = camguide.giveup_line(self.robots[0]["name"], kind, self.pick)
+        big, foot = camguide.giveup_board(kind)
+        self.turn = ""
+        self.msg = text
+        self.cam_note = "うまく見えないので、声だけで進めます"
+        self._board(title=camguide.TITLE, a=("", big), foot=foot, ms=6000)
+        self._speak(eng, 0, text, "joy")
+
+    def _cam_precheck(self, eng, kind: str = "jan") -> None:
+        """始める前に、子どもがカメラに ちょうどよく見えているか確かめる。だめなら指示して、直るのを待つ(上限あり)。
+        kind: jan=手のため(顔が見えればよい) / face=顔の向きを見るため(目の位置が読める大きさ・向きが要る)。"""
+        coach = self._coach_obj
+        face = getattr(eng, "face", None) if eng is not None else None
+        need = self._face_need if kind == "face" else self._cam_need
+        if not need or coach.skip or not self.cam_enabled() or not camguide.can_see(face):
+            return
+        if kind == "face":
+            self._face_need = False
+        else:
+            self._cam_need = False
+        t_end = time.time() + camguide.PRE_MAX_S
+        shown = False
+        while not self._stop.is_set() and time.time() < t_end:
+            r = camguide.analyze(face, self._cam_grab(), need_eyes=(kind == "face"))
+            st = r["state"]
+            self._cam_set(st)
+            act = coach.next(st)
+            if act in ("ok", "muted"):
+                break
+            if act == "giveup":
+                self._cam_giveup(eng, kind)
+                shown = False
+                break
+            if act == "say":
+                self._cam_say(eng, st)
+                shown = True
+                self._nap(camguide.FIX_WAIT_S)
+            else:
+                self._nap(camguide.RECHECK_S)
+        if shown and not self._stop.is_set():
+            self._board_clear()
+        self.turn = ""
 
     # ---- 開始
     def start(self, first: str = "robot", level: str = "easy", dev_id: "str | None" = None) -> "tuple[bool, str]":
@@ -205,12 +308,14 @@ class Janken(Shiritori):
         ls = self.LINES.get(name, self.LINES["ずんだ"])[res]
         return self.pick(f"jk:res:{res}", [x.format(r=NAME[hand]) for x in ls])
 
-    def _wait_hand(self) -> "tuple[str | None, str | None]":
+    def _wait_hand(self, eng=None) -> "tuple[str | None, str | None]":
         """子どもの手を待つ。(聞き取った言葉, カメラで見分けた手)。声が優先で、声で手が決まらなければカメラ。
 
         カメラが使えるとき: 「ぽん！」のあと CAM_WINDOW 秒、その機器の画像を集める(この間、顔追従の首の動きは止まる)。
         声の聞き取りが先に手(またはやめる)になればそれを使い、窓が閉じるまで声が無ければ、集めた画像の多数決で手を決める。
         手が決まらなければ、残りの時間(15秒まで)は、従来どおり声だけを待つ。
+        eng を渡すと、窓が閉じても手が見つからないとき、原因(近すぎ・遠すぎ・暗い・手が見えない…)を調べて、声と画面で子どもに指示し、もう一度見る
+        (同じ指示は 2 回まで。それでも直らなければ、声だけで進める)。
         """
         sess = self.hub.by_id(self.robots[0]["id"]) if hasattr(self.hub, "by_id") and self.robots else None
         if not (self.cam_enabled() and sess is not None and hand_mod.HandRecognizer.available()):
@@ -220,10 +325,13 @@ class Janken(Shiritori):
                 return "", None
         frames: list = []
         start = self.clock()
-        sess.hand_cb = lambda j: (frames.append(j), del_old(frames))
+        collect = lambda j: (frames.append(j), del_old(frames))      # noqa: E731
+        sess.hand_cb = collect
         self.msg = "カメラで、手を見ているよ…"
         voice_miss = ""
         cam_done = False
+        budget = camguide.HAND_BUDGET if eng is not None else 0
+        face = getattr(eng, "face", None) if eng is not None else None
         try:
             while self.clock() - start < 15.0:
                 try:
@@ -246,6 +354,27 @@ class Janken(Shiritori):
                         self.cam_hand = NAME[h]
                         return "", h
                     self.cam_hand = ""
+                    self._cam_need = True                          # 次の「ぽん」の前に、位置を確かめなおす
+                    if budget > 0 and frames and camguide.can_see(face):          # 原因を調べて、指示する
+                        why = camguide.hand_reason(camguide.analyze(face, frames)["state"])
+                        act = self._coach_obj.next(why) if why else "ok"
+                        if why:
+                            self._cam_set(why)
+                        if act in ("say", "giveup"):
+                            if act == "say":
+                                self._cam_say(eng, why)
+                                budget -= 1
+                                frames.clear()
+                                cam_done = False
+                                sess.hand_cb = collect
+                            else:
+                                self._cam_giveup(eng, "jan")           # 以後は声だけ
+                            self.turn = "kid"
+                            self._face("listening")
+                            self.msg = "カメラで、手を見ているよ…" if act == "say" else "こえで おしえてね"
+                            start = self.clock()
+                            voice_miss = ""
+                            continue
             return voice_miss, None
         finally:
             sess.hand_cb = None
@@ -263,17 +392,21 @@ class Janken(Shiritori):
 
     def _run(self, eng) -> None:
         try:
+            self._cam_reset()
             self.turn = ""
             self._speak(eng, 0, self._jk("intro" if self.cam_enabled() and hand_mod.HandRecognizer.available() else "intro_voice"), "excited")
             call = self._jk("first")
             while not self._stop.is_set():
+                self._cam_precheck(eng, "jan")                      # 近すぎ・遠すぎ・見えないときは、「ぽん」の前に指示する
+                if self._stop.is_set():
+                    break
                 if call:
                     self.msg = call
                     self._speak(eng, 0, call, "excited")
                 self.turn = "kid"
                 self._face("listening")
                 robot = pick_robot_hand(self.rnd, [h["robot"] for h in self.hands])
-                text, cam = self._wait_hand()
+                text, cam = self._wait_hand(eng)
                 if self._stop.is_set() or text is None:
                     break
                 if text and QUIT.search(text) and parse_hand(text) is None:
@@ -354,6 +487,7 @@ class Janken(Shiritori):
                 "wins": self.wins, "losses": self.losses, "draws": self.draws, "streak": self.streak,
                 "best": self.stats.get("streak_best", 0), "plays": self.stats.get("plays", 0),
                 "cam_on": self.cam_enabled(), "cam_ok": hand_mod.HandRecognizer.available(), "cam_hand": self.cam_hand, "cam_note": self.cam_note,
+                "cam_state": self.cam_state, "cam_label": self.cam_label, "cam_muted": self._coach_obj.gave_up,
                 "hands": [{"kid": NAME[h["kid"]], "robot": NAME[h["robot"]], "res": h["res"], "via": h.get("via", "voice")} for h in self.hands[-8:]]}
 
 

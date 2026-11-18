@@ -143,15 +143,18 @@ class Hoi(Play, Janken):
         """戻り値: ("kid_win"|"robot_win", 子どもの手, ロボットの手) / ("quit",) / ("idle",)"""
         misses = 0
         while not self._stop.is_set():
-            self.big = "じゃんけん…ぽん！"
             self.phase = "jan"
+            self._cam_precheck(eng, "jan")                       # 近すぎ・遠すぎ・見えないときは、「ぽん」の前に指示する
+            if self._stop.is_set():
+                break
+            self.big = "じゃんけん…ぽん！"
             self.qtext = call
             self._board(title="じゃんけん…", a=("", "ぽん！"), ms=3000)
             self._say(eng, call, "excited", face="happy")
             self.turn = "kid"
             self._face("listening")
             robot = pick_robot_hand(self.rnd, [h["robot"] for h in self.hands])
-            text, cam = self._wait_hand()
+            text, cam = self._wait_hand(eng)
             self._freeze(True)                                   # _wait_hand が手の認識用に取り替えた画像の受け口を、もとに戻す
             if self._stop.is_set() or text is None:
                 return ("quit",)
@@ -242,6 +245,9 @@ class Hoi(Play, Janken):
         d = self.rnd.choice(DIRS)
         self.atext = f"先生用: ロボットは「{DIR_NAME[d]}」を向きます。子どもが向いた向きを言葉で入れられます(うえ/した/ひだり/みぎ)"
         self._say(eng, self._h("r_win", r=NAME[self.hands[-1]["robot"]]), "excited", face="giggle")
+        self._cam_precheck(eng, "face")                         # 顔の向きを読める位置か確かめる(近すぎ・遠すぎ・見えない・暗い・横向きなら指示する)
+        if self._stop.is_set():
+            return "quit"
         base = baseline(self._kid_metrics(eng, [x for x in list(self._frames) if x[0] >= self.clock() - 6.0]))
         self._say(eng, self._h("amuite"), "surprise", face="surprise", raw=RAW_AMUITE)
         self._sleep(0.35)                                       # ちょっと ためる
@@ -253,6 +259,7 @@ class Hoi(Play, Janken):
         self._front()
         if self._stop.is_set() or how == "stop":
             return "quit"
+        self._face_need = kd is None                              # 見えなかったときは、次の「ホイ」の前に位置を確かめなおす
         if kd is None:
             self.big = "みえなかった…"
             self._board(a=(self.name, "?"), foot="どっちを むいたか わからなかった", ms=3500)
@@ -320,6 +327,7 @@ class Hoi(Play, Janken):
         return "none"
 
     def _run(self, eng) -> None:
+        self._cam_reset()
         self.hands = []
         self.round_streak = 0
         self._say(eng, self._h("intro"), "excited", face="happy")
@@ -384,7 +392,8 @@ class Hoi(Play, Janken):
 
     def snapshot(self) -> dict:
         d = Play.snapshot(self)
-        d.update({"phase": self.phase, "kid_points": self.kp, "robot_points": self.rp, "round_streak": self.round_streak, "best": self.stats.get("hoi_streak_best", 0)})
+        d.update({"phase": self.phase, "kid_points": self.kp, "robot_points": self.rp, "round_streak": self.round_streak, "best": self.stats.get("hoi_streak_best", 0),
+                  "cam_state": self.cam_state, "cam_label": self.cam_label, "cam_muted": self._coach_obj.gave_up, "cam_note": self.cam_note})
         return d
 
 
