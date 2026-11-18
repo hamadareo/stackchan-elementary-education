@@ -21,6 +21,14 @@ const int cx = 240;
 const int cy = 220;
 
 namespace m5avatar {
+// 遊びの表示カード: 見出し / 左右 2 列(名前・大きな字・矢印) / 一言。矢印 0=なし 1=上 2=下 3=左 4=右
+struct AvatarBoard {
+  char title[40], aWho[24], aBig[24], bWho[24], bBig[24], foot[64];
+  uint8_t aArrow, bArrow;
+  bool on;
+};
+extern AvatarBoard avatarBoard;
+extern volatile uint32_t avatarBoardSeq;
 extern char avatarCaption[512];
 extern volatile uint32_t avatarCaptionSeq;
 // 字幕を安全に読む(書き込み中なら待ち、読み終えて番号が変わっていたらやり直す)
@@ -42,8 +50,60 @@ class Balloon final : public Drawable {
   Balloon(const Balloon &other) = default;
   Balloon &operator=(const Balloon &other) = default;
   // 字幕: 画面下に折り返して表示(最大3行。長い文は 2.6 秒ごとにページ送り)。元の吹き出しは 1 行で見切れるため作り直した。
+  // 矢印(三角形)。cx,cy は中心、r は大きさ
+  static void arrow(M5Canvas *spi, int cx, int cy, int r, int dir, uint16_t col) {
+    if (dir == 1) spi->fillTriangle(cx, cy - r, cx - r, cy + r, cx + r, cy + r, col);
+    else if (dir == 2) spi->fillTriangle(cx, cy + r, cx - r, cy - r, cx + r, cy - r, col);
+    else if (dir == 3) spi->fillTriangle(cx - r, cy, cx + r, cy - r, cx + r, cy + r, col);
+    else if (dir == 4) spi->fillTriangle(cx + r, cy, cx - r, cy - r, cx - r, cy + r, col);
+  }
+  // 遊びの表示カード(字幕の上)。2 列なら左右、a だけなら中央に大きく出す
+  static void drawBoard(M5Canvas *spi, uint16_t fg, uint16_t bg) {
+    static AvatarBoard b;
+    static uint32_t seenSeq = 0xFFFFFFFF;
+    uint32_t q = avatarBoardSeq;
+    if (!(q & 1) && q != seenSeq) {
+      AvatarBoard t = avatarBoard;
+      if (q == avatarBoardSeq) { b = t; seenSeq = q; }
+    }
+    if (!b.on) return;
+    const int x0 = 6, y0 = 26, w = 308, h = 128;
+    spi->fillRoundRect(x0, y0, w, h, 10, fg);
+    spi->fillRoundRect(x0 + 2, y0 + 2, w - 4, h - 4, 9, bg);
+    spi->setTextColor(fg, bg);
+    spi->setTextDatum(TC_DATUM);
+    spi->setFont(&fonts::efontJA_16);
+    spi->setTextSize(1);
+    if (b.title[0]) spi->drawString(b.title, x0 + w / 2, y0 + 5);
+    bool two = b.bBig[0] || b.bArrow || b.bWho[0];
+    int colA = two ? x0 + w / 4 : x0 + w / 2, colB = x0 + 3 * w / 4;
+    for (int c = 0; c < (two ? 2 : 1); c++) {
+      const char *who = c ? b.bWho : b.aWho, *big = c ? b.bBig : b.aBig;
+      uint8_t ar = c ? b.bArrow : b.aArrow;
+      int cx = c ? colB : colA;
+      spi->setFont(&fonts::efontJA_16);
+      spi->setTextSize(1);
+      if (who[0]) spi->drawString(who, cx, y0 + 28);
+      if (ar) {
+        arrow(spi, cx, y0 + 74, 26, ar, fg);
+      } else if (big[0]) {
+        spi->setFont(&fonts::efontJA_24);
+        int len = strlen(big) / 3 + 1;                       // 文字数のめやす(日本語は 3 バイト)
+        spi->setTextSize(len <= 3 || (two && len <= 4) ? 2 : 1);
+        spi->drawString(big, cx, y0 + (spi->fontHeight() > 30 ? 50 : 62));
+      }
+    }
+    if (two) spi->drawFastVLine(x0 + w / 2, y0 + 30, h - 60, fg);
+    if (b.foot[0]) {
+      spi->setFont(&fonts::efontJA_16);
+      spi->setTextSize(1);
+      spi->drawString(b.foot, x0 + w / 2, y0 + h - 24);
+    }
+    spi->setTextDatum(TL_DATUM);
+  }
   void draw(M5Canvas *spi, BoundingRect rect,
             DrawContext *drawContext) override {
+    drawBoard(spi, drawContext->getColorPalette()->get(COLOR_BALLOON_FOREGROUND), drawContext->getColorPalette()->get(COLOR_BALLOON_BACKGROUND));
     // 折り返しの計算は字幕が変わったときだけ(毎フレームやると重く、通信タスクを圧迫して切断の原因になった)
     static uint32_t cachedSeq = 0xFFFFFFFF;
     static String lines[14];

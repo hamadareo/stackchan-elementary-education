@@ -83,7 +83,28 @@ static void setGaze(float x, float y) {
   avatar.setRightGaze(v, h); avatar.setLeftGaze(v, h);
 }
 static void setSpeaking(bool s) { if (!s) avatar.setMouthOpenRatio(0); }
-static uint32_t capUntil = 0;
+static uint32_t capUntil = 0, boardUntil = 0;
+static void clearBoard() {
+  m5avatar::avatarBoardSeq++;
+  m5avatar::avatarBoard.on = false;
+  m5avatar::avatarBoardSeq++;
+  boardUntil = 0;
+}
+// 遊びの表示カードを出す(ms 後に消える)。arrow: 0=なし 1=上 2=下 3=左 4=右
+static void setBoard(const char *title, const char *aWho, const char *aBig, int aArrow, const char *bWho, const char *bBig, int bArrow, const char *foot, uint32_t ms) {
+  m5avatar::avatarBoardSeq++;
+  auto &b = m5avatar::avatarBoard;
+  strlcpy(b.title, title ? title : "", sizeof b.title);
+  strlcpy(b.aWho, aWho ? aWho : "", sizeof b.aWho);
+  strlcpy(b.aBig, aBig ? aBig : "", sizeof b.aBig);
+  strlcpy(b.bWho, bWho ? bWho : "", sizeof b.bWho);
+  strlcpy(b.bBig, bBig ? bBig : "", sizeof b.bBig);
+  strlcpy(b.foot, foot ? foot : "", sizeof b.foot);
+  b.aArrow = (uint8_t)aArrow; b.bArrow = (uint8_t)bArrow;
+  b.on = true;
+  m5avatar::avatarBoardSeq++;
+  boardUntil = millis() + (ms ? ms : 6000);
+}
 static void keepCaption() { if (capUntil && capUntil < millis() + 6000) capUntil = millis() + 6000; }   // 読み上げ中は消さない
 static void writeCaption(const char *t) {                // 排他つきで字幕を書く(描画タスクが同時に読んでも壊れない)
   m5avatar::avatarCaptionSeq++;                           // 奇数 = 書き込み中
@@ -93,6 +114,7 @@ static void writeCaption(const char *t) {                // 排他つきで字�
 static void setCaption(const char *t) { writeCaption(t); capUntil = (t && *t) ? millis() + 14000 : 0; }   // 14秒たつと消える
 static void update() {                                   // 表情・字幕の時間切れ(loop から呼ぶ)
   if (capUntil && millis() > capUntil) { capUntil = 0; writeCaption(""); }
+  if (boardUntil && millis() > boardUntil) clearBoard();
   if (emoUntil && millis() > emoUntil) { emoUntil = 0; emo = NEUTRAL; apply(NEUTRAL); }
 }
 

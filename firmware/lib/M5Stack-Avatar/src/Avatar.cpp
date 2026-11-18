@@ -37,6 +37,8 @@ Avatar *DriveContext::getAvatar() { return avatar; }
 TaskHandle_t drawTaskHandle;
 char avatarCaption[512] = "";                 // 字幕(別タスクから書く。seqlock で読む)
 volatile uint32_t avatarCaptionSeq = 0;
+AvatarBoard avatarBoard;                        // 遊びの表示(何を出したか)。別タスクから書く。seqlock で読む
+volatile uint32_t avatarBoardSeq = 0;
 void (*avatarStripOverlay)(lgfx::LovyanGFX *, int, int) = nullptr;   // 短冊(画面への転送単位)に重ねて描く
 void (*avatarPostDraw)() = nullptr;   // 顔の描画の直後に、同じタスクから呼ぶ(ステータスバー等を安全に描くため)
 
