@@ -8,7 +8,7 @@ from __future__ import annotations
 import os
 import time
 
-EXPECTED = int(os.environ.get("SC_DEVICES", "3"))        # 使う機器の台数
+EXPECTED = int(os.environ.get("SC_EXPECT_DEVICES", "3") or 3)        # 使う機器の台数
 CACHE_S = 6.0
 _cache: dict = {"t": 0.0, "v": []}
 
