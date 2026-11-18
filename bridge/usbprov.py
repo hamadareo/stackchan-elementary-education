@@ -104,13 +104,41 @@ class Watcher:
                     st["status"], st["msg"] = "flashing", "書き込み中(約 1 分)…"
                     threading.Thread(target=self._flash, args=(mac, d["port"]), daemon=True).start()
 
-    def _flash(self, mac: str, port: str) -> None:
+    def reflash(self, mac: str = "") -> "tuple[bool, str]":
+        """登録済みの機器を USB で書き換える(ファームウェアの更新)。mac が空なら、つながっている全機器を順に。
+        書き込み中は、その機器のシリアル接続を一度手放し、終わると再接続する。"""
+        if not os.path.exists(IMAGE):
+            return False, "書き込み用のイメージがありません(Mac で deploy.sh を実行してください)"
+        devs = [d for d in scan() if d["port"] and (not mac or d["mac"] == mac.replace(":", "").lower())]
+        if not devs:
+            return False, "USB でつながっている機器がありません" if not mac else "その機器は USB でつながっていません"
+        if not os.access(devs[0]["port"], os.R_OK | os.W_OK):
+            return False, "USB ポートを開く権限がありません(管理者が `sudo usermod -aG dialout <ユーザー>` を実行し、再ログインしてください)"
+        todo = []
+        with self.lock:
+            for d in devs:
+                if d["mac"] in self._busy:
+                    continue
+                self._busy.add(d["mac"])
+                st = self.state.setdefault(d["mac"], {"mac": d["mac"], "port": d["port"], "status": "ready", "msg": "", "tries": 0, "t": 0.0})
+                st["port"], st["status"], st["msg"], st["t"] = d["port"], "flashing", "ファームウェアを更新中(約 1 分)…", time.time()
+                todo.append(d)
+        if not todo:
+            return False, "すでに書き込み中です"
+
+        def go():
+            for d in todo:                              # 1 台ずつ(同時に何台も書くと USB が不安定になる)
+                self._flash(d["mac"], d["port"], update=True)
+        threading.Thread(target=go, daemon=True).start()
+        return True, f"{len(todo)} 台を更新します(約 1 分ずつ)。終わるまで USB を抜かないでください"
+
+    def _flash(self, mac: str, port: str, update: bool = False) -> None:
         try:
             if self.release:
                 self.release(mac)
         except Exception:  # noqa: BLE001
             pass
-        self.hub.event(f"新しい機器を書き込みます: {mac[-6:]}")
+        self.hub.event(f"{'機器のファームウェアを更新します' if update else '新しい機器を書き込みます'}: {mac[-6:]}")
         ok, tail = False, ""
         try:
             r = subprocess.run([sys.executable, "-m", "esptool", "--chip", "esp32s3", "--port", port, "--baud", "921600",
@@ -123,7 +151,7 @@ class Watcher:
             st = self.state.get(mac)
             if st:
                 st["status"] = "flashed" if ok else "failed"
-                st["msg"] = "書き込み完了。再起動して Wi-Fi につながると登録されます" if ok else f"書き込みに失敗しました: {tail}"
+                st["msg"] = ("更新完了。再起動してつながり直します" if update else "書き込み完了。再起動して Wi-Fi につながると登録されます") if ok else f"書き込みに失敗しました: {tail}"
                 st["t"] = time.time()
         self.hub.event(f"{mac[-6:]}: " + ("書き込み完了" if ok else "書き込みに失敗"))
         self._busy.discard(mac)

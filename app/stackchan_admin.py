@@ -992,6 +992,14 @@ class Win(QMainWindow):
         t.setWordWrap(True)
         l.addWidget(t)
         lay.addWidget(c)
+        c, l = card("ファームウェアの更新(USB)", "USB でつながっている機器の、画面表示・動作のプログラムを新しくします")
+        t = QLabel("Wi-Fi が無い現場では、ここから更新します。1 台ずつ約 1 分かかり、その間はその機器が使えません。終わるまで USB を抜かないでください。<br>"
+                   "更新したい機器だけ USB でつないで、押してください(つながっている機器すべてが順に更新されます)。")
+        t.setTextFormat(Qt.RichText)
+        t.setWordWrap(True)
+        l.addWidget(t)
+        l.addWidget(btn("USB の機器を更新する", lambda: self.act("fw_usb", {"id": ""})))
+        lay.addWidget(c)
         lay.addStretch()
         self.dev_struct = ""
         self.dev_w = {}

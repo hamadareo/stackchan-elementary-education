@@ -290,6 +290,36 @@ class UsbLinkTests(unittest.TestCase):
             usbprov.scan, os.access, usbprov.IMAGE = old, old_acc, old_img
 
 
+class UsbReflashTests(unittest.TestCase):
+    def test_reflash_flow(self):
+        import usbprov, tempfile, os
+        events, calls = [], []
+        class Hub:
+            def event(s, m): events.append(m)
+            def by_id(s, m): return None
+        w = usbprov.Watcher(Hub(), {"get": lambda m: {"name": "x"}} and type("R", (), {"get": lambda s, m: {"name": "StackChan-1"}})())
+        w.release = lambda m: calls.append(("release", m)); w.resume = lambda m: calls.append(("resume", m))
+        img = tempfile.NamedTemporaryFile(delete=False); img.write(b"x"); img.close()
+        orig = (usbprov.IMAGE, usbprov.scan, usbprov.subprocess.run, usbprov.os.access)
+        try:
+            usbprov.IMAGE = img.name
+            usbprov.scan = lambda: [{"mac": "aabbcc", "port": "/dev/ttyACM9", "product": "x"}]
+            usbprov.os.access = lambda *a, **k: True
+            usbprov.subprocess.run = lambda cmd, **k: type("P", (), {"returncode": 0, "stdout": "Hash of data verified.", "stderr": ""})()
+            ok, msg = w.reflash("aa:bb:cc")
+            self.assertTrue(ok, msg)
+            for _ in range(100):
+                if ("resume", "aabbcc") in calls: break
+                time.sleep(0.05)
+            self.assertEqual(calls, [("release", "aabbcc"), ("resume", "aabbcc")])
+            self.assertEqual(w.state["aabbcc"]["status"], "flashed")
+            ok2, msg2 = w.reflash("ddeeff")                           # つながっていない機器
+            self.assertFalse(ok2)
+        finally:
+            usbprov.IMAGE, usbprov.scan, usbprov.subprocess.run, usbprov.os.access = orig
+            os.unlink(img.name)
+
+
 if __name__ == "__main__":
     unittest.main()
 

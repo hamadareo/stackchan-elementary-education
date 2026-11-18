@@ -724,6 +724,13 @@ class Hub:
             self.kid_auto = bool(body.get("on", True))
             self.event("自分から話しかける: " + ("オン" if self.kid_auto else "オフ(話しかけられたときだけ返事)"))
             return {"ok": True}
+        if name == "fw_usb":                              # USB でつながっている機器のファームウェアを更新(id が空なら全部)
+            u = getattr(self, "usb", None)
+            if u is None:
+                return {"ok": False, "error": "USB の監視が動いていません"}
+            ok, msg = u.reflash(str(body.get("id", "")))
+            self.event("ファームウェア更新(USB): " + msg)
+            return {"ok": ok, "error": "" if ok else msg, "msg": msg}
         if name == "menu_set":                            # 教材モードで子どもに出す遊びを選ぶ
             self.menu_acts = [a for a in body.get("acts", []) if a in ACTS]
             self.event("子どもに出す遊び: " + "、".join(self.menu_acts or ["なし"]))
