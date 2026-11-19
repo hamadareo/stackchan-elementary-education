@@ -88,17 +88,15 @@ BoundingRect *Face::getBoundingRect() { return boundingRect; }
 void Face::draw(DrawContext *ctx) {
   static M5Canvas *strips[2] = {nullptr, nullptr};
   if (avatarChari.on) {                      // ゲーム中: 顔は描かず、ゲームの画面を、帯に分けて描きながら送る(なめらか)
-    const int SH = 24;
     for (int i = 0; i < 2; i++) if (!strips[i]) {
       strips[i] = new M5Canvas(&M5.Display);
       strips[i]->setColorDepth(M5.Display.getColorDepth());
-      if (!strips[i]->createSprite(boundingRect->getWidth(), SH)) { delete strips[i]; strips[i] = nullptr; return; }
+      if (!strips[i]->createSprite(boundingRect->getWidth(), boundingRect->getHeight())) { delete strips[i]; strips[i] = nullptr; return; }
     }
-    uint32_t t0 = millis();
-    Balloon::chariPresent(strips, boundingRect->getLeft(), boundingRect->getTop(), boundingRect->getWidth(), boundingRect->getHeight(), SH);
-    avatarChari.tDraw = millis() - t0; avatarChari.tPush = 0;
+    Balloon::chariPresent(strips, boundingRect->getLeft(), boundingRect->getTop());
     return;
   }
+  if (strips[0] || strips[1]) { Balloon::chariWait(); }
   for (int i = 0; i < 2; i++) if (strips[i]) { strips[i]->deleteSprite(); delete strips[i]; strips[i] = nullptr; }   // ゲームが終わったら、メモリを返す
   sprite->createSprite(boundingRect->getWidth(), boundingRect->getHeight());
   sprite->setColorDepth(ctx->getColorDepth());
