@@ -200,6 +200,7 @@ class KidSwitchTests(PlayBase):
         self.assertTrue(k.switch(s, "じゃんけんしよう"))
         self.assertTrue(self._wait(lambda: not ga.on and jh.games.get("a") is not None and jh.games["a"].on, 600))
         jg = jh.games["a"]
+        self.assertTrue(self._wait(lambda: "a" not in k._switching, 100))             # 1 回目の切り替えが終わってから(終わる前の切り替えは、重複として無視される)
         self.assertTrue(k.switch(s, "おみくじしよう"))
         self.assertTrue(self._wait(lambda: not jg.on and qh.games.get("a") is not None and qh.games["a"].on, 600))
         self.assertEqual(k.current("a"), "omikuji")
