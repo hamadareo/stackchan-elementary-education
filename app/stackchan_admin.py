@@ -1473,7 +1473,7 @@ class Win(QMainWindow):
         w = QWidget()
         v = QVBoxLayout(w)
         v.setContentsMargins(0, 6, 0, 0)
-        v.addWidget(muted("ロボット対子供たち。各機器が、自分の前にいる子供たちと、独立に遊びます。なぞなぞ(5問で1ラウンド。「ヒント」で ヒント→答え)・あっちむいてホイ(じゃんけん→3点先取。顔の向きはカメラか声で判定)・おみくじ(何回でも)・ものまねボイス(5つの言葉を いろんな声で)。すべて内蔵で、ネットがなくても動きます。「やめる」でいつでも終わります"))
+        v.addWidget(muted("ロボット対子供たち。各機器が、自分の前にいる子供たちと、独立に遊びます。なぞなぞ(5問で1ラウンド。「ヒント」で ヒント→答え)・あっちむいてホイ(ロボットと子どもが、かわりばんこに ゆびさす。3点先取。顔の向きはカメラか声で判定)・おみくじ(何回でも)・ものまねボイス(5つの言葉を いろんな声で)。すべて内蔵で、ネットがなくても動きます。「やめる」でいつでも終わります"))
         row = [btn(f"▶ 全台で {lab}", lambda k=kd: self.quiz_go(None, k)) for kd, lab in self.QZ_KINDS]
         row.append(btn("■ 全部やめる", lambda: self.act("quiz_stop"), name="bad"))
         v.addLayout(hrow(*row))
@@ -1561,7 +1561,7 @@ class Win(QMainWindow):
                 hist.setTextFormat(Qt.RichText)
                 hist.setStyleSheet("font-size:14px;padding:4px")
                 typ = QLineEdit()
-                typ.setPlaceholderText("先生の入力(聞き取れないとき): なぞなぞは答え / あっちむいてホイは ぐー・ちょき・ぱー と うえ・した・ひだり・みぎ / おみくじは やる・やめる / ものまねは まねしてほしい言葉  → Enter")
+                typ.setPlaceholderText("先生の入力(聞き取れないとき): なぞなぞは答え / あっちむいてホイは うえ・した・ひだり・みぎ / おみくじは やる・やめる / ものまねは まねしてほしい言葉  → Enter")
                 typ.returnPressed.connect(lambda i=d["id"], e=typ: self.quiz_type(i, e))
                 v.addLayout(hrow(*row))
                 v.addWidget(big)

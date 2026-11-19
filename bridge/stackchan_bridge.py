@@ -152,7 +152,7 @@ class Engine:
         self._line_cache: "collections.OrderedDict" = collections.OrderedDict()      # 声の作り置き: キー → (音, 先読みか)
         self._line_bytes = {True: 0, False: 0}
         self._line_lock = threading.Lock()
-        self.speed_scale = 1.0                                 # 管理画面の「話速」(1.0 が標準)
+        self.speed_scale = 1.1                                 # 管理画面の「話速」(1.0 が標準。教室では少しだけ速い 1.1 を既定にする)
 
     def watch(self, every: float = 3.0) -> None:
         """s109 が後から見つかったら(再起動直後でネットワークが未接続だったときなど)GPU に切り替える。

@@ -20,7 +20,7 @@ CY, GR, AM, RD, MUTE = "#3fe0ff", "#41ffa8", "#ffc14d", "#ff5a6e", "#6f8aa6"
 KINDS = [("shiritori", "しりとり"), ("janken", "じゃんけん"), ("riddle", "なぞなぞ"), ("hoi", "あっちむいてホイ"), ("omikuji", "おみくじ"), ("mimic", "ものまねボイス")]
 LABEL = dict(KINDS)
 HINT = {"shiritori": "言葉を言う(例: りんご)", "janken": "ぐー・ちょき・ぱー", "riddle": "答えを言う(「ヒント」で ヒント)",
-        "hoi": "ぐー・ちょき・ぱー → うえ・した・ひだり・みぎ", "omikuji": "やる / やめる", "mimic": "まねしてほしい言葉"}
+        "hoi": "ロボットが ゆびさした向きと、ちがう向きを向く / 子どもの番は、うえ・した・ひだり・みぎ を言って ゆびさす", "omikuji": "やる / やめる", "mimic": "まねしてほしい言葉"}
 BTN_OFF = "QPushButton{font-size:17px;font-weight:700;padding:14px 8px;min-height:30px}"
 BTN_ON = f"QPushButton{{font-size:17px;font-weight:700;padding:14px 8px;min-height:30px;border:2px solid {GR};color:{GR};background:rgba(65,255,168,40)}}"
 STOP_QSS = f"QPushButton{{font-size:20px;font-weight:700;padding:16px 8px;border:2px solid {RD};color:#fff;background:{RD}}}QPushButton:disabled{{border:1px solid #3a2a30;color:#6a5258;background:rgba(255,90,110,10)}}QPushButton:hover:!disabled{{background:#ff7d8c}}"
