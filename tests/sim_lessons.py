@@ -88,7 +88,7 @@ def run(names):
 
 
 if __name__ == "__main__" and not os.environ.get("SIM"):
-    kinds = sys.argv[1:] or ["riddle", "shiritori", "janken", "hoi", "omikuji", "mimic"]
+    kinds = sys.argv[1:] or ["riddle", "shiritori", "janken", "omikuji", "mimic"]
     run(kinds)
 
 

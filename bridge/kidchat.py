@@ -69,9 +69,9 @@ def clean_reply(out: str, prev: str = "neutral") -> "tuple[str, str]":
 
 
 ASOBO = re.compile(r"あそぼ|遊ぼ|あそびたい|遊びたい|なにしよう|何しよう|なにして遊|なにしてあそ")
-ACT_LABEL = {"shiritori": "しりとり", "janken": "じゃんけん", "riddle": "なぞなぞ", "hoi": "あっちむいてホイ", "omikuji": "おみくじ", "mimic": "ものまね"}
-ACT_DEFAULT = ["shiritori", "janken", "riddle", "hoi", "omikuji", "mimic"]      # 子どもに出す遊びは、この6個だけ(ほかのことはしない)
-MENU = "しりとり、じゃんけん、なぞなぞ、あっちむいてホイ、おみくじ、ものまねが、できるよ！やりたいのを、言ってね！"
+ACT_LABEL = {"shiritori": "しりとり", "janken": "じゃんけん", "riddle": "なぞなぞ", "omikuji": "おみくじ", "mimic": "ものまね"}
+ACT_DEFAULT = ["shiritori", "janken", "riddle", "omikuji", "mimic"]      # 子どもに出す遊びは、この5個だけ(ほかのことはしない)
+MENU = "しりとり、じゃんけん、なぞなぞ、おみくじ、ものまねが、できるよ！やりたいのを、言ってね！"
 GUIDE_GAP = 7.0         # 遊びを選ぶ案内を、同じ機器でくり返すまでの最短の秒数
 
 
@@ -109,8 +109,7 @@ def nudge_msgs(k: int, name: str, hist: list) -> list:
 # 「なぞなぞしよう」「おみくじ」…(短く言うか、しよう・やろう などの言葉つきのとき)。通訳の指示(「えいごにして」)とは区別する
 PLAY = re.compile(r"しよう|しよ|やろう|やろ|あそぼ|遊ぼ|したい|やりたい|やって|出して|だして|おしえて|ちょうだい|しましょう|やりましょう|やる|して$|ひきたい|ひく|ひこう|ひいて|ひかせて|引き|ひきましょう")
 NOT_PLAY = re.compile(r"にして|に翻訳|に訳|通訳|で言って|でいって|で話|でしゃべ|ほんやく")
-KIND_PAT = [("hoi", re.compile(r"あっち.{0,2}むいて|アッチ.{0,2}ムイテ|あっち向い|アッチ向い|あっちむいてほい")),      # 「あっちむいてホイ」は、じゃんけんより先に見る
-            ("omikuji", re.compile(r"おみくじ|オミクジ|お神籤|御神籤|おみくじ")),
+KIND_PAT = [("omikuji", re.compile(r"おみくじ|オミクジ|お神籤|御神籤|おみくじ")),
             ("mimic", re.compile(r"ものまね|モノマネ|物まね|物真似|まねっこ|マネッコ|おうむがえし|オウム返し|まねして|マネして|真似して")),
             ("riddle", re.compile(r"なぞなぞ|ナゾナゾ|謎々|謎謎"))]
 

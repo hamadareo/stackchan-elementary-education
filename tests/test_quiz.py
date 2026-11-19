@@ -152,13 +152,13 @@ class DirTests(unittest.TestCase):
 
     def test_kid_triggers(self):
         import kidchat as k
-        for t, kind in [("なぞなぞしよう", "riddle"), ("あっちむいてホイしよう", "hoi"), ("あっち向いてほい", "hoi"), ("あっちむいてほいやりたい", "hoi"), ("おみくじ", "omikuji"),
+        for t, kind in [("なぞなぞしよう", "riddle"), ("おみくじ", "omikuji"),
                         ("おみくじひきたい", "omikuji"), ("ものまねしよう", "mimic"), ("まねっこ", "mimic"), ("おうむがえしやろう", "mimic")]:
             self.assertEqual(k.quiz_kind(t), kind, t)
         for t in ("これをえいごにして", "さんすうしよう", "クイズやろう", "かんじしよう", "えいごしよう"):          # 勉強の遊びは廃止
             self.assertIsNone(k.quiz_kind(t), t)
-        self.assertEqual(k.ACT_DEFAULT, ["shiritori", "janken", "riddle", "hoi", "omikuji", "mimic"])
-        for w in ("しりとり", "じゃんけん", "なぞなぞ", "あっちむいてホイ", "おみくじ", "ものまね"):
+        self.assertEqual(k.ACT_DEFAULT, ["shiritori", "janken", "riddle", "omikuji", "mimic"])
+        for w in ("しりとり", "じゃんけん", "なぞなぞ", "おみくじ", "ものまね"):
             self.assertIn(w, k.MENU)
             self.assertIn(w, k.menu_text(k.ACT_DEFAULT))
         self.assertNotIn("クイズ", k.MENU)

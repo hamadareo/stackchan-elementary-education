@@ -25,7 +25,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 import devices as _devices
 REG = _devices.Registry()          # 機器台帳(初めて見た機器は自動で登録する)
 TOKEN = os.environ.get("SC_ADMIN_TOKEN", "")
-ACTS = ("shiritori", "janken", "riddle", "hoi", "omikuji", "mimic")     # 子どもに出す遊び(教材モード)。これ以外は出さない
+ACTS = ("shiritori", "janken", "riddle", "omikuji", "mimic")     # 子どもに出す遊び(教材モード)。これ以外は出さない
 
 
 class Hub:

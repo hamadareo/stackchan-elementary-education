@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import time
 
-KINDS = [("shiritori", "しりとり"), ("janken", "じゃんけん"), ("riddle", "なぞなぞ"), ("hoi", "あっちむいてホイ"), ("omikuji", "おみくじ"), ("mimic", "ものまねボイス")]
+KINDS = [("shiritori", "しりとり"), ("janken", "じゃんけん"), ("riddle", "なぞなぞ"), ("omikuji", "おみくじ"), ("mimic", "ものまねボイス")]
 LABEL = dict(KINDS)
 STOP_WAIT_S = 5.0                 # 止めた遊びが、完全に終わるのを待つ最長の秒数
 

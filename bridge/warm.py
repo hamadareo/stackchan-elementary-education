@@ -108,13 +108,13 @@ def build_plan(names: list) -> list:
         bank(2, name, L["try"], "joy", cnt=[0, 1, 2])
         # ---- あっち向いてホイ
         H = fun.HOI
-        for scene, emo in (("intro", "excited"), ("r_turn", "excited"), ("k_turn", "joy"), ("k_ask", "joy"),
+        for scene, emo in () if True else (("intro", "excited"), ("r_turn", "excited"), ("k_turn", "joy"), ("k_ask", "joy"),
                            ("k_ask2", "joy"), ("amuite", None), ("hoi", None), ("r_hit", "excited"), ("r_miss", "sad"), ("k_hit", "surprise"), ("k_miss", "excited"),
                            ("score", "neutral"), ("unseen", "doubt"), ("kid_round", "excited"), ("robot_round", "joy"), ("draw_round", "joy"), ("streak", "excited"), ("bye", "joy")):
             prio = 0 if scene in ("intro", "bye") else 1
             if emo:
                 bank(prio, name, H[scene], emo)
-        for scene, raw in (("amuite", fun.RAW_AMUITE), ("hoi", fun.RAW_HOI)):
+        for scene, raw in ():                                   # あっちむいてホイは、分かりにくいので外した(先読みも作らない)
             for tpl in H[scene]:
                 for t in expand(name, tpl):
                     add(1, t, None, raw)

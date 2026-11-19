@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (QCheckBox, QFrame, QGridLayout, QHBoxLayout, QLab
                                QVBoxLayout, QWidget)
 
 CY, GR, AM, RD, MUTE = "#3fe0ff", "#41ffa8", "#ffc14d", "#ff5a6e", "#6f8aa6"
-KINDS = [("shiritori", "しりとり"), ("janken", "じゃんけん"), ("riddle", "なぞなぞ"), ("hoi", "あっちむいてホイ"), ("omikuji", "おみくじ"), ("mimic", "ものまねボイス")]
+KINDS = [("shiritori", "しりとり"), ("janken", "じゃんけん"), ("riddle", "なぞなぞ"), ("omikuji", "おみくじ"), ("mimic", "ものまねボイス")]
 LABEL = dict(KINDS)
 HINT = {"shiritori": "言葉を言う(例: りんご)", "janken": "ぐー・ちょき・ぱー", "riddle": "答えを言う(「ヒント」で ヒント)",
         "hoi": "ロボットが ゆびさした向きと、ちがう向きを向く / 子どもの番は、うえ・した・ひだり・みぎ を言って ゆびさす", "omikuji": "やる / やめる", "mimic": "まねしてほしい言葉"}

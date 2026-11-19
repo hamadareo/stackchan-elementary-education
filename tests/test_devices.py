@@ -361,7 +361,7 @@ class MenuBoardTests(unittest.TestCase):
         h = Hub()
         self.assertEqual(menuboard.tick(h), 1)                     # a は じゃんけん中 → b だけに出す
         self.assertEqual(sent[0][0], "b")
-        self.assertEqual(sent[0][1]["ls"], ["しりとり", "じゃんけん", "なぞなぞ", "あっちむいて", "おみくじ", "ものまね"])
+        self.assertEqual(sent[0][1]["ls"], ["しりとり", "じゃんけん", "なぞなぞ", "おみくじ", "ものまね"])
         h.edu_on = False
         self.assertEqual(menuboard.tick(h), 0)                     # 教材モードでなければ出さない
         h.edu_on = True; h.menu_acts = ["janken"]

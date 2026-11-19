@@ -35,7 +35,7 @@ class LessonBase(PlayBase):
 class LessonTests(LessonBase):
     def test_start_each_kind(self):
         les, gh, jh, qh, sent = self._lesson()
-        for kind in ("shiritori", "janken", "riddle", "hoi", "omikuji", "mimic"):
+        for kind in ("shiritori", "janken", "riddle", "omikuji", "mimic"):
             self.assertTrue(les.start(kind, ["a"])[0], kind)
             self.assertTrue(self._wait(lambda: les.current("a") == kind, 100), kind)
             les.stop("a")
@@ -95,14 +95,14 @@ class LessonTests(LessonBase):
 
     def test_snapshot_reports_each_device(self):
         les, gh, jh, qh, sent = self._lesson()
-        self.assertTrue(les.start("hoi", ["b"])[0])
-        self.assertTrue(self._wait(lambda: les.current("b") == "hoi", 100))
+        self.assertTrue(les.start("omikuji", ["b"])[0])
+        self.assertTrue(self._wait(lambda: les.current("b") == "omikuji", 100))
         devs = [{"id": i, "name": "N" + i, "online": True} for i in "abc"]
         snap = {x["id"]: x for x in les.snapshot(devs)}
         self.assertFalse(snap["a"]["on"])
         self.assertEqual(snap["a"]["label"], "")
         self.assertTrue(snap["b"]["on"])
-        self.assertEqual((snap["b"]["kind"], snap["b"]["label"]), ("hoi", "あっちむいてホイ"))
+        self.assertEqual((snap["b"]["kind"], snap["b"]["label"]), ("omikuji", "おみくじ"))
         self.assertIn("msg", snap["b"]["detail"])
         les.stop()
 
@@ -252,7 +252,7 @@ class ChunkTests(LessonBase):
 
 class RehearsalTests(LessonBase):
     """授業の通し稽古: 先生が管理画面で押す順番を、そのまま再現する。"""
-    KINDS = ("shiritori", "janken", "riddle", "hoi", "omikuji", "mimic")
+    KINDS = ("shiritori", "janken", "riddle", "omikuji", "mimic")
 
     def test_full_lesson_all_devices(self):
         les, gh, jh, qh, sent = self._lesson()

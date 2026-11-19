@@ -11,8 +11,8 @@ import time
 
 import board
 
-SHORT = {"shiritori": "しりとり", "janken": "じゃんけん", "riddle": "なぞなぞ", "hoi": "あっちむいて", "omikuji": "おみくじ", "mimic": "ものまね"}
-ORDER = ["shiritori", "janken", "riddle", "hoi", "omikuji", "mimic"]
+SHORT = {"shiritori": "しりとり", "janken": "じゃんけん", "riddle": "なぞなぞ", "omikuji": "おみくじ", "mimic": "ものまね"}
+ORDER = ["shiritori", "janken", "riddle", "omikuji", "mimic"]
 EVERY_S = 5.0
 SHOW_MS = 9000
 

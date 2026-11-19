@@ -114,7 +114,7 @@ class FuzzTests(PlayBase):
         self.assertEqual(self.servo_sum(sent), (0, 0), kind)              # 首は必ず正面に戻る
 
     def test_fuzz_each_game(self):
-        for i, kind in enumerate(("shiritori", "janken", "riddle", "hoi", "omikuji", "mimic")):
+        for i, kind in enumerate(("shiritori", "janken", "riddle", "hoi", "omikuji", "mimic")):   # あっちむいてホイは選べなくしたが、中身は壊れていないことを確かめ続ける
             self._fuzz_game(kind, i, 100 + i)
 
 
@@ -184,7 +184,7 @@ class KidSwitchTests(PlayBase):
         self.assertEqual(k.want("じゃんけんしよう"), "janken")
         self.assertEqual(k.want("しりとりやろう"), "shiritori")
         self.assertEqual(k.want("おみくじ ひきたい"), "omikuji")
-        self.assertEqual(k.want("あっちむいてホイしよう"), "hoi")
+        self.assertIsNone(k.want("あっちむいてホイしよう"))                 # あっちむいてホイは、外した
         self.assertEqual(k.want("なぞなぞしよう"), "riddle")
         for t in ("じゃんけん", "しりとり", "おみくじ", "ものまね", "ぞう", "これをえいごにして", "", "あそぼう"):
             self.assertIsNone(k.want(t), t)

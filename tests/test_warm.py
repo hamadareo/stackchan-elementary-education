@@ -49,9 +49,8 @@ class ExpandTests(unittest.TestCase):
             self.assertNotRegex(text, r"\{\w+\}")
             self.assertTrue(emo or raw)
         texts = {p[1] for p in plan}
-        for must in ("ガラガラ、ガラガラ…", "ホイ！"):
+        for must in ("ガラガラ、ガラガラ…",):
             self.assertIn(must, texts)
-        self.assertTrue(any("ゆびを さす" in t for t in texts))                           # あっち向いてホイの、攻める側の台詞
         self.assertTrue(any(p[1].startswith("りんごなのだ！") for p in plan))             # しりとりのロボットの言葉(ずんだ)
         self.assertTrue(any(p[1].startswith("りんご、ですね。") for p in plan))           # めたん
         first = [p for p in plan if p[0] == 0]
@@ -62,8 +61,6 @@ class ExpandTests(unittest.TestCase):
         plan = {(p[1], p[2], tuple(sorted(p[3].items())) if p[3] else None) for p in W.build_plan(["ずんだ"])}
         def has(text, emo=None, raw=None):
             return (text, emo, tuple(sorted(raw.items())) if raw else None) in plan
-        self.assertTrue(has("ホイ！", raw=fun.RAW_HOI))
-        self.assertTrue(has("あっちむいて〜…", raw=fun.RAW_AMUITE))
         self.assertTrue(has(sh.robot_word_line("ずんだ", "りんご", "ご"), "excited"))
         self.assertTrue(has("1もんめ！", "neutral"))
         self.assertTrue(has("ぼくもぐーなのだ！あいこなのだ！", "surprise"))        # じゃんけんのあいこ(ずんだ)

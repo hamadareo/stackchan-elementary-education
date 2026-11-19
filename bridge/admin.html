@@ -372,7 +372,7 @@ async function api(name,body){
     $('msg').textContent=j.ok?'':'⚠ '+(j.error||'失敗');if(!j.ok)toast('⚠ '+(j.error||'失敗'));return j}catch(e){$('msg').textContent='⚠ 通信できません'}
 }
 /* ---- lesson ---- */
-const LKINDS=[['shiritori','しりとり'],['janken','じゃんけん'],['riddle','なぞなぞ'],['hoi','あっちむいてホイ'],['omikuji','おみくじ'],['mimic','ものまねボイス']];
+const LKINDS=[['shiritori','しりとり'],['janken','じゃんけん'],['riddle','なぞなぞ'],['omikuji','おみくじ'],['mimic','ものまねボイス']];
 let lKey='';
 function renderLesson(s){
   const L=s.lesson||[];$('lteach').checked=!!s.teacher_only;
