@@ -174,13 +174,15 @@ class Stage:
         self._sleep(0.3)
 
     def _board(self, title: str = "", a=("", ""), b=("", ""), foot: str = "", ms: int = 6000, a_arrow: str = "", b_arrow: str = "",
-               a_icon: str = "", b_icon: str = "", fx: str = "") -> None:
+               a_icon: str = "", b_icon: str = "", fx: str = "", style: str = "", a_mark: str = "", b_mark: str = "", hl: int = 0, swatch: str = "") -> None:
         """機器の画面に、遊びの表示カード(出した手・言葉・向き・運勢)を出す。古いファームウェアでは何も起きない。"""
         import board
-        self.board_state = {"title": title, "aw": a[0], "ab": a[1], "bw": b[0], "bb": b[1], "ai": a_icon, "bi": b_icon, "aa": a_arrow, "ba": b_arrow, "foot": foot, "fx": fx}   # 管理画面にも、同じ絵を見せる
+        self.board_state = {"title": title, "aw": a[0], "ab": a[1], "bw": b[0], "bb": b[1], "ai": a_icon, "bi": b_icon, "aa": a_arrow, "ba": b_arrow, "foot": foot, "fx": fx,
+                            "st": style, "am": a_mark, "bm": b_mark, "hl": hl, "cc": swatch}   # 管理画面にも、同じ絵を見せる
         s = self._sess(0) if getattr(self, "robots", None) else None
         if s is not None:
-            board.show(s, title, a=a, b=b, foot=foot, ms=ms, a_arrow=a_arrow, b_arrow=b_arrow, a_icon=a_icon, b_icon=b_icon, fx=fx)
+            board.show(s, title, a=a, b=b, foot=foot, ms=ms, a_arrow=a_arrow, b_arrow=b_arrow, a_icon=a_icon, b_icon=b_icon, fx=fx,
+                       style=style, a_mark=a_mark, b_mark=b_mark, hl=hl, swatch=swatch)
 
     def _board_clear(self) -> None:
         import board

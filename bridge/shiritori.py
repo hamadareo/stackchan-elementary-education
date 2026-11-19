@@ -393,7 +393,7 @@ class Shiritori(Stage):
         self._cel_key = key
         self.hub.event(f"しょうごう: {t[1]}")
         nm = self.robots[0]["name"] if self.robots else "ずんだ"
-        self._board(title="しょうごう ゲット！", a=(nm, "★"), b=("きみ", t[1]), foot=t[4], ms=8000, fx="win")
+        self._board(title="しょうごう ゲット！", a=(nm, ""), b=("きみ", t[1]), foot=t[4], ms=8000, fx="win", style="word", a_mark="star")
         try:
             self._nod(3)
         except Exception:  # noqa: BLE001
@@ -591,7 +591,7 @@ class Shiritori(Stage):
         w = choose_word(self.need, self._used(), self.level, self.rnd)
         if w is None:
             self.result = "kid_win"
-            self._board(title="しりとり", a=(name, "まいった"), b=("きみ", "かち！"), foot="きみの かち！", ms=7000)
+            self._board(title="しりとり", a=(name, "まいった"), b=("きみ", "かち！"), foot="きみの かち！", ms=7000, style="word", b_mark="star", fx="win")
             self._wobble()
             self._say_robot(eng, self.rnd.choice(WIN_KID) if name == "ずんだ" else self.rnd.choice(WIN_KID_PLAIN), "surprise", i)
             return False
@@ -600,7 +600,7 @@ class Shiritori(Stage):
         P = self.PERSONA.get(name, self.PERSONA["ずんだ"])
         self.msg = f"{name}: {w}"
         kid_prev = next((c["word"] for c in reversed(self.chain[:-1]) if c["kid"]), "")
-        self._board(title="しりとり", a=(name, w), b=("きみ", kid_prev), foot=f"つぎは「{self.need}」から", ms=9000)
+        self._board(title="しりとり", a=(name, w), b=("きみ", kid_prev), foot=f"つぎは「{self.need}」から", ms=9000, style="word", hl=1)
         self._speak(eng, i, robot_word_line(name, w, self.need), P["emo"])
         return True
 
@@ -653,7 +653,7 @@ class Shiritori(Stage):
                     self.score += 1
                     self.need = last_char(reading)
                     self.msg = f"あなた: {clean_word(text)}"
-                    self._board(title="しりとり", a=("", ""), b=("きみ", clean_word(text)), foot=f"つぎは「{self.need}」から", ms=6000)
+                    self._board(title="しりとり", a=("", ""), b=("きみ", clean_word(text)), foot=f"つぎは「{self.need}」から", ms=6000, style="word", hl=1)
                     if self.score > self.stats["best"]:
                         self.stats["best"] = self.score
                         self._save()
@@ -673,7 +673,7 @@ class Shiritori(Stage):
                     self.chain.append({"who": "あなた", "word": clean_word(text), "reading": reading, "kid": True})
                     self.result = "robot_win"
                     self.msg = f"あなた: {clean_word(text)}(ん)"
-                    self._board(title="しりとり", a=("", "ん"), b=("きみ", clean_word(text)), foot="「ん」が ついた！", ms=7000)
+                    self._board(title="しりとり", a=("", ""), b=("きみ", clean_word(text)), foot="「ん」が ついた！", ms=7000, style="word", hl=1, a_mark="ng")
                     self._wobble()
                     self._say_robot(eng, self.rnd.choice(LOSE_ROBOT), "joy")
                     return

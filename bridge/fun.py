@@ -127,8 +127,8 @@ class Hoi(Play, Janken):
     def _h(self, scene: str, **kw) -> str:
         return self.L(scene, HOI[scene] if scene in HOI else None, **kw)
 
-    def _board(self, title: str = "あっちむいてホイ", a=("", ""), b=("", ""), foot="", ms=6000, a_arrow="", b_arrow="", a_icon="", b_icon="", fx="") -> None:
-        Stage._board(self, title, a, b, foot, ms, a_arrow, b_arrow, a_icon, b_icon, fx)
+    def _board(self, title: str = "あっちむいてホイ", a=("", ""), b=("", ""), foot="", ms=6000, a_arrow="", b_arrow="", a_icon="", b_icon="", fx="", **kw) -> None:
+        Stage._board(self, title, a, b, foot, ms, a_arrow, b_arrow, a_icon, b_icon, fx, **kw)
 
     def _set_stat(self) -> None:
         self.stat = f"きみ {self.kp}てん ・ ロボット {self.rp}てん ・ れんしょう {self.round_streak}"
@@ -347,6 +347,8 @@ class Hoi(Play, Janken):
 # (読み, 表示, 重み, 声の調子, 顔, うなずく回数)
 RANKS = [("だいきち", "大吉", 9, "excited", "giggle", 3), ("ちゅうきち", "中吉", 20, "joy", "happy", 2), ("しょうきち", "小吉", 24, "joy", "happy", 1),
          ("きち", "吉", 26, "joy", "happy", 1), ("すえきち", "末吉", 21, "shy", "happy", 0)]
+SWATCH = {"あか": "e63c32", "あお": "2864dc", "きいろ": "ffd21e", "みどり": "3ca050", "ピンク": "ff82aa", "オレンジ": "ff8c1e", "むらさき": "8c50c8", "みずいろ": "78c8f0",
+          "しろ": "ffffff", "きんいろ": "e6b422", "ぎんいろ": "b4b9c3", "ちゃいろ": "8c5a32", "ももいろ": "ffb4c8", "きみどり": "aadc32", "こんいろ": "1e2d64", "くろ": "282832"}
 COLORS = ["あか", "あお", "きいろ", "みどり", "ピンク", "オレンジ", "むらさき", "みずいろ", "しろ", "きんいろ", "ぎんいろ", "ちゃいろ", "ももいろ", "きみどり", "こんいろ", "くろ"]
 ITEMS = ["えんぴつ", "おにぎり", "くつした", "ハンカチ", "どんぐり", "ボール", "えほん", "おべんとう", "かさ", "ぼうし", "リボン", "ふでばこ", "けしごむ", "とけい", "かがみ",
          "てぶくろ", "マフラー", "ぬいぐるみ", "ブロック", "しゃぼんだま", "ふうせん", "ビーだま", "おりがみ", "クレヨン", "たいこ", "ふえ", "スプーン", "ノート", "じてんしゃ",
@@ -438,14 +440,15 @@ class Omikuji(Play):
         self._save()
         self.big = "ガラガラ…"
         self.qtext = ""
-        self._board(title="おみくじ", a=("きょうの うんせい", "…"), foot="ガラガラ…", ms=4000)
+        self._board(title="おみくじ", a=("きょうの うんせい", "…"), foot="ガラガラ…", ms=4000, style="omikuji")
         self._rattle(eng, self._o("rattle"))
         self._sleep(0.25)
         self._say(eng, self._o("pon"), "surprise", face="surprise")
         self.big = f"{d['rank']}！"
         self.qtext = f"{d['rank']}  ラッキーカラー: {d['color']}  ラッキーなもの: {d['item']}"
         self.atext = d["msg"].replace("{d}", "だよ")
-        self._board(title="おみくじ", a=("きょうの うんせい", d["rank"]), foot=f"{d['color']} / {d['item']}", ms=9000)
+        self._board(title="おみくじ", a=("きょうの うんせい", d["rank"]), foot=f"{d['color']} / {d['item']}", ms=9000, style="omikuji",
+                    a_mark="star" if d["rank"] == "大吉" else "", swatch=SWATCH.get(d["color"], ""))
         if d["nod"]:
             self._nod(d["nod"])
         self._say(eng, self.L("rank", OMIKUJI["rank"][d["yomi"]], rank=d["yomi"]), d["emo"], face=d["face"], raw=RAW_DAIKICHI if d["yomi"] == "だいきち" else None)
@@ -547,8 +550,7 @@ class Mimic(Play):
         self.qtext = f"「{text}」を「{label}」で"
         self.atext = f"声: {label}"
         s = self._sess(0) if self.robots else None
-        if s is not None:
-            board.show(s, "ものまね", a=("きみ", short_text(text)), b=(short, "♪"), foot=f"{label}で まねっこ", ms=7000)
+        self._board(title="ものまね", a=("", short), b=("きみ", short_text(text, 6)), foot=f"{label}で まねっこ", ms=7000, style="mimic", a_mark="note")
         self._say(eng, self._m("announce", label=label), "joy", face="listening")
         if face in ("happy", "giggle", "surprise"):
             self._nod(1)

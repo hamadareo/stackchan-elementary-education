@@ -171,6 +171,99 @@ class BubbleView(QWidget):
         p.drawRoundedRect(QRectF(x + 4, y + 4, w - 8, h - 8), 15, 15)
         p.drawPolygon(QPolygonF([QPointF(bx - 10, y + h - 7), QPointF(bx + 10, y + h - 7), QPointF(tx, ty - 7)]))
 
+
+    # ---- ことば・しるしの吹き出し(しりとり・なぞなぞ・おみくじ・ものまね。機器の Balloon.h と同じ)
+    def mark(self, p, cx, cy, kind, s):
+        r = 26 * s
+        red, blu, gold, zun = QColor(238, 82, 60), QColor(40, 110, 220), QColor(255, 200, 40), QColor(86, 176, 64)
+        p.setPen(Qt.NoPen)
+        if kind == "ok":
+            p.setBrush(red); p.drawEllipse(QPointF(cx, cy), r, r); p.setBrush(QColor(255, 255, 255)); p.drawEllipse(QPointF(cx, cy), r - 9 * s, r - 9 * s)
+        elif kind == "ng":
+            self.cap(p, cx - r + 4, cy - r + 4, cx + r - 4, cy + r - 4, 6 * s, blu); self.cap(p, cx + r - 4, cy - r + 4, cx - r + 4, cy + r - 4, 6 * s, blu)
+        elif kind == "q":
+            p.setBrush(zun); p.drawEllipse(QPointF(cx, cy), r, r)
+            f = QFont(); f.setPixelSize(int(34 * s)); f.setBold(True); p.setFont(f); p.setPen(QColor(255, 255, 255))
+            p.drawText(QRectF(cx - r, cy - r, 2 * r, 2 * r), Qt.AlignCenter, "?")
+        elif kind == "star":
+            import math
+            R = r * 1.15
+            p.setBrush(gold)
+            p.drawPolygon(QPolygonF([QPointF(cx + (R if i % 2 == 0 else R * 0.45) * math.cos(math.radians(-90 + 36 * i)), cy + (R if i % 2 == 0 else R * 0.45) * math.sin(math.radians(-90 + 36 * i))) for i in range(10)]))
+        elif kind == "note":
+            p.setBrush(self.INK); p.drawEllipse(QPointF(cx - r / 3, cy + r / 2), r / 2, r / 2)
+            p.drawRect(QRectF(cx - r / 3 + r / 2 - 3, cy - r, 5, r * 1.5 + 2))
+            p.drawPolygon(QPolygonF([QPointF(cx + r / 6 + 2, cy - r), QPointF(cx + r / 6 + 2, cy - r / 4), QPointF(cx + r, cy - r / 8)]))
+
+    def content(self, p, x, y, w, h, mk, text, hl):
+        if mk and not text:
+            self.mark(p, x + w / 2, y + h / 2, mk, 1.5); return
+        tx, tw = x + 10, w - 20
+        if mk:
+            self.mark(p, x + 34, y + h / 2, mk, 0.9); tx, tw = x + 66, w - 76
+        if not text:
+            return
+        f = QFont(); f.setPixelSize(24); p.setFont(f)
+        if p.fontMetrics().horizontalAdvance(text) > tw:
+            f.setPixelSize(16); p.setFont(f)
+        fm = p.fontMetrics()
+        if fm.horizontalAdvance(text) <= tw:
+            x1 = tx if mk else tx + (tw - fm.horizontalAdvance(text)) / 2
+            head, last = (text[:-1], text[-1]) if hl else (text, "")
+            p.setPen(self.INK); p.drawText(QPointF(x1, y + h / 2 + fm.ascent() / 2 - 1), head)
+            if last:
+                p.setPen(QColor(238, 82, 60)); p.drawText(QPointF(x1 + fm.horizontalAdvance(head), y + h / 2 + fm.ascent() / 2 - 1), last)
+            return
+        a = ""
+        for ch in text:
+            if fm.horizontalAdvance(a + ch) > tw: break
+            a += ch
+        rest = text[len(a):]
+        while fm.horizontalAdvance(rest) > tw and len(rest) > 1: rest = rest[:-1]
+        p.setPen(self.INK)
+        p.drawText(QPointF(tx, y + h / 2 - 11 + fm.ascent() / 2), a); p.drawText(QPointF(tx, y + h / 2 + 11 + fm.ascent() / 2), rest)
+
+    def paint_styled(self, p, b):
+        zun, sky, red, gold = QColor(86, 176, 64), QColor(64, 144, 224), QColor(238, 82, 60), QColor(255, 200, 40)
+        st, foot = b.get("st"), b.get("foot") or ""
+        if st != "omikuji" and foot and len(foot) <= 16:
+            f = QFont(); f.setPixelSize(15); f.setBold(True); p.setFont(f)
+            tw = p.fontMetrics().horizontalAdvance(foot) + 28
+            p.setPen(QPen(self.INK, 2)); p.setBrush(gold)
+            p.drawRoundedRect(QRectF(160 - tw / 2, 24, tw, 24), 12, 12)
+            p.drawText(QRectF(160 - tw / 2, 24, tw, 24), Qt.AlignCenter, foot)
+        top, hh = 54, 98
+        if st == "omikuji":
+            paper = QColor(255, 250, 236)
+            p.setPen(Qt.NoPen); p.setBrush(red); p.drawRoundedRect(QRectF(40, 28, 240, 124), 14, 14)
+            p.setBrush(paper); p.drawRoundedRect(QRectF(44, 32, 232, 116), 11, 11)
+            f = QFont(); f.setPixelSize(16); p.setFont(f); p.setPen(red)
+            p.drawText(QRectF(40, 36, 240, 20), Qt.AlignCenter, "きょうの うんせい")
+            f = QFont(); f.setPixelSize(48); f.setBold(True); p.setFont(f); p.setPen(self.INK)
+            p.drawText(QRectF(40, 54, 240, 56), Qt.AlignCenter, b.get("ab") or "")
+            cc = b.get("cc") or ""
+            if cc:
+                p.setPen(QPen(self.INK, 2)); p.setBrush(QColor("#" + cc)); p.drawEllipse(QPointF(66, 130), 10, 10)
+            f = QFont(); f.setPixelSize(16); p.setFont(f); p.setPen(self.INK)
+            p.drawText(QRectF(84, 120, 190, 20), Qt.AlignVCenter | Qt.AlignLeft, foot)
+            if b.get("am") == "star":
+                self.mark(p, 60, 56, "star", 0.5); self.mark(p, 260, 56, "star", 0.5)
+            return
+        ha, hb = bool(b.get("ab") or b.get("am")), bool(b.get("bb") or b.get("bm"))
+        hl = bool(b.get("hl"))
+        def side(x, w, edge, tx, mk, t, h):
+            self.bubble(p, x, top, w, hh, tx, top + hh + 12, edge)
+            self.content(p, x, top, w, hh, mk, t, h)
+        if ha and hb:
+            side(6, 152, zun, 120, b.get("am"), b.get("ab"), hl)
+            side(162, 152, sky, 280, b.get("bm"), b.get("bb"), hl and st == "word")
+            f = QFont(); f.setPixelSize(15); f.setBold(True); p.setFont(f); p.setPen(self.INK)
+            p.drawText(QRectF(162, top + 6, 152, 20), Qt.AlignCenter, "きみ")
+        elif ha:
+            side(40, 240, zun, 138, b.get("am"), b.get("ab"), hl)
+        elif hb:
+            side(40, 240, sky, 200, b.get("bm"), b.get("bb"), hl)
+
     def paintEvent(self, _e):
         b = self.board
         p = QPainter(self)
@@ -184,6 +277,9 @@ class BubbleView(QWidget):
         p.translate((self.width() - W * k) / 2, (self.height() - H * k) / 2)
         p.scale(k, k)
         p.translate(0, -Y0)
+        if b.get("st"):
+            self.paint_styled(p, b)
+            return
         zun, sky, red, blu, gold = QColor(86, 176, 64), QColor(64, 144, 224), QColor(238, 82, 60), QColor(40, 110, 220), QColor(255, 200, 40)
         ai, bi = ICON.get(b.get("ai"), 0), ICON.get(b.get("bi"), 0)
         aa, ba = ARROW.get(b.get("aa"), 0), ARROW.get(b.get("ba"), 0)

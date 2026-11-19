@@ -138,7 +138,7 @@ class Lesson:
             if on:                                               # いまの遊びが、機器の画面に出している絵(手・向き)。管理画面にも同じ絵を出す
                 for h in self.hubs():
                     bs = getattr(h.games.get(dev), "board_state", None) if getattr(h, "games", None) else None
-                    if bs and (bs.get("ai") or bs.get("bi") or bs.get("aa") or bs.get("ba")):
+                    if bs and (bs.get("ai") or bs.get("bi") or bs.get("aa") or bs.get("ba") or bs.get("st")):
                         board = dict(bs)
             out.append({"id": dev, "board": board, "name": d.get("name", ""), "online": bool(d.get("online")),
                         "persona": (on or last or {}).get("persona", ""),

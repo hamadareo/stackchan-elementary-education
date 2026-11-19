@@ -311,3 +311,16 @@ class RehearsalTests(LessonBase):
         time.sleep(0.3)
         self.assertFalse([m for n, m in sent if m.get("t") in ("audio", "say", "board")])
         self.assertFalse(les.busy("a"))
+
+
+class StyleBoardTests(unittest.TestCase):
+    def test_board_carries_style_and_marks(self):
+        import board
+        out = []
+        class S:
+            def send(self, m): out.append(m)
+        board.show(S(), "しりとり", a=("ずんだ", "りんご"), b=("きみ", "ごりら"), style="word", hl=1, a_mark="star", swatch="e63c32")
+        m = out[0]
+        self.assertEqual((m["st"], m["hl"], m["am"], m["cc"]), ("word", 1, "star", "e63c32"))
+        board.show(S(), "じゃんけん", a_icon="gu")
+        self.assertEqual(out[1]["st"], "")                       # 手の絵は、これまでどおり

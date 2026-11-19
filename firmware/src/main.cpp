@@ -329,9 +329,12 @@ static void onWs(WStype_t type, uint8_t *p, size_t n) {
           zface::setBoardList(d["title"] | "", ptr, n, d["foot"] | "", d["ms"] | 8000);
         } else {
           auto arr = [](const char *a) { return !strcmp(a, "up") ? 1 : !strcmp(a, "down") ? 2 : !strcmp(a, "left") ? 3 : !strcmp(a, "right") ? 4 : 0; };
+          auto mk = [](const char *a) { return !strcmp(a, "ok") ? 1 : !strcmp(a, "ng") ? 2 : !strcmp(a, "q") ? 3 : !strcmp(a, "star") ? 4 : !strcmp(a, "note") ? 5 : 0; };
           auto ico = [](const char *a) { return !strcmp(a, "gu") ? 1 : !strcmp(a, "choki") ? 2 : !strcmp(a, "pa") ? 3 : 0; };
           zface::setBoard(d["title"] | "", d["aw"] | "", d["ab"] | "", arr(d["aa"] | ""), d["bw"] | "", d["bb"] | "", arr(d["ba"] | ""), d["foot"] | "", d["ms"] | 6000,
-                          ico(d["ai"] | ""), ico(d["bi"] | ""), !strcmp(d["fx"] | "", "win") ? 1 : 0);
+                          ico(d["ai"] | ""), ico(d["bi"] | ""), !strcmp(d["fx"] | "", "win") ? 1 : 0,
+                          !strcmp(d["st"] | "", "word") ? 1 : !strcmp(d["st"] | "", "omikuji") ? 2 : !strcmp(d["st"] | "", "riddle") ? 3 : !strcmp(d["st"] | "", "mimic") ? 4 : 0,
+                          mk(d["am"] | ""), mk(d["bm"] | ""), (int)(d["hl"] | 0), d["cc"] | "");
         }
         lastActivity = millis();
       } else if (t == "look") {                          // 画面中心からのずれ(-1..1)で首と目を向ける

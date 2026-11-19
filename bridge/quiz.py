@@ -343,6 +343,7 @@ class Quiz(Play):
         self.qtext = it.show
         self.atext = it.answer_text()
         self.big = f"{n + 1}もんめ"
+        self._board(title="なぞなぞ", a=("", f"{n + 1}もんめ"), ms=30000, style="riddle", a_mark="q")
         self._say(eng, self._line("head", k=n + 1), "neutral", face="neutral")      # 「3もんめ！」と、問題は別に話す(問題の文は先に声にしておける)
         self._say(eng, it.prompt, "neutral", face="neutral")
         tries = idle = unclear = 0
@@ -371,6 +372,7 @@ class Quiz(Play):
                 self._save()
                 line = self._line("streak", s=self.streak) if self.streak >= 2 else self._line("ok")
                 self.big = "せいかい！"
+                self._board(title="なぞなぞ", a=("", "せいかい！"), ms=6000, style="riddle", a_mark="ok", fx="win")
                 self._nod(2)
                 self._say(eng, line, "excited", face="giggle")
                 return "correct"
@@ -386,6 +388,7 @@ class Quiz(Play):
                     return self._reveal(eng, it)
                 extra = " ヒントも あるよ。" if it.hint and not hinted else ""
                 self._wobble()
+                self._board(title="なぞなぞ", a=("", "もういちど！"), ms=6000, style="riddle", a_mark="ng")
                 self._say(eng, self._line("retry") + extra, "doubt", face="doubt")
                 continue
             unclear += 1
@@ -401,6 +404,7 @@ class Quiz(Play):
         self.history.append({"q": it.show, "ok": False})
         self._save()
         self.big = "ざんねん…"
+        self._board(title="なぞなぞ", a=("", f"こたえ: {it.answer_text()}"), ms=8000, style="riddle", a_mark="ng")
         self._wobble()
         self._say(eng, self._line("reveal", a=it.answer_text()), "doubt", face="sad")
         return "wrong"

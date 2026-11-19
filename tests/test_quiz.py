@@ -509,7 +509,7 @@ class MimicTests(PlayBase):
         self.assertFalse(any(t in ("しねしね", "ご視聴ありがとうございました") for t, r in raws[n:]))
         self.assertEqual(g.words, 1)
         bs = [m for n_, m in sent if m.get("t") == "board" and m.get("title") == "ものまね"]
-        self.assertTrue(bs and bs[0].get("ab") == "ぞう" and bs[0].get("bw"))       # 言った言葉と、声の名前
+        self.assertTrue(bs and bs[0].get("bb") == "ぞう" and bs[0].get("ab") and bs[0].get("st") == "mimic")       # きみの言った言葉(右)と、まねた声の名前(左)
         self.ans(qh, g, "やめよう")
         self.assertTrue(self._wait(lambda: not g.on))
         self.assertEqual(self.servo_sum(sent), (0, 0))

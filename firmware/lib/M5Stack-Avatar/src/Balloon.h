@@ -27,6 +27,8 @@ struct AvatarBoard {
   uint8_t aArrow, bArrow;
   uint8_t aIcon, bIcon;                    // 手の絵 0=なし 1=ぐー 2=ちょき 3=ぱー
   uint8_t fx;                              // 演出 0=なし 1=勝ち(きらきら)
+  uint8_t style, aMark, bMark, hl;         // 絵の種類 0=なし 1=ことば(しりとり) 2=おみくじ 3=なぞなぞ 4=ものまね / しるし 1=○ 2=× 3=? 4=★ 5=♪ / hl=1 で最後の字を赤く
+  char swatch[8];                          // おみくじのラッキーカラー(RRGGBB)
   uint8_t nList;                           // 一覧(遊びの名前)の数。0 なら通常のカード
   char list[6][32];
   bool on;
@@ -232,6 +234,132 @@ class Balloon final : public Drawable {
       }
     }
   }
+
+  // ---- ことば・しるしの吹き出し(しりとり・なぞなぞ・おみくじ・ものまね) ----
+  static void mark(M5Canvas *spi, int cx, int cy, int kind, float s) {
+    const uint16_t INK = spi->color565(40, 40, 52), RED = spi->color565(238, 82, 60), BLU = spi->color565(40, 110, 220), GOLD = spi->color565(255, 200, 40), ZUN = spi->color565(86, 176, 64);
+    int r = (int)lroundf(26 * s);
+    if (kind == 1) {                                           // ○ せいかい
+      spi->fillCircle(cx, cy, r, RED); spi->fillCircle(cx, cy, r - (int)lroundf(9 * s), 0xFFFF);
+    } else if (kind == 2) {                                    // × ざんねん
+      cap(spi, cx - r + 4, cy - r + 4, cx + r - 4, cy + r - 4, (int)lroundf(6 * s), BLU);
+      cap(spi, cx + r - 4, cy - r + 4, cx - r + 4, cy + r - 4, (int)lroundf(6 * s), BLU);
+    } else if (kind == 3) {                                    // ? なぞなぞ
+      spi->fillCircle(cx, cy, r, ZUN);
+      spi->setFont(&fonts::efontJA_24); spi->setTextSize(s > 0.8f ? 2 : 1);
+      spi->setTextColor(0xFFFF, ZUN); spi->setTextDatum(MC_DATUM);
+      spi->drawString("?", cx, cy + 1);
+    } else if (kind == 4) {                                    // ★ 星(五芒星を 2 枚の三角で)
+      float R = r * 1.1f;
+      for (int k = 0; k < 2; k++) {
+        float a0 = (k ? 90.0f : -90.0f) * 0.0174533f;
+        int px[3], py[3];
+        for (int i = 0; i < 3; i++) { float a = a0 + i * 2.0944f; px[i] = cx + (int)lroundf(R * cosf(a)); py[i] = cy + (int)lroundf(R * sinf(a)); }
+        spi->fillTriangle(px[0], py[0], px[1], py[1], px[2], py[2], GOLD);
+      }
+      spi->fillCircle(cx, cy, r / 2, GOLD);
+    } else if (kind == 5) {                                    // ♪ ものまね
+      spi->fillCircle(cx - r / 3, cy + r / 2, r / 2, INK);
+      spi->fillRect(cx - r / 3 + r / 2 - 3, cy - r, 5, r * 3 / 2 + 2, INK);
+      spi->fillTriangle(cx + r / 6 + 2, cy - r, cx + r / 6 + 2, cy - r / 4, cx + r, cy - r / 8, INK);
+    }
+  }
+  // 吹き出しの中に、しるし+ことばを入れる。hl=1 で最後の字を赤で大きく
+  static void content(M5Canvas *spi, int x, int y, int w, int h, int mk, const char *text, bool hl) {
+    const uint16_t INK = spi->color565(40, 40, 52), RED = spi->color565(238, 82, 60);
+    bool has = text && text[0];
+    if (mk && !has) { mark(spi, x + w / 2, y + h / 2, mk, 1.5f); return; }
+    int tx0 = x + 10, tw = w - 20;
+    if (mk) { mark(spi, x + 34, y + h / 2, mk, 0.9f); tx0 = x + 66; tw = w - 76; }
+    if (!has) return;
+    spi->setTextColor(INK, 0xFFFF);
+    spi->setTextDatum(ML_DATUM);
+    spi->setFont(&fonts::efontJA_24); spi->setTextSize(1);
+    if (spi->textWidth(text) > tw) { spi->setFont(&fonts::efontJA_16); }
+    if (spi->textWidth(text) <= tw) {                          // 1 行
+      int cy = y + h / 2, W = spi->textWidth(text), x1 = mk ? tx0 : tx0 + (tw - W) / 2;
+      if (hl) {                                                // 最後の字だけ赤
+        int n = strlen(text), k = n;
+        do { k--; } while (k > 0 && ((uint8_t)text[k] & 0xC0) == 0x80);
+        String head = String(text).substring(0, k);
+        spi->drawString(head.c_str(), x1, cy);
+        spi->setTextColor(RED, 0xFFFF);
+        spi->drawString(text + k, x1 + spi->textWidth(head.c_str()), cy);
+      } else spi->drawString(text, x1, cy);
+      return;
+    }
+    String all(text), a, b;                                    // 2 行に折る(1 行目に入る分だけ)
+    int i = 0;
+    while (i < (int)all.length()) {
+      uint8_t c = (uint8_t)all[i]; int len = c < 0x80 ? 1 : (c < 0xE0 ? 2 : (c < 0xF0 ? 3 : 4));
+      String t = a + all.substring(i, i + len);
+      if (spi->textWidth(t.c_str()) > tw) break;
+      a = t; i += len;
+    }
+    b = all.substring(i);
+    while (spi->textWidth(b.c_str()) > tw && b.length() > 3) b = b.substring(0, b.length() - 3);
+    spi->drawString(a.c_str(), tx0, y + h / 2 - 11);
+    spi->drawString(b.c_str(), tx0, y + h / 2 + 11);
+  }
+  static uint16_t hex565(M5Canvas *spi, const char *h) {
+    if (!h || strlen(h) < 6) return 0xFFFF;
+    auto v = [](char c) { return c >= '0' && c <= '9' ? c - '0' : (c | 32) - 'a' + 10; };
+    return spi->color565(v(h[0]) * 16 + v(h[1]), v(h[2]) * 16 + v(h[3]), v(h[4]) * 16 + v(h[5]));
+  }
+  static void drawStyled(M5Canvas *spi, const AvatarBoard &b) {
+    const uint16_t GOLD = spi->color565(255, 200, 40), INK = spi->color565(40, 40, 52);
+    const uint16_t ZUN = spi->color565(86, 176, 64), SKY = spi->color565(64, 144, 224), RED = spi->color565(238, 82, 60);
+    spi->setFont(&fonts::efontJA_16); spi->setTextSize(1);
+    if (b.foot[0] && spi->textWidth(b.foot) <= 270 && b.style != 2) {        // 一言のリボン(おみくじは札の中に出す)
+      int tw = spi->textWidth(b.foot) + 28;
+      spi->fillRoundRect(160 - tw / 2, 24, tw, 24, 12, INK);
+      spi->fillRoundRect(160 - tw / 2 + 2, 26, tw - 4, 20, 10, GOLD);
+      spi->setTextColor(INK, GOLD); spi->setTextDatum(MC_DATUM);
+      spi->drawString(b.foot, 160, 36);
+    }
+    spi->setTextDatum(TL_DATUM);
+    const int top = 54, hh = 98;
+    if (b.style == 2) {                                        // おみくじ: 札(ふち赤)+大きな「大吉」の印+ラッキーカラーの見本
+      const int x = 40, y = 28, w = 240, h = 124;
+      spi->fillRoundRect(x, y, w, h, 14, RED);
+      spi->fillRoundRect(x + 4, y + 4, w - 8, h - 8, 11, spi->color565(255, 250, 236));
+      spi->setTextColor(RED, spi->color565(255, 250, 236)); spi->setTextDatum(TC_DATUM);
+      spi->setFont(&fonts::efontJA_16); spi->drawString("きょうの うんせい", x + w / 2, y + 8);
+      spi->setFont(&fonts::efontJA_24); spi->setTextSize(2);
+      spi->setTextColor(INK, spi->color565(255, 250, 236));
+      spi->drawString(b.aBig, x + w / 2, y + 30);
+      spi->setTextSize(1);
+      if (b.swatch[0]) { spi->fillCircle(x + 26, y + h - 22, 11, INK); spi->fillCircle(x + 26, y + h - 22, 9, hex565(spi, b.swatch)); }
+      spi->setFont(&fonts::efontJA_16); spi->setTextDatum(ML_DATUM); spi->setTextColor(INK, spi->color565(255, 250, 236));
+      spi->drawString(b.foot, x + 44, y + h - 22);
+      if (b.aMark == 4) { mark(spi, x + 20, y + 28, 4, 0.5f); mark(spi, x + w - 20, y + 28, 4, 0.5f); }
+      spi->setTextDatum(TL_DATUM);
+    } else {
+      bool hasA = b.aBig[0] || b.aMark, hasB = b.bBig[0] || b.bMark;
+      auto side = [&](int x, int w, uint16_t edge, int tx, int mk, const char *t, bool hl) {
+        bubble(spi, x, top, w, hh, tx, top + hh + 12, edge);
+        content(spi, x, top, w, hh, mk, t, hl);
+      };
+      bool hl = b.hl != 0;
+      if (hasA && hasB) {
+        side(6, 152, ZUN, 120, b.aMark, b.aBig, hl);
+        side(162, 152, SKY, 280, b.bMark, b.bBig, hl && b.style == 1);
+        spi->setFont(&fonts::efontJA_16); spi->setTextColor(INK, 0xFFFF); spi->setTextDatum(TC_DATUM);
+        spi->drawString("きみ", 238, top + 6); spi->setTextDatum(TL_DATUM);
+      } else if (hasA) side(40, 240, ZUN, 138, b.aMark, b.aBig, hl);
+      else if (hasB) side(40, 240, SKY, 200, b.bMark, b.bBig, hl);
+    }
+    if (b.fx == 1) {
+      uint32_t t = millis() / 220;
+      for (int i = 0; i < 12; i++) {
+        uint32_t r = (t * 2654435761u) ^ (i * 40503u + 977u);
+        r ^= r >> 13; r *= 1274126177u; r ^= r >> 16;
+        int x = 8 + (int)(r % 304u), y = 26 + (int)((r >> 9) % 130u), z = 3 + (int)((r >> 20) % 4);
+        spi->fillTriangle(x, y - z * 2, x - z, y, x + z, y, GOLD); spi->fillTriangle(x, y + z * 2, x - z, y, x + z, y, GOLD);
+        spi->fillTriangle(x - z * 2, y, x, y - z, x, y + z, GOLD); spi->fillTriangle(x + z * 2, y, x, y - z, x, y + z, GOLD);
+      }
+    }
+  }
   // 遊びの表示カード(字幕の上)。2 列なら左右、a だけなら中央に大きく出す
   static void drawBoard(M5Canvas *spi, uint16_t fg, uint16_t bg) {
     static AvatarBoard b;
@@ -242,6 +370,10 @@ class Balloon final : public Drawable {
       if (q == avatarBoardSeq) { b = t; seenSeq = q; }
     }
     if (!b.on) return;
+    if (!b.nList && b.style) {                                    // ことば・しるしの吹き出し
+      drawStyled(spi, b);
+      return;
+    }
     if (!b.nList && (b.aIcon || b.bIcon || b.aArrow || b.bArrow)) {   // 手・向きは、吹き出しのイラストで見せる
       drawBubbles(spi, b);
       return;
