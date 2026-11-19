@@ -376,16 +376,18 @@ const LKINDS=[['shiritori','しりとり'],['janken','じゃんけん'],['riddle
 let lKey='';
 function renderLesson(s){
   const L=s.lesson||[];$('lteach').checked=!!s.teacher_only;
-  const k=JSON.stringify(L.map(d=>[d.id,d.name,d.online,d.on,d.kind]))+s.teacher_only;if(k===lKey)return;lKey=k;
+  const k=JSON.stringify(L.map(d=>[d.id,d.name,d.online,d.on,d.kind,d.detail&&d.detail.msg]))+s.teacher_only;if(k===lKey)return;lKey=k;
   $('lcards').innerHTML=L.map(d=>{
     const st=!d.online?'つながっていません':d.on?(d.label||'あそび中')+' を しています':'待機中(なにもしていません)';
     const btns=LKINDS.map(([kd,lb])=>`<button data-go="${esc(kd)}" data-id="${esc(d.id)}" ${d.online?'':'disabled'} style="${d.kind===kd?'outline:2px solid var(--gr)':''}">${lb}</button>`).join('');
     return `<div style="border:1px solid var(--line);border-radius:6px;padding:10px"><b>${esc(d.name||d.id)}</b> <small style="color:var(--mute)">${st}</small>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:8px 0">${btns}</div>
+      ${d.on&&d.kind==='chari'?`<button data-jump="${esc(d.id)}" style="width:100%;margin-bottom:6px">⤴ ジャンプ(先生が代わりに押す)</button><small style="display:block;color:var(--mute);margin-bottom:6px">子どもは、画面か天面(頭のてっぺん)をタッチ、または実際にジャンプ・声の「ジャンプ」で、ジャンプします。${esc((d.detail&&d.detail.msg)||'')}</small>`:''}
       <button data-halt="${esc(d.id)}" ${d.on?'':'disabled'} style="width:100%">■ 中止</button></div>`}).join('')||'<small>機器がありません</small>';
 }
 $('lcards').addEventListener('click',async e=>{const b=e.target.closest('button');if(!b)return;
   if(b.dataset.go){b.textContent='はじめています…';await api('lesson_start',{kind:b.dataset.go,id:b.dataset.id})}
+  else if(b.dataset.jump){await api('lesson_say',{text:'ジャンプ',id:b.dataset.jump});return}
   else if(b.dataset.halt){await api('lesson_stop',{id:b.dataset.halt})}
   lKey='';poll()});
 $('lstopall').onclick=async()=>{await api('lesson_stop',{});lKey='';poll()};
