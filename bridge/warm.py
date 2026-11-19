@@ -118,6 +118,9 @@ def build_plan(names: list) -> list:
             for tpl in H[scene]:
                 for t in expand(name, tpl):
                     add(1, t, None, raw)
+        # ---- ずんだの チャリはしり(数字の入らない台詞だけ。数字入りの実況は、その場で作る)
+        bank(0, name, fun.CHARI["intro"], "excited")
+        bank(1, name, fun.CHARI["bye"], "joy")
         # ---- おみくじ
         O = fun.OMIKUJI
         bank(0, name, O["intro"], "excited")
