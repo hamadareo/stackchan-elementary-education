@@ -36,7 +36,7 @@ struct AvatarBoard {
 // ずんだもんの チャリはしり(画面の中で動くゲーム)。入力は jump(画面タッチ・頭タッチ・ブリッジ)。結果は evSeq/evKind/evVal で main が読んで、ブリッジへ知らせる
 struct AvatarChari {
   volatile bool on, jump, reset;
-  volatile uint32_t evSeq, evVal;
+  volatile uint32_t evSeq, evVal, fps;
   volatile uint8_t evKind;               // 1=ぶつかった(evVal=メートル) 2=100m ごと
 };
 extern AvatarChari avatarChari;
@@ -379,6 +379,7 @@ class Balloon final : public Drawable {
     static uint32_t mileDone = 0;
     auto rnd = [&]() { seed = seed * 1664525u + 1013904223u; return (seed >> 8) & 0xFFFF; };
     uint32_t now = millis();
+    { static uint32_t fT = 0, fN = 0; fN++; if (now - fT >= 2000) { avatarChari.fps = fN * 1000 / (now - fT); fN = 0; fT = now; } }   // 1秒あたりのコマ数(確認用)
     float dt = last ? (now - last) / 1000.0f : 0.016f;
     last = now;
     if (dt > 0.05f) dt = 0.05f;

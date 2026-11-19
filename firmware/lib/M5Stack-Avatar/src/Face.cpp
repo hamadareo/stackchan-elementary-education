@@ -96,6 +96,14 @@ void Face::draw(DrawContext *ctx) {
   } else {
     sprite->fillSprite(0);
   }
+  if (avatarChari.on) {                      // ゲーム中: 顔は描かず、ゲームの画面を、1回で画面へ送る(短冊に分けた転送・待ちを使わない = なめらか)
+    b->draw(sprite, br, ctx);
+    M5.Display.startWrite();
+    sprite->pushSprite(&M5.Display, boundingRect->getLeft(), boundingRect->getTop());
+    M5.Display.endWrite();
+    sprite->deleteSprite();
+    return;
+  }
   float breath = _min(1.0f, ctx->getBreath());
 
   // TODO(meganetaaan): unify drawing process of each parts

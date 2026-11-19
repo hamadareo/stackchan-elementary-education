@@ -47,6 +47,13 @@ static void task(void *) {
   }
 }
 
+// ゲーム中(からだジャンプ)は、小さい画面にして、たくさん送る。終わったら元に戻す
+static void fast(bool on) {
+  sensor_t *sn = esp_camera_sensor_get();
+  if (sn) sn->set_framesize(sn, on ? FRAMESIZE_QQVGA : FRAMESIZE_QVGA);   // 160x120 / 320x240
+  periodMs = on ? 60 : 250;
+}
+
 static bool begin() {
   jpg = (uint8_t *)ps_malloc(24000);
   if (!jpg) return false;

@@ -12,6 +12,7 @@ import statistics
 import threading
 
 import board
+import bodyjump
 from janken import Janken
 from playfx import AGAIN, QUIT, Stage, fold
 from quiz import IDLE_MAX, IDLE_WAIT, Play
@@ -476,7 +477,7 @@ class Omikuji(Play):
 # ---------------------------------------------------------------- ずんだの チャリはしり
 # 機器の画面の中で、自転車のずんだもんが走る(画面タッチでジャンプ)。画面の動きは機器が自分で動かし、ブリッジは実況と記録だけ。
 CHARI = {
-    "intro": ["チャリはしり！タッチで ジャンプ！", "チャリで はしるよ！タッチで ジャンプ！", "チャリはしり、スタート！タッチで ジャンプ！"],
+    "intro": ["チャリはしり！タッチか、からだで ジャンプ！", "チャリで はしるよ！からだで ジャンプ！", "チャリはしり、スタート！とんで よけてね！"],
     "mile": ["{m}メートル！いい ちょうし！", "{m}メートル！すごい すごい！", "{m}メートル！そのまま そのまま！", "{m}メートル！とまらないね！"],
     "over0": ["ガッシャーン！{m}メートル！もういっかい いこう！", "いたた！{m}メートル！タッチで もういちど！", "あっ、ぶつかった！{m}メートル！つぎは いけるよ！"],
     "over1": ["{m}メートル！よく はしったね！", "{m}メートル！いい はしり！もういっかい！", "おしい！{m}メートル！もっと いけるよ！"],
@@ -495,6 +496,11 @@ class Chari(Play):
         self.runs = 0
         self.run_best = 0
         self.evq: queue.Queue = queue.Queue()
+        self.jd = bodyjump.JumpDetector()
+        self.body_jumps = 0
+        self._eng = None
+        self._face_t = 0.0                                       # 最後に顔が見えた時刻
+        self._game_t0 = 1e18                                     # ゲームを始めた時刻(始めの1.5秒は、からだジャンプを見ない)
 
     def event(self, j: dict) -> None:
         """機器からの知らせ(ぶつかった・100m ごと)。別スレッドから呼ばれる。声を出している間も取りこぼさないよう、専用の入れ物に入れる。"""
@@ -502,18 +508,41 @@ class Chari(Play):
             self.evq.put(dict(j))
             self.q.put("")                                        # 待っている遊びを起こす
 
-    def _dev(self, cmd: str) -> None:
+    def _dev(self, cmd: str, **kw) -> None:
         s = self._sess(0) if self.robots else None
         if s is not None:
             try:
-                s.send({"t": "chari", "cmd": cmd})
+                s.send({"t": "chari", "cmd": cmd, **kw})
             except Exception:  # noqa: BLE001
                 pass
 
     def _c(self, scene: str, **kw) -> str:
         return self.L(scene, CHARI[scene], **kw)
 
+    def _cam_cb(self, jpeg) -> None:
+        """機器のカメラ画像から、からだのジャンプを見つける(顔の高さの動き)。"""
+        eng = self._eng
+        if eng is None or not self.on or self.clock() < self._game_t0 + 1.5:
+            return
+        try:
+            img = eng.face.decode(jpeg)
+            if img is None:
+                return
+            f = eng.face.find(img)
+            now = self.clock()
+            if f is None:
+                jump = self.jd.update(now, None, None, img.shape[0])
+            else:
+                self._face_t = now
+                jump = self.jd.update(now, f[1] + f[3] / 2.0, f[3], img.shape[0])
+            if jump:
+                self.body_jumps += 1
+                self._dev("jump")
+        except Exception:  # noqa: BLE001 - 画像の不具合で、ゲームを止めない
+            pass
+
     def _finish(self) -> None:
+        self._eng = None
         self._dev("stop")                                    # 画面のゲームを止めて、顔にもどす
         super()._finish()
 
@@ -540,10 +569,16 @@ class Chari(Play):
             return
         while not self.evq.empty():
             self.evq.get_nowait()
-        self._dev("start")
+        self._eng = eng
+        self.jd.reset()
+        self.body_jumps = 0
+        self._face_t = 0.0
+        self._front()                                            # 顔を、まっすぐ前へ(子どもが入るように)
+        self._game_t0 = self.clock()
+        self._dev("start", body=True)                            # からだジャンプ用に、カメラを小さい画面・たくさん送る設定にする
         self.qtext = "ずんだの チャリはしり"
         self.big = "はしっています"
-        self.msg = "画面タッチで ジャンプ"
+        self.msg = "画面タッチか、からだで ジャンプ"
         self.turn = "kid"
         t_start = last_cheer = self.clock()
         over_at = None
@@ -567,6 +602,8 @@ class Chari(Play):
                 item = self.q.get(timeout=0.5)
             except queue.Empty:
                 now = self.clock()
+                seen = now - self._face_t < 3.0
+                self.msg = "からだジャンプ: " + (f"顔が見えています({self.body_jumps}かい)" if seen else "顔が見えません(画面タッチは使えます)")
                 if over_at is not None and now - over_at > 90:        # おわってから 90 秒だれも触らない
                     break
                 if now - t_start > 900:                                # 15 分で、ひと区切り

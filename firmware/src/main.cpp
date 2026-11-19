@@ -383,8 +383,8 @@ static void onWs(WStype_t type, uint8_t *p, size_t n) {
         zface::setGaze(0, 0);
       } else if (t == "chari") {                         // ずんだもんの チャリはしり: start / stop / jump
         const char *c = d["cmd"] | "";
-        if (!strcmp(c, "start")) { m5avatar::avatarChari.reset = true; m5avatar::avatarChari.on = true; zface::clearBoard(); }
-        else if (!strcmp(c, "stop")) { m5avatar::avatarChari.on = false; }
+        if (!strcmp(c, "start")) { m5avatar::avatarChari.reset = true; m5avatar::avatarChari.on = true; zface::clearBoard(); cam::fast(d["body"] | false); }
+        else if (!strcmp(c, "stop")) { m5avatar::avatarChari.on = false; cam::fast(false); }
         else if (!strcmp(c, "jump")) { m5avatar::avatarChari.jump = true; }
         lastActivity = millis();
       } else if (t == "hush") {                          // 中止: 声をすぐ止める(再生中は playOne が抜ける。受信中・待機中は捨てる)
@@ -455,7 +455,7 @@ static void micStats() {
   JsonDocument d; d["t"] = "dbg"; d["mic_sent"] = stSent; d["rec_fail"] = stRecFail; d["send_max_ms"] = stSendMax; d["loop_max_ms"] = stLoopMax;
   if (WIFI_ON) d["rssi"] = WiFi.RSSI();
   d["heap"] = ESP.getFreeHeap();
-  d["pan"] = (int)panDeg; d["tilt"] = (int)tiltDeg; d["pan_t"] = (int)panTarget; d["tilt_t"] = (int)tiltTarget; d["cam"] = stCam; d["cam_fail"] = (uint32_t)cam::failures;
+  d["pan"] = (int)panDeg; d["tilt"] = (int)tiltDeg; d["pan_t"] = (int)panTarget; d["tilt_t"] = (int)tiltTarget; d["cam"] = stCam; d["cam_fail"] = (uint32_t)cam::failures; d["cfps"] = (uint32_t)m5avatar::avatarChari.fps;
   String o; serializeJson(d, o); linkText(o);
   stCam = stSent = stRecFail = stSendMax = stLoopMax = 0;
 }
@@ -767,6 +767,8 @@ void loop() {
     if (m5avatar::avatarChari.on) {                      // ゲーム中: 画面のどこでもタッチでジャンプ。眠らない。結果をブリッジへ
       if (t.wasPressed() && t.y >= 30) m5avatar::avatarChari.jump = true;
       lastActivity = millis();
+      { static uint32_t noLink = 0;                      // ブリッジとつながらない状態が続いたら、ゲームを終える
+        if (active == LK_NONE) { if (!noLink) noLink = millis(); else if (millis() - noLink > 20000) { m5avatar::avatarChari.on = false; cam::fast(false); noLink = 0; } } else noLink = 0; }
       static uint32_t seenEv = 0;
       uint32_t es = m5avatar::avatarChari.evSeq;
       if (es != seenEv) {

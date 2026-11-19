@@ -371,3 +371,43 @@ class ChariTests(LessonBase):
         qh.say("やめる", "a")
         self.assertTrue(self._wait(lambda: not les.busy("a"), 300))
         self.assertIn("stop", self.cmds(sent))
+
+
+class BodyJumpWiringTests(LessonBase):
+    """カメラ画像の顔の高さが、ゲームの「ジャンプ」の指示になる(つなぎの確認。検出の細かい性質は test_bodyjump.py)。"""
+    def test_camera_frames_become_a_jump_command(self):
+        les, gh, jh, qh, sent = self._lesson()
+        les.start("chari", ["a"])
+        self.assertTrue(self._wait(lambda: any(m.get("cmd") == "start" and m.get("body") for n, m in sent if m.get("t") == "chari"), 200))
+        g = qh.games["a"]
+        ys = [60.0] * 15 + [58, 48, 38, 30, 38, 50, 58] + [60.0] * 10
+        cur = [0.0]
+
+        class Img:
+            shape = (120, 160, 3)
+
+        class Face:
+            def decode(self, jpeg): return Img()
+            def find(self, img): return (60.0, cur[0] - 18.0, 36.0, 36.0, None)
+
+        class E:
+            face = Face()
+        t = [1000.0]
+        g.clock = lambda: t[0]
+        g._eng, g._game_t0 = E(), 0.0
+        g.jd.reset()
+        for y in ys:
+            cur[0] = y
+            t[0] += 0.1
+            g._cam_cb(b"x")
+        self.assertEqual(g.body_jumps, 1)
+        self.assertEqual([m.get("cmd") for n, m in sent if m.get("t") == "chari"].count("jump"), 1)
+        les.stop("a")
+
+    def test_no_frames_before_game_start_and_after_finish(self):
+        les, gh, jh, qh, sent = self._lesson()
+        les.start("chari", ["a"])
+        self.assertTrue(self._wait(lambda: qh.games["a"]._eng is not None, 200))
+        les.stop("a")
+        self.assertTrue(self._wait(lambda: not les.busy("a"), 200))
+        self.assertIsNone(qh.games["a"]._eng)                           # 終わったら、画像を見ない
