@@ -106,6 +106,19 @@ class LessonTests(LessonBase):
         self.assertIn("msg", snap["b"]["detail"])
         les.stop()
 
+    def test_snapshot_carries_board_picture(self):
+        les, gh, jh, qh, sent = self._lesson()
+        self.assertTrue(les.start("janken", ["a"])[0])
+        self.assertTrue(self._wait(lambda: les.current("a") == "janken", 100))
+        g = jh.games["a"]
+        g._board(title="じゃんけん", a=("ずんだ", "ぐー"), b=("きみ", "ぱー"), foot="きみの かち！", ms=5000, a_icon="gu", b_icon="pa", fx="win")
+        snap = {x["id"]: x for x in les.snapshot([{"id": "a", "name": "A", "online": True}])}
+        b = snap["a"]["board"]
+        self.assertEqual((b["ai"], b["bi"], b["fx"]), ("gu", "pa", "win"))
+        les.stop("a")
+        self.assertTrue(self._wait(lambda: not les.busy("a"), 200))
+        self.assertIsNone({x["id"]: x for x in les.snapshot([{"id": "a", "name": "A", "online": True}])}["a"]["board"])   # 終わったら、絵は消える
+
     def test_stopped_game_does_not_speak_after_stop(self):
         les, gh, jh, qh, sent = self._lesson()
         self.assertTrue(les.start("omikuji", ["a"])[0])

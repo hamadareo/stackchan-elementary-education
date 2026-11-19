@@ -157,12 +157,14 @@ class Stage:
                a_icon: str = "", b_icon: str = "", fx: str = "") -> None:
         """機器の画面に、遊びの表示カード(出した手・言葉・向き・運勢)を出す。古いファームウェアでは何も起きない。"""
         import board
+        self.board_state = {"title": title, "aw": a[0], "ab": a[1], "bw": b[0], "bb": b[1], "ai": a_icon, "bi": b_icon, "aa": a_arrow, "ba": b_arrow, "foot": foot, "fx": fx}   # 管理画面にも、同じ絵を見せる
         s = self._sess(0) if getattr(self, "robots", None) else None
         if s is not None:
             board.show(s, title, a=a, b=b, foot=foot, ms=ms, a_arrow=a_arrow, b_arrow=b_arrow, a_icon=a_icon, b_icon=b_icon, fx=fx)
 
     def _board_clear(self) -> None:
         import board
+        self.board_state = None
         s = self._sess(0) if getattr(self, "robots", None) else None
         if s is not None:
             board.clear(s)

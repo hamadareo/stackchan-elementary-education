@@ -11,7 +11,8 @@ from __future__ import annotations
 import html
 import json
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtGui import QBrush, QColor, QPainter, QPen, QPolygonF, QFont
 from PySide6.QtWidgets import (QCheckBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea,
                                QVBoxLayout, QWidget)
 
@@ -23,6 +24,10 @@ HINT = {"shiritori": "言葉を言う(例: りんご)", "janken": "ぐー・ち�
 BTN_OFF = "QPushButton{font-size:17px;font-weight:700;padding:14px 8px;min-height:30px}"
 BTN_ON = f"QPushButton{{font-size:17px;font-weight:700;padding:14px 8px;min-height:30px;border:2px solid {GR};color:{GR};background:rgba(65,255,168,40)}}"
 STOP_QSS = f"QPushButton{{font-size:20px;font-weight:700;padding:16px 8px;border:2px solid {RD};color:#fff;background:{RD}}}QPushButton:disabled{{border:1px solid #3a2a30;color:#6a5258;background:rgba(255,90,110,10)}}QPushButton:hover:!disabled{{background:#ff7d8c}}"
+
+
+def kind_has_art(kind: str) -> bool:
+    return kind in ("janken", "hoi")
 
 
 def esc(x) -> str:
@@ -90,6 +95,122 @@ def camera_html(x: dict) -> str:
     return f'カメラ: <b style="color:{col}">{esc(d["cam_label"])}</b>{note}'
 
 
+ICON = {"gu": 1, "choki": 2, "pa": 3}
+ARROW = {"up": 1, "down": 2, "left": 3, "right": 4}
+
+
+class BubbleView(QWidget):
+    """機器の画面と同じ、吹き出しのイラスト(ずんだもんの手・きみの手・向きの矢印)。board は ブリッジの board_state。"""
+    INK, SKIN, SHADE = QColor(40, 40, 52), QColor(255, 214, 168), QColor(226, 170, 120)
+
+    def __init__(self):
+        super().__init__()
+        self.board: "dict | None" = None
+        self.setMinimumHeight(150)
+
+    def set_board(self, b: "dict | None") -> None:
+        if b != self.board:
+            self.board = b
+            self.update()
+
+    # ---- 部品(機器の Balloon.h と同じ形)
+    def cap(self, p, x0, y0, x1, y1, r, col):
+        p.setPen(QPen(col, 2 * r, Qt.SolidLine, Qt.RoundCap))
+        p.drawLine(QPointF(x0, y0), QPointF(x1, y1))
+
+    def hand(self, p, cx, cy, icon, s):
+        def P(v): return v * s
+        def rr(x, y, w, h, r, g, c):
+            p.setPen(Qt.NoPen); p.setBrush(c)
+            p.drawRoundedRect(QRectF(cx + P(x) - g, cy + P(y) - g, P(w) + 2 * g, P(h) + 2 * g), P(r) + g, P(r) + g)
+        def fg(x0, y0, x1, y1, r, g, c): self.cap(p, cx + P(x0), cy + P(y0), cx + P(x1), cy + P(y1), P(r) + g, c)
+        def line(x0, y0, x1, y1):
+            p.setPen(QPen(self.SHADE, 1.2)); p.drawLine(QPointF(cx + P(x0), cy + P(y0)), QPointF(cx + P(x1), cy + P(y1)))
+        def shape(g, c):
+            if icon == 1:
+                rr(-35, -16, 70, 54, 20, g, c)
+                for i in range(4): rr(-34 + i * 17, -24, 17, 32, 8, g, c)
+                fg(-27, 20, 14, 20, 9, g, c)
+            elif icon == 2:
+                rr(-28, 6, 56, 42, 16, g, c); fg(-11, 12, -20, -38, 8, g, c); fg(11, 12, 20, -38, 8, g, c); fg(-28, 30, 2, 28, 8, g, c)
+            elif icon == 3:
+                rr(-30, 8, 60, 44, 18, g, c)
+                fg(-23, 14, -28, -32, 7.5, g, c); fg(-8, 12, -10, -43, 7.5, g, c); fg(8, 12, 10, -43, 7.5, g, c); fg(23, 14, 28, -32, 7.5, g, c); fg(-29, 36, -47, 12, 8, g, c)
+        if icon not in (1, 2, 3):
+            return
+        shape(3, self.INK); shape(0, self.SKIN)
+        if icon == 1:
+            for i in range(1, 4): line(-34 + i * 17, -18, -34 + i * 17, -2)
+            line(-26, 11, 12, 11)
+        elif icon == 2:
+            line(14, 16, 14, 30); line(22, 16, 22, 30); line(-24, 22, 4, 20)
+        else:
+            for i in (-1, 0, 1): line(i * 16, -14, i * 16, 12)
+
+    def arrow(self, p, cx, cy, d, s, col):
+        def mp(x, y):
+            X, Y = x * s, y * s
+            return {1: (X, Y), 2: (X, -Y), 3: (Y, X)}.get(d, (-Y, X))
+        def poly(ox, oy, c):
+            pts = [mp(-12, -2), mp(12, -2), mp(12, 36), mp(-12, 36)]
+            head = [mp(-32, -4), mp(32, -4), mp(0, -44)]
+            p.setPen(Qt.NoPen); p.setBrush(c)
+            for pg in (pts, head):
+                p.drawPolygon(QPolygonF([QPointF(cx + ox + a, cy + oy + b) for a, b in pg]))
+        for dx in (-3, 0, 3):
+            for dy in (-3, 0, 3):
+                if dx or dy: poly(dx, dy, self.INK)
+        poly(0, 0, col)
+
+    def bubble(self, p, x, y, w, h, tx, ty, edge):
+        bx = x + 26 if tx < x + w / 2 else x + w - 26
+        p.setPen(Qt.NoPen); p.setBrush(edge)
+        p.drawPolygon(QPolygonF([QPointF(bx - 15, y + h - 3), QPointF(bx + 15, y + h - 3), QPointF(tx, ty)]))
+        p.drawRoundedRect(QRectF(x, y, w, h), 18, 18)
+        p.setBrush(QColor(255, 255, 255))
+        p.drawRoundedRect(QRectF(x + 4, y + 4, w - 8, h - 8), 15, 15)
+        p.drawPolygon(QPolygonF([QPointF(bx - 10, y + h - 7), QPointF(bx + 10, y + h - 7), QPointF(tx, ty - 7)]))
+
+    def paintEvent(self, _e):
+        b = self.board
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        if not b:
+            p.setPen(QColor(MUTE))
+            p.drawText(self.rect(), Qt.AlignCenter, "ここに、出した手や向きの絵が出ます")
+            return
+        W, H, Y0 = 320.0, 150.0, 20.0                              # 機器の画面と同じ座標(320 幅、y=20〜170)
+        k = min(self.width() / W, self.height() / H)
+        p.translate((self.width() - W * k) / 2, (self.height() - H * k) / 2)
+        p.scale(k, k)
+        p.translate(0, -Y0)
+        zun, sky, red, blu, gold = QColor(86, 176, 64), QColor(64, 144, 224), QColor(238, 82, 60), QColor(40, 110, 220), QColor(255, 200, 40)
+        ai, bi = ICON.get(b.get("ai"), 0), ICON.get(b.get("bi"), 0)
+        aa, ba = ARROW.get(b.get("aa"), 0), ARROW.get(b.get("ba"), 0)
+        has_a, has_b = bool(ai or aa), bool(bi or ba)
+        foot = b.get("foot") or ""
+        if foot and len(foot) <= 16:
+            f = QFont(); f.setPixelSize(15); f.setBold(True); p.setFont(f)
+            tw = p.fontMetrics().horizontalAdvance(foot) + 28
+            p.setPen(QPen(self.INK, 2)); p.setBrush(gold)
+            p.drawRoundedRect(QRectF(160 - tw / 2, 24, tw, 24), 12, 12)
+            p.drawText(QRectF(160 - tw / 2, 24, tw, 24), Qt.AlignCenter, foot)
+        top, hh = 54, 98
+        def side(x, w, icon, arrow, tx, edge, acol, s, dy):
+            self.bubble(p, x, top, w, hh, tx, top + hh + 12, edge)
+            if icon: self.hand(p, x + w / 2, top + hh / 2 + dy, icon, s)
+            else: self.arrow(p, x + w / 2, top + hh / 2 - 2 + dy, arrow, s * 0.9, acol)
+        if has_a and has_b:
+            side(8, 170, ai, aa, 138, zun, red, 0.8, 0)
+            side(188, 124, bi, ba, 290, sky, blu, 0.6, 9)
+            f = QFont(); f.setPixelSize(15); f.setBold(True); p.setFont(f); p.setPen(self.INK)
+            p.drawText(QRectF(188, top + 6, 124, 20), Qt.AlignCenter, "きみ")
+        elif has_a:
+            side(70, 180, ai, aa, 138, zun, red, 0.88, 0)
+        elif has_b:
+            side(70, 180, bi, ba, 200, sky, blu, 0.92, 0)
+
+
 class DeviceCard(QFrame):
     def __init__(self, dev_id: str, act):
         super().__init__()
@@ -127,6 +248,8 @@ class DeviceCard(QFrame):
         self.cam.setTextFormat(Qt.RichText)
         self.cam.setStyleSheet("font-size:15px")
         v.addWidget(self.cam)
+        self.bub = BubbleView()
+        v.addWidget(self.bub)
         self.body = QLabel()
         self.body.setTextFormat(Qt.RichText)
         self.body.setWordWrap(True)
@@ -160,6 +283,8 @@ class DeviceCard(QFrame):
             b.setStyleSheet(BTN_ON if (on and k == cur) else BTN_OFF)
         self.stop.setEnabled(online and on)
         self.cam.setText(camera_html(x))
+        self.bub.set_board(x.get("board") if on else None)
+        self.bub.setVisible(bool(on and kind_has_art(cur)))
         self.body.setText(detail_html(x))
         self.hint.setText(("子どもに言ってもらうこと: " + HINT.get(cur, "")) if on and cur else "")
         self.typ.setEnabled(online and on)

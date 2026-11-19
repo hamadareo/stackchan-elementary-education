@@ -121,7 +121,13 @@ class Lesson:
             gl = snaps.get(dev, [])
             on = next((g for g in gl if g.get("on")), None)
             last = on or next((g for g in gl if g.get("result")), gl[0] if gl else None)
-            out.append({"id": dev, "name": d.get("name", ""), "online": bool(d.get("online")),
+            board = None
+            if on:                                               # いまの遊びが、機器の画面に出している絵(手・向き)。管理画面にも同じ絵を出す
+                for h in self.hubs():
+                    bs = getattr(h.games.get(dev), "board_state", None) if getattr(h, "games", None) else None
+                    if bs and (bs.get("ai") or bs.get("bi") or bs.get("aa") or bs.get("ba")):
+                        board = dict(bs)
+            out.append({"id": dev, "board": board, "name": d.get("name", ""), "online": bool(d.get("online")),
                         "persona": (on or last or {}).get("persona", ""),
                         "kind": (on or {}).get("kind", ""), "label": LABEL.get((on or {}).get("kind", ""), ""),
                         "on": bool(on), "detail": on or last or {}})
