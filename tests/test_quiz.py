@@ -347,6 +347,8 @@ class ExclusionTests(PlayBase):
 
 
 class HoiTests(PlayBase):
+    """あっち向いてホイ: じゃんけんはしない。ロボットが ゆびを さす → 子どもが ゆびを さす、と こうたいで進む。"""
+
     def _start(self, fool=0.0):
         rnd = FixedRandom(1)
         rnd.fool = fool
@@ -354,14 +356,16 @@ class HoiTests(PlayBase):
         self.assertTrue(qh.start("hoi", "", ["a"])[0])
         return qh, qh.games["a"], said, sent, raws
 
-    def test_kid_wins_round_with_pointing_and_fooled_robot(self):
+    def test_alternates_robot_then_kid_and_kid_wins_with_three_points(self):
         qh, g, said, sent, raws = self._start(fool=0.0)                # つられる(同じ向きを向く)
-        for i, hand in enumerate(("ぱー", "ぱー", "ぐー")):               # ロボットの手は ぐー・ぐー・ちょき(同じ手が 3 回続かない) → 3 回とも子どもの かち
-            self.step(qh, g, "jan", hand)
-            self.step(qh, g, "ask_dir", "ひだりをさした")
+        phases = []
+        for i in range(3):
+            self.step(qh, g, "watch", "した")                           # ロボット(うえ を さす)に、よけた
+            phases.append(g.phase)
+            self.step(qh, g, "ask_dir", "ひだりをさした")                # 子どもの番: ロボットが つられて ひだり → 子どもの 1 点
             self.assertTrue(self._wait(lambda: g.kp >= i + 1))
         self.assertTrue(self._wait(lambda: g.stat.startswith("きみ 3てん") and g.turn == "kid"))
-        self.assertEqual((g.kp, g.rp), (3, 0))
+        self.assertEqual((g.kp, g.rp, g.attacks), (3, 0, 6))            # ロボット→子ども→… こうたい。3 点とって おしまい
         self.assertTrue(qh.say("いいえ", "a"))
         self.assertTrue(self._wait(lambda: not g.on))
         d = json.load(open(qh.path))["quiz"]
@@ -370,29 +374,49 @@ class HoiTests(PlayBase):
         pans = [m["dpan"] for n, m in sent if n == "a" and m.get("t") == "servo" and m.get("dpan")]
         self.assertTrue(any(p < 0 for p in pans))                      # 子どもの ひだり = ロボットの パン(-)
         bs = [m for n, m in sent if m.get("t") == "board"]
-        self.assertTrue(any(m.get("title") == "じゃんけん" and m.get("bb") == "ぱー" and m.get("ab") == "ぐー" for m in bs))     # 手の表示
-        self.assertTrue(any(m.get("ba") == "left" and m.get("aa") == "left" for m in bs))                                  # 指さしの向き(三角)
+        self.assertTrue(any(m.get("ba") == "left" and m.get("aa") == "left" for m in bs))                                  # 指さしの向き(矢印)
+        self.assertTrue(any(m.get("aa") == "up" for m in bs))                                                              # ロボットが うえを さした
         self.assertTrue(any(m.get("title") == "けっか" for m in bs))
         self.assertTrue(any(m.get("clear") for m in bs))               # 終わるとき、表示を消す
+        self.assertEqual(set(phases), {"watch"})
+
+    def test_no_janken_anywhere(self):
+        qh, g, said, sent, raws = self._start(fool=0.0)
+        self.step(qh, g, "watch", "うえ")                                 # ロボットの 1 点
+        self.step(qh, g, "ask_dir", "ひだり")
+        self.assertTrue(self._wait(lambda: g.attacks == 2))
+        qh.stop("a")
+        self.assertTrue(self._wait(lambda: not g.on))
+        for _n, c in said:
+            for w in ("じゃんけん", "ぐー", "ちょき", "ぱー", "ぽん"):
+                self.assertNotIn(w, c)
+        bs = [m for n, m in sent if m.get("t") == "board"]
+        self.assertFalse(any(m.get("ai") or m.get("bi") or m.get("title", "").startswith("じゃんけん") for m in bs))   # 手の絵は出さない
+        self.assertNotEqual(g.phase, "jan")
+        for key, lines in fun.HOI.items():                                # 台詞の辞書にも、じゃんけんの言葉はない
+            for t in lines:
+                for w in ("じゃんけん", "ぐー", "ちょき", "ぱー", "ぽん", "あいこ"):
+                    self.assertNotIn(w, t, key)
+        self.assertFalse({"jan_call", "aiko", "jan_miss", "jan_miss2", "r_win", "k_win"} & set(fun.HOI))
 
     def test_robot_dodges_when_not_fooled(self):
         qh, g, said, sent, raws = self._start(fool=0.99)
-        self.step(qh, g, "jan", "ぱー")
-        self.step(qh, g, "ask_dir", "うえ")
-        self.assertTrue(self._wait(lambda: g.attacks == 1))
+        self.step(qh, g, "watch", "した")                                 # ロボットは うえ。よけた
+        self.step(qh, g, "ask_dir", "うえ")                               # 子どもが うえを さす
+        self.assertTrue(self._wait(lambda: g.attacks == 2))
         self.assertEqual((g.kp, g.rp), (0, 0))                        # よけられた(同じ向きを向かない)
         self.assertTrue(any(h["q"].startswith("きみが うえ") and not h["ok"] for h in g.history))
         qh.stop("a")
         self.assertTrue(self._wait(lambda: not g.on))
 
     def test_robot_wins_point_by_voice_and_dodge(self):
-        qh, g, said, sent, raws = self._start()
-        self.step(qh, g, "jan", "ちょき")                                # ロボット ぐー の かち。ロボットは うえ(先頭) を向く
-        self.step(qh, g, "watch", "うえ")                                 # 子どもが うえ を向いた → ロボットの 1 点
+        qh, g, said, sent, raws = self._start(fool=0.99)
+        self.step(qh, g, "watch", "うえ")                                 # ロボットは うえ(先頭) を向く。子どもも うえ → ロボットの 1 点
         self.assertTrue(self._wait(lambda: g.rp == 1))
-        self.step(qh, g, "jan", "ちょき")
-        self.step(qh, g, "watch", "みぎ")                                 # よけた → 点にならない
+        self.step(qh, g, "ask_dir", "ひだり")                              # 子どもの番: ロボットは つられない → 点にならない
         self.assertTrue(self._wait(lambda: g.attacks == 2))
+        self.step(qh, g, "watch", "みぎ")                                 # ロボットの番: よけた → 点にならない
+        self.assertTrue(self._wait(lambda: g.attacks == 3))
         self.assertEqual((g.kp, g.rp), (0, 1))
         self.assertTrue(any(raw is not None and raw.get("speed", 0) > 1.0 for t, raw in raws if "ホイ" in t))   # 「ホイ」は盛り上げた声
         qh.stop("a")
@@ -402,18 +426,21 @@ class HoiTests(PlayBase):
         self.assertEqual(snap["robot_points"], 1)
         self.assertIn("ロボット 1てん", snap["stat"])
 
-    def test_draw_repeats_and_quit(self):
+    def test_quit_in_robot_turn_and_in_kid_turn(self):
         qh, g, said, sent, raws = self._start()
-        self.step(qh, g, "jan", "ぐー")                                  # ロボット ぐー: あいこ
-        self.assertTrue(self._wait(lambda: any("あいこ" in c for _n, c in said)))
-        self.step(qh, g, "jan", "やめよう")                               # 途中でやめる
+        self.step(qh, g, "watch", "やめよう")                              # ロボットが さしている場面でも、すぐ終わる
         self.assertTrue(self._wait(lambda: not g.on))
         self.assertTrue(polite(said))
         self.assertEqual(g.kp + g.rp, 0)
+        self.assertEqual(self.servo_sum(sent), (0, 0))
+        qh, g, said, sent, raws = self._start()
+        self.step(qh, g, "watch", "した")
+        self.step(qh, g, "ask_dir", "やめよう")                            # 子どもの番でも
+        self.assertTrue(self._wait(lambda: not g.on))
+        self.assertEqual(self.servo_sum(sent), (0, 0))
 
     def test_unseen_direction_is_not_a_point(self):
         qh, g, said, sent, raws = self._start()
-        self.step(qh, g, "jan", "ちょき")
         # 声も顔も見えない(カメラなし・声なし): 判定できず、もういっかい(点にならない)
         self.assertTrue(self._wait(lambda: any("みえなかった" in c or "わからなかった" in c for _n, c in said), 600))
         self.assertEqual((g.kp, g.rp), (0, 0))

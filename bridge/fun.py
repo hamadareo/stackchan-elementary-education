@@ -11,7 +11,7 @@ import statistics
 import threading
 
 import board
-from janken import NAME, QUIT as J_QUIT, Janken, judge, lose_run, mercy_hand, parse_hand, pick_robot_hand
+from janken import Janken
 from playfx import AGAIN, QUIT, Stage, fold
 from quiz import IDLE_MAX, IDLE_WAIT, Play
 
@@ -86,18 +86,14 @@ def baseline(metrics: list) -> "tuple[float, float]":
 
 
 HOI = {
-    "intro": ["あっちむいてホイを しよう！まず じゃんけん。かった ほうが ゆびで さして、あっちむいてホイ！さきに 3てん とった ほうの かち{d}！",
-              "あっちむいてホイ{d}！じゃんけんに かったら ゆびを さすよ。さきに 3てん とったら かち！ぐー、ちょき、ぱーを 声で言うか、カメラに 手を みせてね。",
-              "あっちむいてホイ、はじめるよ！じゃんけんで かって、ゆびを さした ほうに むかなければ かち{d}！さきに 3てん とったら かち{d}！",
-              "さあ、あっちむいてホイ{d}！{me}と しょうぶ！さきに 3てん とったら かち{d}！じゃんけん、いくよー！"],
-    "jan_call": ["さいしょはぐー、じゃんけん…ぽん！", "じゃんけん…ぽん！", "いくよー！じゃんけん…ぽん！", "じゃーんけーん…ぽん！", "つぎ いくよ！じゃんけん…ぽん！", "しょうぶ{d}！じゃんけん…ぽん！"],
-    "aiko": ["{r}！あいこで…しょ！", "おなじ{d}！あいこで…しょ！", "あいこ{d}！あいこで…しょ！", "{r}で あいこ！あいこで…しょ！", "あらら あいこ！もういっかい、あいこで…しょ！"],
-    "r_win": ["{r}！{me}の かち{d}！{cheer} こんどは {me}が ゆびを さす{v}！", "やったー！{r}で {me}の かち{d}！", "{me}は{r}！かった{v}！あっちむいてホイ、いくよ！",
-              "{cheer} {me}の かち！あっちむいてホイ、じゅんびは いい？", "{r}を だしたら かった！{me}の ばん{d}！"],
-    "k_win": ["{r}！{oops} きみの かち{d}！ゆびを さして！", "{me}は{r}。まけちゃった！きみの かち{d}！あっちむいてホイ、どうぞ！", "{oops} きみの かち{d}！さあ、あっちむいてホイ！",
-              "{r}を だしたけど まけた{v}！きみの ばん{d}！"],
-    "jan_miss2": ["ぐー、ちょき、ぱーの どれかな？", "ゆっくり おしえてね！", "てを カメラに みせても いいよ！"],
-    "jan_miss": ["もういっかい！ぐー、ちょき、ぱー！", "ぐー、ちょき、ぱーで おしえてね！", "てを カメラに みせても いいよ！もういっかい！"],
+    "intro": ["あっちむいてホイを しよう！{me}が ゆびを さすから、おなじ むきを むかないでね{d}。つぎは きみが ゆびを さすばん{d}。さきに 3てん とった ほうの かち{d}！",
+              "あっちむいてホイ{d}！まず {me}が ゆびを さすよ。おなじ むきを むいたら {me}の 1てん！そのあとは きみのばん{d}。さきに 3てん とったら かち！",
+              "あっちむいてホイ、はじめるよ！{me}が さした ほうに むかなければ セーフ{d}。つぎは きみが ゆびを さすばん！さきに 3てん とったら かち{d}！",
+              "さあ、あっちむいてホイ{d}！{me}と しょうぶ！{me}が さす、きみが さす、こうたいで やるよ。さきに 3てん とったら かち{d}！"],
+    "r_turn": ["{me}が ゆびを さす{v}！おなじ むきを むかないでね{d}！", "つぎは {me}の ばん{d}！{cheer} ゆびを さすよ！", "いくよ、{me}の ばん！おなじ むきは だめ{d}！",
+               "{me}が さす{v}！じゅんびは いい？", "こんどは {me}が ゆびを さすばん{d}！"],
+    "k_turn": ["つぎは きみの ばん{d}！ゆびを さして！", "きみが ゆびを さすばん{d}！あっちむいてホイ、どうぞ！", "さあ、きみの ばん{d}！ゆびを さしてね！",
+               "こんどは きみが さす{v}！どっちに さすかな？"],
     "k_ask": ["「あっちむいてホイ！」って 言いながら、ゆびを さしてね。ゆびの むきは、うえ、した、ひだり、みぎで おしえてね！", "ゆびを さす むきを 言ってね。うえ、した、ひだり、みぎ！",
               "どっちを さす？うえ、した、ひだり、みぎ、どれかな？"],
     "k_ask2": ["どっちを さしたの？うえ、した、ひだり、みぎ で おしえてね！", "もういっかい おしえて！うえ、した、ひだり、みぎ！"],
@@ -108,7 +104,7 @@ HOI = {
     "k_hit": ["あっ、{dir}を むいちゃった！きみの 1てん{d}！{cheer}", "やられた！{dir}を むいちゃった{v}！きみの 1てん！", "{oops} ひっかかった！きみの かち{d}！", "あー！つられちゃった！きみの 1てん{d}！"],
     "k_miss": ["セーフ{d}！{me}は {dir}を むいた{v}！", "よけたよ！{me}は {dir}！ざんねん！", "ざんねん、{me}は {dir}を むいた{v}！つぎ いこう！", "ふふふ、{dir}を むいたよ！つられない{v}！"],
     "score": ["いま、きみ {ks}、{me} {rs}！", "きみが {ks}てん、{me}が {rs}てん{d}！", "{ks} たい {rs}！", "ここまで、きみ {ks}、{me} {rs}！"],
-    "unseen": ["ごめん、みえなかった！もういっかい やろう！", "あれ、どっちか わからなかった！もういっかい！", "うーん、みえなかった。もういっかい じゃんけん！"],
+    "unseen": ["ごめん、みえなかった！もういっかい やろう！", "あれ、どっちか わからなかった！もういっかい！", "うーん、みえなかった。もういっかい あっちむいて！"],
     "kid_round": ["きみの かち{d}！{cheer} {ks}たい{rs}！", "{me}の まけ{d}！きみ、つよいね！{ks}たい{rs}！", "きみが いちばん{d}！{cheer} {ks}たい{rs}！", "まいった！きみの かち{d}！{ks}たい{rs}！"],
     "robot_round": ["{me}の かち{d}！でも いい しょうぶ{d}！{rs}たい{ks}！", "{me}が かった{v}！きみも つよかった{n}！{rs}たい{ks}！", "{rs}たい{ks}で {me}の かち！もういっかい やれば かてる{v}！"],
     "draw_round": ["ひきわけ{d}！いい しょうぶ{d}！{ks}たい{rs}！", "どっちも おなじ！ひきわけ{d}！{ks}たい{rs}！"],
@@ -126,7 +122,7 @@ class Hoi(Play, Janken):
         self.round_streak = 0
         self.attacks = 0
         self.fails = 0
-        self.phase = ""                # いまの場面(jan=じゃんけんの手を待つ / ask_dir=子どもの指さしを待つ / watch=子どもの顔の向きを見る)
+        self.phase = ""                # いまの場面(ask_dir=子どもの指さしを待つ / watch=子どもの顔の向きを見る)
 
     def _h(self, scene: str, **kw) -> str:
         return self.L(scene, HOI[scene] if scene in HOI else None, **kw)
@@ -137,52 +133,6 @@ class Hoi(Play, Janken):
     def _set_stat(self) -> None:
         self.stat = f"きみ {self.kp}てん ・ ロボット {self.rp}てん ・ れんしょう {self.round_streak}"
         self.score = self.kp
-
-    # ---- じゃんけん(勝ち負けが決まるまで、あいこは くりかえす)
-    def _jan(self, eng, call: str) -> "tuple":
-        """戻り値: ("kid_win"|"robot_win", 子どもの手, ロボットの手) / ("quit",) / ("idle",)"""
-        misses = 0
-        while not self._stop.is_set():
-            self.phase = "jan"
-            self._cam_precheck(eng, "jan")                       # 近すぎ・遠すぎ・見えないときは、「ぽん」の前に指示する
-            if self._stop.is_set():
-                break
-            self.big = "じゃんけん…ぽん！"
-            self.qtext = call
-            self._board(title="じゃんけん…", a=("", "ぽん！"), ms=3000)
-            self._say(eng, call, "excited", face="happy")
-            self.turn = "kid"
-            self._face("listening")
-            robot = pick_robot_hand(self.rnd, [h["robot"] for h in self.hands])
-            text, cam = self._wait_hand(eng)
-            self._freeze(True)                                   # _wait_hand が手の認識用に取り替えた画像の受け口を、もとに戻す
-            if self._stop.is_set() or text is None:
-                return ("quit",)
-            if text and J_QUIT.search(text) and parse_hand(text) is None:
-                return ("quit",)
-            hand = parse_hand(text) if text else None
-            if hand is None and cam:
-                hand = cam
-            if hand is None:
-                misses += 1
-                if misses >= 4:
-                    return ("idle",)
-                self._say(eng, self._h("jan_miss2" if misses >= 2 else "jan_miss"), "doubt", face="doubt")
-                call = "じゃんけん…ぽん！"
-                continue
-            misses = 0
-            robot = mercy_hand(self.rnd, hand, robot, self.hands, lose_run(self.hands))
-            res = judge(hand, robot)
-            self.hands.append({"kid": hand, "robot": robot, "res": res, "via": "voice"})
-            del self.hands[:-30]
-            self.qtext = f"じゃんけん: きみ {NAME[hand]} / ロボット {NAME[robot]}"
-            foot = "あいこ！" if res == "draw" else ("きみの かち！" if res == "kid_win" else f"{self.name}の かち！")
-            self._board(title="じゃんけん", a=(self.name, NAME[robot]), b=("きみ", NAME[hand]), foot=foot, ms=5000, a_icon=robot, b_icon=hand, fx="win" if res == "kid_win" else "")
-            if res == "draw":
-                call = self._h("aiko", r=NAME[robot])
-                continue
-            return (res, hand, robot)
-        return ("quit",)
 
     # ---- ロボットが向く(首は小さく・ゆっくり)
     def _turn_head(self, d: str, speed: int = 320) -> None:
@@ -241,10 +191,10 @@ class Hoi(Play, Janken):
         return (d, "camera") if d else (None, f"camera:{len(labels)}")
 
     def _robot_points(self, eng) -> str:
-        """ロボットが かった: ロボットが向きを決めて「ホイ」。子どもが同じ向きを向いたら、ロボットの 1 点。戻り値: robot / kid / skip / quit"""
+        """ロボットが攻める: ロボットが向きを決めて「ホイ」。子どもが同じ向きを向いたら、ロボットの 1 点。戻り値: robot / kid / skip / quit"""
         d = self.rnd.choice(DIRS)
         self.atext = f"先生用: ロボットは「{DIR_NAME[d]}」を向きます。子どもが向いた向きを言葉で入れられます(うえ/した/ひだり/みぎ)"
-        self._say(eng, self._h("r_win", r=NAME[self.hands[-1]["robot"]]), "excited", face="giggle")
+        self._say(eng, self._h("r_turn"), "excited", face="giggle")
         self._cam_precheck(eng, "face")                         # 顔の向きを読める位置か確かめる(近すぎ・遠すぎ・見えない・暗い・横向きなら指示する)
         if self._stop.is_set():
             return "quit"
@@ -281,9 +231,9 @@ class Hoi(Play, Janken):
         return "none"
 
     def _kid_points(self, eng) -> str:
-        """子どもが かった: 子どもが ゆびさす向きを言い、ロボットは(ときどき つられて)向く。同じ向きを向いたら、子どもの 1 点。戻り値: kid / none / skip / quit"""
+        """子どもが攻める: 子どもが ゆびさす向きを言い、ロボットは(ときどき つられて)向く。同じ向きを向いたら、子どもの 1 点。戻り値: kid / none / skip / quit"""
         self.atext = "先生用: 子どもが ゆびさした向きを、うえ/した/ひだり/みぎ で入力してください"
-        self._say(eng, self._h("k_win", r=NAME[self.hands[-1]["robot"]]), "sad", face="sad")
+        self._say(eng, self._h("k_turn"), "joy", face="happy")
         self._board(b=("きみ", "ゆびさし"), foot="うえ・した・ひだり・みぎ", ms=8000)
         kd = None
         for scene in ("k_ask", "k_ask2"):
@@ -331,25 +281,22 @@ class Hoi(Play, Janken):
         self.hands = []
         self.round_streak = 0
         self._say(eng, self._h("intro"), "excited", face="happy")
-        call = self._h("jan_call")
         while not self._stop.is_set():
             self.kp = self.rp = self.attacks = self.fails = 0
             self._set_stat()
+            robot_turn = True                                    # 先に、ロボットが ゆびを さす。そのあとは こうたい
             while self.kp < WIN_POINTS and self.rp < WIN_POINTS and self.attacks < MAX_ATTACKS and not self._stop.is_set():
-                r = self._jan(eng, call)
-                call = self._h("jan_call")
-                if r[0] in ("quit", "idle"):
-                    self._bye(eng, r[0])
-                    return
-                out = self._robot_points(eng) if r[0] == "robot_win" else self._kid_points(eng)
+                self.phase = ""
+                out = self._robot_points(eng) if robot_turn else self._kid_points(eng)
                 if out == "quit":
                     self._bye(eng, "quit")
                     return
-                if out == "skip":
+                if out == "skip":                                # 向きが決められなかった: 同じ側で、もういっかい
                     if self.fails >= 3:
                         self._bye(eng, "idle")
                         return
                     continue
+                robot_turn = not robot_turn
                 self.attacks += 1
                 self._set_stat()
                 if self.kp < WIN_POINTS and self.rp < WIN_POINTS:
@@ -383,7 +330,6 @@ class Hoi(Play, Janken):
                 self._say(eng, self._h("bye"), "joy")
                 return
             self.hub.event("あっちむいてホイ: もういっかい")
-            call = self._h("jan_call")
 
     def _bye(self, eng, res: str) -> None:
         self.msg = "またあそぼうね！"

@@ -525,11 +525,11 @@ class HoiGuideTests(unittest.TestCase):
     def test_far_then_fixed_continues(self):
         qh, g, said, sent, face = self._start([face_at(0.05), face_at(0.3)])
         self.assertTrue(self.base._wait(lambda: any("ちかく" in c or "ちかづいて" in c or "こっちに" in c for _n, c in said)))
-        self.base.step(qh, g, "jan", "ぱー")                                                    # 直ったので、じゃんけんが始まり、声で答えられる
+        self.base.step(qh, g, "watch", "した")                                                  # 直ったので、ロボットが ゆびを さし、声で答えられる
         self.assertEqual(g.cam_state, "ok")
         self.assertTrue(any(m.get("title") == cg.TITLE for _n, m in sent if m.get("t") == "board"))
         self.assertFalse(g._coach_obj.gave_up)
-        self.assertTrue(self.base._wait(lambda: g.phase == "ask_dir" and g.turn == "kid"))        # 子どもの番で待っているところで中止
+        self.assertTrue(self.base._wait(lambda: g.phase == "ask_dir" and g.turn == "kid"))        # つぎは 子どもが ゆびを さす番。待っているところで中止
         qh.stop("a")
         self.assertTrue(self.base._wait(lambda: not g.on))
 
@@ -537,8 +537,8 @@ class HoiGuideTests(unittest.TestCase):
         qh, g, said, sent, face = self._start([face_at(0.7)])                                   # ずっと近すぎ
         self.assertTrue(self.base._wait(lambda: g._coach_obj.gave_up))
         self.assertTrue(any("こえ" in c for _n, c in said))
-        self.base.step(qh, g, "jan", "ちょき")                                                   # 声で遊びを続けられる
-        self.assertTrue(self.base._wait(lambda: any("かち" in c or "まけ" in c for _n, c in said)))
+        self.base.step(qh, g, "watch", "した")                                                   # 声で遊びを続けられる(ロボットは うえを さした → よけた)
+        self.assertTrue(self.base._wait(lambda: any(w in c for _n, c in said for w in ("よけ", "セーフ", "むかなかった", "ざんねん"))))
         snap = g.snapshot()
         self.assertTrue(snap["cam_muted"])
         self.assertEqual(snap["cam_state"], "near")

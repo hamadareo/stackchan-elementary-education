@@ -278,7 +278,6 @@ class ScenarioTests(PlayBase):
         try:
             self.assertTrue(qh.start("hoi", "", ["a"])[0])
             g = qh.games["a"]
-            self.step(qh, g, "jan", "ぐー")
             for _ in range(60):
                 if g.phase in ("watch", "ask_dir") or not g.on:
                     break

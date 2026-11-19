@@ -49,8 +49,9 @@ class ExpandTests(unittest.TestCase):
             self.assertNotRegex(text, r"\{\w+\}")
             self.assertTrue(emo or raw)
         texts = {p[1] for p in plan}
-        for must in ("ガラガラ、ガラガラ…", "ホイ！", "じゃんけん…ぽん！"):
+        for must in ("ガラガラ、ガラガラ…", "ホイ！"):
             self.assertIn(must, texts)
+        self.assertTrue(any("ゆびを さす" in t for t in texts))                           # あっち向いてホイの、攻める側の台詞
         self.assertTrue(any(p[1].startswith("りんごなのだ!") for p in plan))             # しりとりのロボットの言葉(ずんだ)
         self.assertTrue(any(p[1].startswith("りんご、ですね。") for p in plan))           # めたん
         first = [p for p in plan if p[0] == 0]

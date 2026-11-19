@@ -107,7 +107,7 @@ def build_plan(names: list) -> list:
         bank(2, name, L["try"], "joy", cnt=[0, 1, 2])
         # ---- あっち向いてホイ
         H = fun.HOI
-        for scene, emo in (("intro", "excited"), ("jan_call", "excited"), ("aiko", "excited"), ("jan_miss", "doubt"), ("jan_miss2", "doubt"), ("r_win", "excited"), ("k_win", "sad"), ("k_ask", "joy"),
+        for scene, emo in (("intro", "excited"), ("r_turn", "excited"), ("k_turn", "joy"), ("k_ask", "joy"),
                            ("k_ask2", "joy"), ("amuite", None), ("hoi", None), ("r_hit", "excited"), ("r_miss", "sad"), ("k_hit", "surprise"), ("k_miss", "excited"),
                            ("score", "neutral"), ("unseen", "doubt"), ("kid_round", "excited"), ("robot_round", "joy"), ("draw_round", "joy"), ("streak", "excited"), ("bye", "joy")):
             prio = 0 if scene in ("intro", "bye") else 1
