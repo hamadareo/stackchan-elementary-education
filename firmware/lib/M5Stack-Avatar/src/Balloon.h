@@ -396,12 +396,17 @@ class Balloon final : public Drawable {
     auto rnd = [&]() { seed = seed * 1664525u + 1013904223u; return (seed >> 8) & 0xFFFF; };
     const uint16_t SKY = spi->color565(150, 214, 255), SKY2 = spi->color565(196, 234, 255), GRASS = spi->color565(96, 190, 80), DIRT = spi->color565(150, 110, 70);
     const uint16_t INK = spi->color565(40, 40, 52), ZUN = spi->color565(86, 176, 64), SKIN = spi->color565(255, 224, 190), HAIR = spi->color565(150, 224, 100);
+    static float acc = 0, avgDt = 0.04f; static bool lite = false;
     uint32_t now = millis();
     if (upd) {
     { static uint32_t fT = 0, fN = 0, pv = 0, gm = 0; fN++; if (pv && now - pv > gm) gm = now - pv; pv = now; if (now - fT >= 2000) { avatarChari.fps = fN * 1000 / (now - fT); avatarChari.gapMax = gm; gm = 0; fN = 0; fT = now; } }   // 1秒あたりのコマ数(確認用)
-    float dt = last ? (now - last) / 1000.0f : 0.016f;
+    float frameDt = last ? (now - last) / 1000.0f : 0.016f;
     if (upd) last = now;
-    if (dt > 0.05f) dt = 0.05f;
+    if (frameDt > 0.25f) frameDt = 0.25f;                         // 長く止まっても、取りもどす量はここまで
+    if (upd) {                                                    // 描画が重いときは、飾り(雲・山・地面のしま)を省いて軽くする
+      avgDt += (frameDt - avgDt) * 0.1f;
+      if (!lite && avgDt > 0.060f) lite = true; else if (lite && avgDt < 0.040f) lite = false;
+    }
     if (upd && avatarChari.reset) {
       avatarChari.reset = false; avatarChari.jump = false;
       for (auto &o : obs) o.on = false;
@@ -409,7 +414,11 @@ class Balloon final : public Drawable {
     }
     bool jmp = upd ? avatarChari.jump : false;
     if (upd) avatarChari.jump = false;
-    // ---- 進める
+    // ---- 進める(1/60 秒ずつ。描画が遅れても、ゲームの速さは実時間のまま)
+    if (upd) acc += frameDt;
+    for (int step = 0; step < 16 && acc >= 1.0f / 60.0f; step++, acc -= 1.0f / 60.0f) {
+    const float dt = 1.0f / 60.0f;
+    if (step > 0) jmp = false;
     if (phase == 0) { readyT += dt; if (readyT > 1.3f) phase = 1; }
     if (phase == 1) {
       speed = fminf(290.0f, speed + 6.0f * dt);
@@ -440,22 +449,24 @@ class Balloon final : public Drawable {
       overT += dt;
       if (jmp && overT > 0.8f) { avatarChari.reset = true; }
     }
+    }   // 固定刻み
+    if (acc > 0.1f) acc = 0;                                      // 16 回で追いつけなかった分は捨てる
     }   // upd
     // ---- 描く: 空・雲・山・地面
     spi->fillRect(0, 0, 320, 120, SKY);
     spi->fillRect(0, 120, 320, GY - 120, SKY2);
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < (lite ? 0 : 3); i++) {
       int cx = 330 - (int)fmodf(cloud + i * 130.0f, 450.0f), cy = 40 + i * 22;
       spi->fillCircle(cx, cy, 13, 0xFFFF); spi->fillCircle(cx + 14, cy + 3, 11, 0xFFFF); spi->fillCircle(cx - 14, cy + 3, 10, 0xFFFF);
     }
     const uint16_t HILL = spi->color565(150, 205, 150);
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < (lite ? 0 : 4); i++) {
       int hx = 330 - (int)fmodf(hills + i * 120.0f, 480.0f);
       spi->fillTriangle(hx - 70, GY, hx, GY - 56 - (i % 2) * 16, hx + 70, GY, HILL);
     }
     spi->fillRect(0, GY, 320, 240 - GY, DIRT);
     spi->fillRect(0, GY, 320, 7, GRASS);
-    for (int i = 0; i < 8; i++) { int sx = 330 - (int)fmodf(stripe + i * 48.0f, 384.0f); spi->fillRect(sx, GY + 22, 22, 4, spi->color565(122, 86, 52)); }
+    for (int i = 0; i < (lite ? 0 : 8); i++) { int sx = 330 - (int)fmodf(stripe + i * 48.0f, 384.0f); spi->fillRect(sx, GY + 22, 22, 4, spi->color565(122, 86, 52)); }
     // ---- 障害物
     for (auto &o : obs) if (o.on) {
       int x = (int)o.x, y = GY - o.h;
