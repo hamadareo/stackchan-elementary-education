@@ -930,6 +930,10 @@ class Session:
         if t == "dbg":
             if "rssi" in j:
                 self.dbg = j
+            if j.get("cfps"):                                           # 画面のゲームのコマ数(機器の計測)。管理画面に出す
+                q = getattr(admin.HUB, "quiz", None)
+                if q is not None:
+                    q.chari_event(self.dev_id, {"name": "chari_fps", "fps": j.get("cfps", 0), "gap": j.get("cgap", 0)})
             return
         if t == "batt":
             self.batt = j

@@ -490,9 +490,12 @@ JUMP_WORDS = re.compile(r"ジャンプ|じゃんぷ|とべ|飛べ|ぴょん|ピ�
 
 class Chari(Play):
     KIND = "chari"
+    LINK_LOST_S = 6.0                                            # 機器との接続がこれだけ切れたままなら、遊びを終える(画面だけ「あそび中」のまま残さない)
 
     def __init__(self, *a, **k):
         super().__init__(*a, **k)
+        self.fps = 0                                             # 機器の画面のコマ数(1秒あたり)。機器が知らせてくる
+        self.gap = 0                                             # 直近の、コマとコマの最長の間(ミリ秒)。大きいと「処理おち」
         self.runs = 0
         self.run_best = 0
         self.evq: queue.Queue = queue.Queue()
@@ -504,6 +507,9 @@ class Chari(Play):
 
     def event(self, j: dict) -> None:
         """機器からの知らせ(ぶつかった・100m ごと)。別スレッドから呼ばれる。声を出している間も取りこぼさないよう、専用の入れ物に入れる。"""
+        if j.get("name") == "chari_fps":                          # 動きの計測。遊びの流れには入れない
+            self.fps, self.gap = int(j.get("fps", 0)), int(j.get("gap", 0))
+            return
         if self.on:
             self.evq.put(dict(j))
             self.q.put("")                                        # 待っている遊びを起こす
@@ -582,6 +588,7 @@ class Chari(Play):
         self.turn = "kid"
         t_start = last_cheer = self.clock()
         over_at = None
+        lost_at = None
         while not self._stop.is_set():
             while not self.evq.empty() and not self._stop.is_set():           # 機器からの知らせを、順番に
                 j = self.evq.get_nowait()
@@ -602,8 +609,19 @@ class Chari(Play):
                 item = self.q.get(timeout=0.5)
             except queue.Empty:
                 now = self.clock()
+                if self._sess(0) is None:                              # 機器との接続が切れた
+                    lost_at = lost_at or now
+                    self.msg = "機器との接続が切れています…"
+                    if now - lost_at > self.LINK_LOST_S:
+                        self.big = "接続が切れました"
+                        self.msg = "機器との接続が切れたので、終わりました。つなぎなおして、もういちど押してください"
+                        return
+                    continue
+                lost_at = None
                 seen = now - self._face_t < 3.0
                 self.msg = "からだジャンプ: " + (f"顔が見えています({self.body_jumps}かい)" if seen else "顔が見えません(画面タッチは使えます)")
+                if self.fps:
+                    self.msg += f" / 画面 {self.fps}コマ/秒" + ("(処理おちの疑い)" if self.gap > 400 else "")
                 if over_at is not None and now - over_at > 90:        # おわってから 90 秒だれも触らない
                     break
                 if now - t_start > 900:                                # 15 分で、ひと区切り
