@@ -59,7 +59,7 @@ static void task(void *) {
 // ゲーム中(からだジャンプ)は、半分の大きさ(160x120)に縮めて送る(JPEG にするのが速くなり、たくさん送れる)。センサーの設定は変えない(変えると撮影に失敗した)
 static void fast(bool on) {
   fastMode = on;
-  periodMs = on ? 50 : 250;
+  periodMs = on ? 90 : 250;
 }
 
 static bool begin() {

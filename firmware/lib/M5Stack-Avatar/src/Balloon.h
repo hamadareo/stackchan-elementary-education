@@ -36,7 +36,7 @@ struct AvatarBoard {
 // ずんだもんの チャリはしり(画面の中で動くゲーム)。入力は jump(画面タッチ・頭タッチ・ブリッジ)。結果は evSeq/evKind/evVal で main が読んで、ブリッジへ知らせる
 struct AvatarChari {
   volatile bool on, jump, reset;
-  volatile uint32_t evSeq, evVal, fps, tDraw, tPush;
+  volatile uint32_t evSeq, evVal, fps, tDraw, tPush, gapMax;
   volatile uint8_t evKind;               // 1=ぶつかった(evVal=メートル) 2=100m ごと
 };
 extern AvatarChari avatarChari;
@@ -398,7 +398,7 @@ class Balloon final : public Drawable {
     const uint16_t INK = spi->color565(40, 40, 52), ZUN = spi->color565(86, 176, 64), SKIN = spi->color565(255, 224, 190), HAIR = spi->color565(150, 224, 100);
     uint32_t now = millis();
     if (upd) {
-    { static uint32_t fT = 0, fN = 0; fN++; if (now - fT >= 2000) { avatarChari.fps = fN * 1000 / (now - fT); fN = 0; fT = now; } }   // 1秒あたりのコマ数(確認用)
+    { static uint32_t fT = 0, fN = 0, pv = 0, gm = 0; fN++; if (pv && now - pv > gm) gm = now - pv; pv = now; if (now - fT >= 2000) { avatarChari.fps = fN * 1000 / (now - fT); avatarChari.gapMax = gm; gm = 0; fN = 0; fT = now; } }   // 1秒あたりのコマ数(確認用)
     float dt = last ? (now - last) / 1000.0f : 0.016f;
     if (upd) last = now;
     if (dt > 0.05f) dt = 0.05f;
@@ -526,7 +526,7 @@ class Balloon final : public Drawable {
   static void chariWait() { if (pushHandle()) { xSemaphoreTake(pushDone(), portMAX_DELAY); xSemaphoreGive(pushDone()); } }   // 送信中のコマが終わるのを待つ
   static void chariPresent(M5Canvas *st[2], int left, int top) {
     static int k = 0;
-    if (!pushHandle()) { pushDone(); xTaskCreatePinnedToCore(pushTask, "chariPush", 3072, nullptr, 2, &pushHandle(), 0); }
+    if (!pushHandle()) { pushDone(); xTaskCreatePinnedToCore(pushTask, "chariPush", 8192, nullptr, 2, &pushHandle(), 0); }
     M5Canvas *c = st[k]; k ^= 1;
     Tr t{c, 0};
     uint32_t a0 = micros();

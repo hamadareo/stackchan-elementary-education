@@ -455,7 +455,7 @@ static void micStats() {
   JsonDocument d; d["t"] = "dbg"; d["mic_sent"] = stSent; d["rec_fail"] = stRecFail; d["send_max_ms"] = stSendMax; d["loop_max_ms"] = stLoopMax;
   if (WIFI_ON) d["rssi"] = WiFi.RSSI();
   d["heap"] = ESP.getFreeHeap();
-  d["pan"] = (int)panDeg; d["tilt"] = (int)tiltDeg; d["pan_t"] = (int)panTarget; d["tilt_t"] = (int)tiltTarget; d["cam"] = stCam; d["cam_fail"] = (uint32_t)cam::failures; d["cfps"] = (uint32_t)m5avatar::avatarChari.fps; d["ctd"] = (uint32_t)m5avatar::avatarChari.tDraw; d["ctp"] = (uint32_t)m5avatar::avatarChari.tPush;
+  d["pan"] = (int)panDeg; d["tilt"] = (int)tiltDeg; d["pan_t"] = (int)panTarget; d["tilt_t"] = (int)tiltTarget; d["cam"] = stCam; d["cam_fail"] = (uint32_t)cam::failures; d["cfps"] = (uint32_t)m5avatar::avatarChari.fps; d["ctd"] = (uint32_t)m5avatar::avatarChari.tDraw; d["ctp"] = (uint32_t)m5avatar::avatarChari.tPush; d["cgap"] = (uint32_t)m5avatar::avatarChari.gapMax;
   String o; serializeJson(d, o); linkText(o);
   stCam = stSent = stRecFail = stSendMax = stLoopMax = 0;
 }
