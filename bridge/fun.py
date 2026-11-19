@@ -578,7 +578,7 @@ class Chari(Play):
         self._dev("start", body=True)                            # からだジャンプ用に、カメラを小さい画面・たくさん送る設定にする
         self.qtext = "ずんだの チャリはしり"
         self.big = "はしっています"
-        self.msg = "画面タッチか、からだで ジャンプ"
+        self.msg = "画面・天面タッチか、からだで ジャンプ"
         self.turn = "kid"
         t_start = last_cheer = self.clock()
         over_at = None

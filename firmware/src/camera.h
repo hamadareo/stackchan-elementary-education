@@ -12,6 +12,8 @@ static volatile size_t jpgLen = 0;
 static volatile bool ready = false;
 static volatile bool enabled = false;
 static volatile uint32_t frames = 0, failures = 0;
+static volatile bool fastMode = false;           // ゲーム中は半分の大きさで、たくさん送る
+static uint8_t *half = nullptr;
 static volatile uint32_t periodMs = 250;        // 撮影間隔(120ms にしても送られる枚数は増えず、負荷だけ増えたので 250ms)
 
 static bool initCam() {
@@ -39,7 +41,14 @@ static void task(void *) {
     camera_fb_t *fb = esp_camera_fb_get();
     if (!fb) { failures++; continue; }
     uint8_t *out = nullptr; size_t len = 0;
-    bool ok = fmt2jpg(fb->buf, fb->len, fb->width, fb->height, fb->format, 45, &out, &len);
+    bool ok;
+    if (fastMode && half && fb->format == PIXFORMAT_RGB565 && fb->width == 320 && fb->height == 240) {
+      const uint16_t *src = (const uint16_t *)fb->buf; uint16_t *dst = (uint16_t *)half;
+      for (int y = 0; y < 120; y++) for (int x = 0; x < 160; x++) dst[y * 160 + x] = src[(y * 2) * 320 + x * 2];
+      ok = fmt2jpg(half, 160 * 120 * 2, 160, 120, PIXFORMAT_RGB565, 45, &out, &len);
+    } else {
+      ok = fmt2jpg(fb->buf, fb->len, fb->width, fb->height, fb->format, 45, &out, &len);
+    }
     esp_camera_fb_return(fb);
     if (!ok || !out) { failures++; continue; }
     if (len + 1 <= 24000) { memcpy(jpg + 1, out, len); jpgLen = len; ready = true; frames++; }
@@ -47,16 +56,16 @@ static void task(void *) {
   }
 }
 
-// ゲーム中(からだジャンプ)は、小さい画面にして、たくさん送る。終わったら元に戻す
+// ゲーム中(からだジャンプ)は、半分の大きさ(160x120)に縮めて送る(JPEG にするのが速くなり、たくさん送れる)。センサーの設定は変えない(変えると撮影に失敗した)
 static void fast(bool on) {
-  sensor_t *sn = esp_camera_sensor_get();
-  if (sn) sn->set_framesize(sn, on ? FRAMESIZE_QQVGA : FRAMESIZE_QVGA);   // 160x120 / 320x240
-  periodMs = on ? 60 : 250;
+  fastMode = on;
+  periodMs = on ? 50 : 250;
 }
 
 static bool begin() {
   jpg = (uint8_t *)ps_malloc(24000);
   if (!jpg) return false;
+  half = (uint8_t *)ps_malloc(160 * 120 * 2);
   jpg[0] = 0x02;                                // 送信用の先頭タグ(JPEG)
   if (!initCam()) return false;
   enabled = true;

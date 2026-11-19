@@ -455,7 +455,7 @@ static void micStats() {
   JsonDocument d; d["t"] = "dbg"; d["mic_sent"] = stSent; d["rec_fail"] = stRecFail; d["send_max_ms"] = stSendMax; d["loop_max_ms"] = stLoopMax;
   if (WIFI_ON) d["rssi"] = WiFi.RSSI();
   d["heap"] = ESP.getFreeHeap();
-  d["pan"] = (int)panDeg; d["tilt"] = (int)tiltDeg; d["pan_t"] = (int)panTarget; d["tilt_t"] = (int)tiltTarget; d["cam"] = stCam; d["cam_fail"] = (uint32_t)cam::failures; d["cfps"] = (uint32_t)m5avatar::avatarChari.fps;
+  d["pan"] = (int)panDeg; d["tilt"] = (int)tiltDeg; d["pan_t"] = (int)panTarget; d["tilt_t"] = (int)tiltTarget; d["cam"] = stCam; d["cam_fail"] = (uint32_t)cam::failures; d["cfps"] = (uint32_t)m5avatar::avatarChari.fps; d["ctd"] = (uint32_t)m5avatar::avatarChari.tDraw; d["ctp"] = (uint32_t)m5avatar::avatarChari.tPush;
   String o; serializeJson(d, o); linkText(o);
   stCam = stSent = stRecFail = stSendMax = stLoopMax = 0;
 }
@@ -503,6 +503,13 @@ static void touchStep() {
   M5StackChan.TouchSensor.wasPressed();                  // 内部の押下フラグを消費しておく
   auto &in = M5StackChan.TouchSensor.getIntensities();
   uint8_t mx = max(in[0], max(in[1], in[2]));
+  if (m5avatar::avatarChari.on) {                        // ゲーム中: 天面(頭のてっぺん)を触った瞬間に、ジャンプ。なでなでの判定は使わない
+    static bool was = false; static uint32_t lastJ = 0;
+    bool on = mx >= 2;
+    if (on && !was && millis() - lastJ > 120) { m5avatar::avatarChari.jump = true; lastJ = millis(); lastActivity = millis(); }
+    was = on; since = 0; armed = false; freeSince = millis();
+    return;
+  }
   bool busy = gestI < gestN || millis() - lastServoMs < 1500 || mode != LISTEN;
   if (mx == 0) { if (!freeSince) freeSince = millis(); if (millis() - freeSince > 600) armed = true; }   // 離れていることを確認
   else freeSince = 0;
@@ -512,7 +519,6 @@ static void touchStep() {
     cool = millis() + 3000; since = 0; armed = false;
     JsonDocument d; d["t"] = "event"; d["name"] = "touch"; d["lv"] = mx;
     String o; serializeJson(d, o); linkText(o);
-    if (m5avatar::avatarChari.on) m5avatar::avatarChari.jump = true;   // ゲーム中の頭タッチは、ジャンプ
     onTouch();
   }
 }

@@ -36,7 +36,7 @@ struct AvatarBoard {
 // ずんだもんの チャリはしり(画面の中で動くゲーム)。入力は jump(画面タッチ・頭タッチ・ブリッジ)。結果は evSeq/evKind/evVal で main が読んで、ブリッジへ知らせる
 struct AvatarChari {
   volatile bool on, jump, reset;
-  volatile uint32_t evSeq, evVal, fps;
+  volatile uint32_t evSeq, evVal, fps, tDraw, tPush;
   volatile uint8_t evKind;               // 1=ぶつかった(evVal=メートル) 2=100m ごと
 };
 extern AvatarChari avatarChari;
@@ -106,7 +106,7 @@ class Balloon final : public Drawable {
 
   // ---- 吹き出し表示(じゃんけんの手・あっちむいてホイの向き): 文字ではなく、色つきのイラストで見せる ----
   // 太さのある線(両端が丸い。指の形に使う)
-  static void cap(M5Canvas *spi, int x0, int y0, int x1, int y1, int r, uint16_t col) {
+  template <class C> static void cap(C *spi, int x0, int y0, int x1, int y1, int r, uint16_t col) {
     float dx = (float)(x1 - x0), dy = (float)(y1 - y0);
     float L = sqrtf(dx * dx + dy * dy);
     if (L < 1.0f) { spi->fillCircle(x0, y0, r, col); return; }
@@ -369,7 +369,23 @@ class Balloon final : public Drawable {
   }
 
   // ---- ずんだもんの チャリはしり ----
-  static void chariDraw(M5Canvas *spi) {
+  // 帯に分けて描くための包み(y を帯の位置ぶんずらす)。ゲームの描画は、どの帯でも同じ命令を出し、帯の外はそのまま切り取られる
+  struct Tr {
+    M5Canvas *c; int dy;
+    void fillRect(int x, int y, int w, int h, uint16_t k) { c->fillRect(x, y - dy, w, h, k); }
+    void fillRoundRect(int x, int y, int w, int h, int r, uint16_t k) { c->fillRoundRect(x, y - dy, w, h, r, k); }
+    void fillCircle(int x, int y, int r, uint16_t k) { c->fillCircle(x, y - dy, r, k); }
+    void fillTriangle(int x0, int y0, int x1, int y1, int x2, int y2, uint16_t k) { c->fillTriangle(x0, y0 - dy, x1, y1 - dy, x2, y2 - dy, k); }
+    void drawLine(int x0, int y0, int x1, int y1, uint16_t k) { c->drawLine(x0, y0 - dy, x1, y1 - dy, k); }
+    void drawFastHLine(int x, int y, int w, uint16_t k) { c->drawFastHLine(x, y - dy, w, k); }
+    void drawString(const char *t, int x, int y) { c->drawString(t, x, y - dy); }
+    void setFont(const lgfx::IFont *f) { c->setFont(f); }
+    void setTextSize(float z) { c->setTextSize(z); }
+    void setTextDatum(uint8_t d) { c->setTextDatum((lgfx::textdatum_t)d); }
+    void setTextColor(uint16_t f, uint16_t b) { c->setTextColor(f, b); }
+    uint16_t color565(uint8_t r, uint8_t g, uint8_t b) { return c->color565(r, g, b); }
+  };
+  static void chariDraw(Tr *spi, bool upd) {
     const int GY = 196;                                          // 地面の高さ
     struct Ob { float x; uint8_t type; int16_t w, h; bool on; };
     static Ob obs[5];
@@ -378,20 +394,21 @@ class Balloon final : public Drawable {
     static uint8_t phase = 0;                                   // 0=よーい 1=はしる 2=ぶつかった
     static uint32_t mileDone = 0;
     auto rnd = [&]() { seed = seed * 1664525u + 1013904223u; return (seed >> 8) & 0xFFFF; };
+    const uint16_t SKY = spi->color565(150, 214, 255), SKY2 = spi->color565(196, 234, 255), GRASS = spi->color565(96, 190, 80), DIRT = spi->color565(150, 110, 70);
+    const uint16_t INK = spi->color565(40, 40, 52), ZUN = spi->color565(86, 176, 64), SKIN = spi->color565(255, 224, 190), HAIR = spi->color565(150, 224, 100);
     uint32_t now = millis();
+    if (upd) {
     { static uint32_t fT = 0, fN = 0; fN++; if (now - fT >= 2000) { avatarChari.fps = fN * 1000 / (now - fT); fN = 0; fT = now; } }   // 1秒あたりのコマ数(確認用)
     float dt = last ? (now - last) / 1000.0f : 0.016f;
-    last = now;
+    if (upd) last = now;
     if (dt > 0.05f) dt = 0.05f;
-    if (avatarChari.reset) {
+    if (upd && avatarChari.reset) {
       avatarChari.reset = false; avatarChari.jump = false;
       for (auto &o : obs) o.on = false;
       dist = 0; speed = 140; yo = 0; vy = 0; nextGap = 260; phase = 0; readyT = 0; mileDone = 0; seed ^= now;
     }
-    bool jmp = avatarChari.jump;
-    avatarChari.jump = false;
-    const uint16_t SKY = spi->color565(150, 214, 255), SKY2 = spi->color565(196, 234, 255), GRASS = spi->color565(96, 190, 80), DIRT = spi->color565(150, 110, 70);
-    const uint16_t INK = spi->color565(40, 40, 52), ZUN = spi->color565(86, 176, 64), SKIN = spi->color565(255, 224, 190), HAIR = spi->color565(150, 224, 100);
+    bool jmp = upd ? avatarChari.jump : false;
+    if (upd) avatarChari.jump = false;
     // ---- 進める
     if (phase == 0) { readyT += dt; if (readyT > 1.3f) phase = 1; }
     if (phase == 1) {
@@ -423,6 +440,7 @@ class Balloon final : public Drawable {
       overT += dt;
       if (jmp && overT > 0.8f) { avatarChari.reset = true; }
     }
+    }   // upd
     // ---- 描く: 空・雲・山・地面
     spi->fillRect(0, 0, 320, 120, SKY);
     spi->fillRect(0, 120, 320, GY - 120, SKY2);
@@ -491,6 +509,18 @@ class Balloon final : public Drawable {
       if (overT > 0.8f) { spi->setFont(&fonts::efontJA_16); spi->setTextColor(FR, 0xFFFF); spi->drawString("タッチで もういちど", 160, 130); }
     }
     spi->setTextDatum(TL_DATUM);
+  }
+  // ゲームの 1 コマを、細長い帯に分けて描き、描いたそばから画面へ送る(送っている間に、次の帯を描く)。帯の入れ物 st は 2 枚
+  static void chariPresent(M5Canvas *st[2], int left, int top, int W, int H, int SH) {
+    M5.Display.startWrite();
+    int k = 0;
+    for (int y = 0; y < H; y += SH, k++) {
+      M5Canvas *c = st[k & 1];
+      Tr t{c, y};
+      chariDraw(&t, k == 0);
+      c->pushSprite(&M5.Display, left, top + y);
+    }
+    M5.Display.endWrite();
   }
   // 遊びの表示カード(字幕の上)。2 列なら左右、a だけなら中央に大きく出す
   static void drawBoard(M5Canvas *spi, uint16_t fg, uint16_t bg) {
@@ -568,7 +598,7 @@ class Balloon final : public Drawable {
   }
   void draw(M5Canvas *spi, BoundingRect rect,
             DrawContext *drawContext) override {
-    if (avatarChari.on) { chariDraw(spi); return; }         // ゲーム中は、ゲームの画面だけ(字幕も出さない)
+    if (avatarChari.on) return;                              // ゲーム中は、顔のほうの描画を通らない(Face.cpp がゲームを描く)
     drawBoard(spi, drawContext->getColorPalette()->get(COLOR_BALLOON_FOREGROUND), drawContext->getColorPalette()->get(COLOR_BALLOON_BACKGROUND));
     // 折り返しの計算は字幕が変わったときだけ(毎フレームやると重く、通信タスクを圧迫して切断の原因になった)
     static uint32_t cachedSeq = 0xFFFFFFFF;
