@@ -126,13 +126,13 @@ DAKU.update({"が": "か", "ぎ": "き", "ぐ": "く", "げ": "け", "ご": "こ
              "で": "て", "ど": "と", "ば": "は", "び": "ひ", "ぶ": "ふ", "べ": "へ", "ぼ": "ほ", "ぱ": "は", "ぴ": "ひ", "ぷ": "ふ", "ぺ": "へ", "ぽ": "ほ"})
 DAKU = {k: v for k, v in DAKU.items() if len(k) == 1 and k in "がぎぐげござじずぜぞだぢづでどばびぶべぼぱぴぷぺぽ"}
 
-CHEER = ["すごい!", "いいね!", "さすが!", "やるね!", "おみごと!", "その調子!", "いい言葉だね!", "ぴったりだね!", "かっこいい!", "どんどん つなごう!", "うまい!", "おもしろい言葉!"]
-NUDGE = ["ゆっくり考えてね。", "だいじょうぶ、まってるよ。", "ヒントがほしかったら言ってね。", "あせらなくて いいよ。", "なんでも いいから 言ってみて!", "おーい、思いついたかな?", "ゆっくりで いいからね。"]
-INTRO = ["しりとりで、あそぼう!言葉の最後の文字から、つぎの言葉をつなげるよ。「ん」がついたら負けだよ!", "しりとりを しよう!最後の文字で つなげていくよ。「ん」で おわる言葉は だめだよ!",
-         "さあ、しりとり{d}!言葉の さいごの文字から、つぎの言葉を 言ってね。「ん」がついたら まけだよ!", "しりとり、はじめるよ!さいごの文字を よく きいてね。「ん」に ならないように ね!"]
-LOSE_ROBOT = ["あっ、「ん」がついちゃった!ざんねん、わたしたちの勝ち!でも、すっごく楽しかったよ!", "「ん」だ!ここまでだね。でも、いい しりとり だったよ!また あそぼう!", "あれれ、「ん」がついたよ!わたしの勝ち!でも たのしかった!また やろうね!"]
-WIN_KID = ["うわー、思いつかない!まいったのだ。きみの勝ちだよ!", "まいった!もう ことばが ないよ。きみの勝ち!すごいね!", "うーん、でてこない!きみの勝ちだよ!つよいね!"]
-WIN_KID_PLAIN = ["まいりました。あなたの勝ちです!", "ことばが つきました。あなたの勝ちです!おみごとです!", "お手あげです。あなたの勝ちです!"]
+CHEER = ["すごい！", "いいね！", "さすが！", "やるね！", "おみごと！", "そのちょうし！", "いいことばだね！", "ぴったりだね！", "かっこいい！", "どんどん つなごう！", "うまい！", "おもしろいことば！"]
+NUDGE = ["ゆっくりかんがえてね。", "だいじょうぶ、まってるよ。", "ヒントがほしかったらいってね。", "あせらなくて いいよ。", "なんでも いいから いってみて！", "おーい、おもいついたかな？", "ゆっくりで いいからね。"]
+INTRO = ["しりとりで、あそぼう！ことばのさいごのもじから、つぎのことばをつなげるよ。「ん」がついたらまけだよ！", "しりとりを しよう！さいごのもじで つなげていくよ。「ん」で おわることばは だめだよ！",
+         "さあ、しりとり{d}！ことばの さいごのもじから、つぎのことばを いってね。「ん」がついたら まけだよ！", "しりとり、はじめるよ！さいごのもじを よく きいてね。「ん」に ならないように ね！"]
+LOSE_ROBOT = ["あっ、「ん」がついちゃった！ざんねん、わたしたちのかち！でも、すっごくたのしかったよ！", "「ん」だ！ここまでだね。でも、いい しりとり だったよ！また あそぼう！", "あれれ、「ん」がついたよ！わたしのかち！でも たのしかった！また やろうね！"]
+WIN_KID = ["うわー、おもいつかない！まいったのだ。きみのかちだよ！", "まいった！もう ことばが ないよ。きみのかち！すごいね！", "うーん、でてこない！きみのかちだよ！つよいね！"]
+WIN_KID_PLAIN = ["まいりました。あなたのかちです！", "ことばが つきました。あなたのかちです！おみごとです！", "おてあげです。あなたのかちです！"]
 NEXT_Q = ["つづき、やる?", "もういっかい、しりとり する?", "もっと あそぶ?"]
 RETRY_MAX = 3
 
@@ -141,7 +141,7 @@ def robot_word_line(name: str, w: str, need: str) -> str:
     """ロボットが言う 1 語ぶんの台詞。「つぎは『○』だよ」を付けるかは、言葉ごとに決まる(先に声にしておけるように)。"""
     import zlib
     P = Shiritori.PERSONA.get(name, Shiritori.PERSONA["ずんだ"])
-    return P["word"].format(w=w) + (f" つぎは『{need}』だよ。" if zlib.crc32(w.encode()) % 2 == 0 else "")
+    return P["word"].format(w=w) + (f" つぎは「{need}」だよ。" if zlib.crc32(w.encode()) % 2 == 0 else "")
 
 
 def to_hira(s: str) -> str:
@@ -216,21 +216,21 @@ def judge(reading: str, need: str, used: set) -> "tuple[str, str]":
     """子どもの言葉の判定。(結果, 理由): ok / lose(んで終わった) / bad_start / dup / empty / long"""
     r = reading
     if len(r) < 2:
-        return "empty", "もう少し長い言葉でね"
+        return "empty", "もうすこしながいことばでね"
     if len(r) > 12:
-        return "long", "ひとつの言葉だけ言ってね"
+        return "long", "ひとつのことばだけいってね"
     if need and not loose_eq(first_char(r), need):
-        return "bad_start", f"「{need}」からはじまる言葉だよ"
+        return "bad_start", f"「{need}」からはじまることばだよ"
     if r in used:
-        return "dup", "それはもう出たよ!ちがう言葉にしてね"
+        return "dup", "それはもうでたよ！ちがうことばにしてね"
     if last_char(r) == "ん":
         return "lose", "「ん」がついちゃった!"
     return "ok", ""
 
 
 class Shiritori(Stage):
-    PERSONA = {"ずんだ": {"word": "{w}なのだ!", "emo": "excited"}, "めたん": {"word": "{w}、ですね。", "emo": "neutral"},
-               "つむぎ": {"word": "{w}、かな?", "emo": "joy"}}
+    PERSONA = {"ずんだ": {"word": "{w}なのだ！", "emo": "excited"}, "めたん": {"word": "{w}、ですね。", "emo": "neutral"},
+               "つむぎ": {"word": "{w}、かな？", "emo": "joy"}}
 
     def __init__(self, hub, reg, discuss, eng_getter, path: "str | None" = None, rnd=None, clock=time.time, stats: "dict | None" = None, save_cb=None, guard=None):
         self.hub, self.reg, self.discuss, self.eng_getter = hub, reg, discuss, eng_getter
@@ -600,6 +600,7 @@ class Shiritori(Stage):
         P = self.PERSONA.get(name, self.PERSONA["ずんだ"])
         self.msg = f"{name}: {w}"
         kid_prev = next((c["word"] for c in reversed(self.chain[:-1]) if c["kid"]), "")
+        self._last_robot = (name, w)                         # 子どもの番の画面にも、ロボットの言葉を残す
         self._board(title="しりとり", a=(name, w), b=("きみ", kid_prev), foot=f"つぎは「{self.need}」から", ms=9000, style="word", hl=1)
         self._speak(eng, i, robot_word_line(name, w, self.need), P["emo"])
         return True
@@ -609,14 +610,14 @@ class Shiritori(Stage):
             self.turn = ""
             self._speak(eng, 0, self.rnd.choice(INTRO).replace("{d}", "だよ" if self.robots[0]["name"] != "ずんだ" else "なのだ"), "excited")
             if len(self.robots) > 1 and not self._stop.is_set():
-                self._speak(eng, 1, "ことばは、ひとつだけ言ってね。わたしたちが、じゅんばんにこたえます。", "joy")
+                self._speak(eng, 1, "ことばは、ひとつだけいってね。わたしたちが、じゅんばんにこたえます。", "joy")
             r = 0
             if robot_first and not self._stop.is_set():
                 if not self._robot_turn(eng, r):
                     return
                 r += 1
             else:
-                self.msg = "すきな言葉から、はじめてね!"
+                self.msg = "すきなことばから、はじめてね！"
             idle = 0
             retries = 0
             while not self._stop.is_set():
@@ -637,14 +638,14 @@ class Shiritori(Stage):
                         return
                     if idle == 2 and self.need:
                         hint = choose_word(self.need, self._used(), "easy", self.rnd)
-                        self._say_robot(eng, f"ヒントだよ。『{self.need}』からだよ。たとえば『{hint[:1]}…』かな?" if hint else f"『{self.need}』からだよ。", "doubt")
+                        self._say_robot(eng, f"ヒントだよ。「{self.need}」からだよ。たとえば「{hint[:1]}…」かな？" if hint else f"「{self.need}」からだよ。", "doubt")
                     else:
-                        self._say_robot(eng, self.rnd.choice(NUDGE) + (f" 『{self.need}』からだよ。" if self.need else ""), "joy")
+                        self._say_robot(eng, self.rnd.choice(NUDGE) + (f" 「{self.need}」からだよ。" if self.need else ""), "joy")
                     continue
                 idle = 0
                 reading = self._reading(eng, text)
                 if not reading:
-                    self._say_robot(eng, "ごめん、よく聞こえなかった。もう一回言ってね。", "doubt")
+                    self._say_robot(eng, "ごめん、よくきこえなかった。もういっかいいってね。", "doubt")
                     continue
                 verdict, why = judge(reading, self.need, self._used())
                 if verdict == "ok":
@@ -653,7 +654,7 @@ class Shiritori(Stage):
                     self.score += 1
                     self.need = last_char(reading)
                     self.msg = f"あなた: {clean_word(text)}"
-                    self._board(title="しりとり", a=("", ""), b=("きみ", clean_word(text)), foot=f"つぎは「{self.need}」から", ms=6000, style="word", hl=1)
+                    self._board(title="しりとり", a=getattr(self, "_last_robot", ("", "")), b=("きみ", clean_word(text)), foot=f"つぎは「{self.need}」から", ms=6000, style="word", hl=1)
                     if self.score > self.stats["best"]:
                         self.stats["best"] = self.score
                         self._save()

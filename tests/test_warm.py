@@ -52,7 +52,7 @@ class ExpandTests(unittest.TestCase):
         for must in ("ガラガラ、ガラガラ…", "ホイ！"):
             self.assertIn(must, texts)
         self.assertTrue(any("ゆびを さす" in t for t in texts))                           # あっち向いてホイの、攻める側の台詞
-        self.assertTrue(any(p[1].startswith("りんごなのだ!") for p in plan))             # しりとりのロボットの言葉(ずんだ)
+        self.assertTrue(any(p[1].startswith("りんごなのだ！") for p in plan))             # しりとりのロボットの言葉(ずんだ)
         self.assertTrue(any(p[1].startswith("りんご、ですね。") for p in plan))           # めたん
         first = [p for p in plan if p[0] == 0]
         self.assertGreater(len(first), 50)                                              # 最初に言う文(あいさつ・案内)が先頭に集まる

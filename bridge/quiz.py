@@ -261,8 +261,8 @@ class Play(Shiritori):
 
 # ---------------------------------------------------------------- なぞなぞ
 LINES = {
-    "intro": ["なぞなぞを しよう！ぜんぶで5もん。わからないときは、ヒントって言ってね。", "なぞなぞの じかん{d}！5もん だすよ。ヒントも あるから あんしんしてね。",
-              "さあ、なぞなぞ{d}！あたまを やわらかくして きいてね。ヒントって言うと、ヒントが でるよ。", "なぞなぞ しよう！5もん あるよ。わからなくても だいじょうぶ、ヒントを あげる{v}。",
+    "intro": ["なぞなぞを しよう！ぜんぶで5もん。わからないときは、ヒントっていってね。", "なぞなぞの じかん{d}！5もん だすよ。ヒントも あるから あんしんしてね。",
+              "さあ、なぞなぞ{d}！あたまを やわらかくして きいてね。ヒントっていうと、ヒントが でるよ。", "なぞなぞ しよう！5もん あるよ。わからなくても だいじょうぶ、ヒントを あげる{v}。",
               "なぞなぞ たいかい、はじまるよ！5もん、がんばろうね！"],
     "head": ["{k}もんめ！", "つぎは、{k}もんめ！", "さあ、{k}もんめ いくよ！", "{k}もんめ、いくよー！", "では、{k}もんめ！", "{k}もんめ、いってみよう！"],
     "ok": ["せいかい{d}！{cheer}", "あたり{d}！{cheer}", "そのとおり{d}！{cheer}", "ピンポーン！せいかい{d}！", "すごい、よく わかった{v}！", "{cheer} だいせいかい{d}！",
@@ -379,6 +379,7 @@ class Quiz(Play):
             if v == "hint":
                 if it.hint and not hinted:
                     hinted = True
+                    self._board(title="なぞなぞ", a=("", f"ヒント: {it.hint}"), ms=12000, style="riddle", a_mark="q")
                     self._say(eng, self._line("hint", h=it.hint), "joy", face="thinking")
                     continue
                 return self._reveal(eng, it)
@@ -388,7 +389,7 @@ class Quiz(Play):
                     return self._reveal(eng, it)
                 extra = " ヒントも あるよ。" if it.hint and not hinted else ""
                 self._wobble()
-                self._board(title="なぞなぞ", a=("", "もういちど！"), ms=6000, style="riddle", a_mark="ng")
+                self._board(title="なぞなぞ", a=("", "もういちど！"), ms=6000, style="riddle", a_mark="q")
                 self._say(eng, self._line("retry") + extra, "doubt", face="doubt")
                 continue
             unclear += 1
