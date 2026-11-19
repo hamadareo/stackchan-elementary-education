@@ -94,6 +94,144 @@ class Balloon final : public Drawable {
       spi->drawFastVLine(x, y - z, z * 2 + 1, fg);
     }
   }
+
+  // ---- 吹き出し表示(じゃんけんの手・あっちむいてホイの向き): 文字ではなく、色つきのイラストで見せる ----
+  // 太さのある線(両端が丸い。指の形に使う)
+  static void cap(M5Canvas *spi, int x0, int y0, int x1, int y1, int r, uint16_t col) {
+    float dx = (float)(x1 - x0), dy = (float)(y1 - y0);
+    float L = sqrtf(dx * dx + dy * dy);
+    if (L < 1.0f) { spi->fillCircle(x0, y0, r, col); return; }
+    int nx = (int)lroundf(-dy / L * r), ny = (int)lroundf(dx / L * r);
+    spi->fillTriangle(x0 + nx, y0 + ny, x0 - nx, y0 - ny, x1 + nx, y1 + ny, col);
+    spi->fillTriangle(x0 - nx, y0 - ny, x1 - nx, y1 - ny, x1 + nx, y1 + ny, col);
+    spi->fillCircle(x0, y0, r, col);
+    spi->fillCircle(x1, y1, r, col);
+  }
+  // 手のイラスト(ふち取りと肌色)。cx,cy は中心、s は大きさ(1.0 で高さ 約 100px)。icon 1=ぐー 2=ちょき 3=ぱー
+  static void handArt(M5Canvas *spi, int cx, int cy, int icon, float s) {
+    const uint16_t INK = spi->color565(40, 40, 52), SKIN = spi->color565(255, 214, 168), SHADE = spi->color565(226, 170, 120);
+    auto P = [&](float v) { return (int)lroundf(v * s); };
+    auto rr = [&](float x, float y, float w, float h, float r, int g, uint16_t c) {
+      spi->fillRoundRect(cx + P(x) - g, cy + P(y) - g, P(w) + 2 * g, P(h) + 2 * g, P(r) + g, c);
+    };
+    auto fg = [&](float x0, float y0, float x1, float y1, float r, int g, uint16_t c) {
+      cap(spi, cx + P(x0), cy + P(y0), cx + P(x1), cy + P(y1), P(r) + g, c);
+    };
+    auto line = [&](float x0, float y0, float x1, float y1, uint16_t c) { spi->drawLine(cx + P(x0), cy + P(y0), cx + P(x1), cy + P(y1), c); };
+    auto shape = [&](int g, uint16_t c) {
+      if (icon == 1) {                                         // ぐー
+        rr(-35, -16, 70, 54, 20, g, c);
+        for (int i = 0; i < 4; i++) rr(-34 + i * 17, -24, 17, 32, 8, g, c);
+        fg(-27, 20, 14, 20, 9, g, c);
+      } else if (icon == 2) {                                  // ちょき
+        rr(-28, 6, 56, 42, 16, g, c);
+        fg(-11, 12, -20, -38, 8, g, c);
+        fg(11, 12, 20, -38, 8, g, c);
+        fg(-28, 30, 2, 28, 8, g, c);
+      } else if (icon == 3) {                                  // ぱー
+        rr(-30, 8, 60, 44, 18, g, c);
+        fg(-23, 14, -28, -32, 7.5f, g, c);
+        fg(-8, 12, -10, -43, 7.5f, g, c);
+        fg(8, 12, 10, -43, 7.5f, g, c);
+        fg(23, 14, 28, -32, 7.5f, g, c);
+        fg(-29, 36, -47, 12, 8, g, c);
+      }
+    };
+    if (icon < 1 || icon > 3) return;
+    shape(3, INK);
+    shape(0, SKIN);
+    if (icon == 1) {
+      for (int i = 1; i < 4; i++) line(-34 + i * 17, -18, -34 + i * 17, -2, SHADE);
+      line(-26, 11, 12, 11, SHADE);
+    } else if (icon == 2) {
+      line(14, 16, 14, 30, SHADE);
+      line(22, 16, 22, 30, SHADE);
+      line(-24, 22, 4, 20, SHADE);
+    } else {
+      for (int i = -1; i <= 1; i++) line(i * 16, -14, i * 16, 12, SHADE);
+    }
+  }
+  // 大きな矢印(あっちむいてホイ)。dir 1=上 2=下 3=左 4=右
+  static void bigArrow(M5Canvas *spi, int cx, int cy, int dir, float s, uint16_t col) {
+    const uint16_t INK = spi->color565(40, 40, 52);
+    auto map = [&](int x, int y, int &ox, int &oy) {           // 上向きの座標を、向きに合わせて回す
+      int X = (int)lroundf(x * s), Y = (int)lroundf(y * s);
+      if (dir == 1) { ox = X; oy = Y; } else if (dir == 2) { ox = X; oy = -Y; } else if (dir == 3) { ox = Y; oy = X; } else { ox = -Y; oy = X; }
+    };
+    auto poly = [&](int g, uint16_t c) {
+      int a[8][2] = {{-12 - g, -2}, {12 + g, -2}, {12 + g, 36 + g}, {-12 - g, 36 + g}, {-32 - g, -4}, {32 + g, -4}, {0, -44 - g}, {0, 0}};
+      int px[8], py[8];
+      for (int i = 0; i < 8; i++) map(a[i][0], a[i][1], px[i], py[i]);
+      spi->fillTriangle(cx + px[0], cy + py[0], cx + px[1], cy + py[1], cx + px[2], cy + py[2], c);
+      spi->fillTriangle(cx + px[0], cy + py[0], cx + px[2], cy + py[2], cx + px[3], cy + py[3], c);
+      spi->fillTriangle(cx + px[4], cy + py[4], cx + px[5], cy + py[5], cx + px[6], cy + py[6], c);
+    };
+    for (int dx = -3; dx <= 3; dx += 3) for (int dy = -3; dy <= 3; dy += 3) {      // ふち取り: 少しずらして重ねる
+      if (!dx && !dy) continue;
+      int sx = cx, sy = cy;
+      cx = sx + dx; cy = sy + dy;
+      poly(0, INK);
+      cx = sx; cy = sy;
+    }
+    poly(0, col);
+  }
+  // 吹き出し本体。(tx,ty) はしっぽの先
+  static void bubble(M5Canvas *spi, int x, int y, int w, int h, int tx, int ty, uint16_t edge) {
+    const uint16_t WHITE = 0xFFFF;
+    int bx = tx < x + w / 2 ? x + 26 : x + w - 26;             // しっぽの根もと(先の側へよせる)
+    spi->fillTriangle(bx - 15, y + h - 3, bx + 15, y + h - 3, tx, ty, edge);
+    spi->fillRoundRect(x, y, w, h, 18, edge);
+    spi->fillRoundRect(x + 4, y + 4, w - 8, h - 8, 15, WHITE);
+    spi->fillTriangle(bx - 10, y + h - 7, bx + 10, y + h - 7, tx, ty - 7, WHITE);
+  }
+  static void drawBubbles(M5Canvas *spi, const AvatarBoard &b) {
+    const uint16_t GOLD = spi->color565(255, 200, 40), INK = spi->color565(40, 40, 52);
+    const uint16_t ZUN = spi->color565(86, 176, 64), SKY = spi->color565(64, 144, 224), RED = spi->color565(238, 82, 60), BLU = spi->color565(40, 110, 220);
+    bool hasA = b.aIcon || b.aArrow, hasB = b.bIcon || b.bArrow;
+    // 結果のひとこと(短いときだけ。長い案内は字幕に任せる)
+    spi->setFont(&fonts::efontJA_16);
+    spi->setTextSize(1);
+    if (b.foot[0] && spi->textWidth(b.foot) <= 270) {
+      int tw = spi->textWidth(b.foot) + 28;
+      spi->fillRoundRect(160 - tw / 2, 24, tw, 24, 12, INK);
+      spi->fillRoundRect(160 - tw / 2 + 2, 26, tw - 4, 20, 10, GOLD);
+      spi->setTextColor(INK, GOLD);
+      spi->setTextDatum(MC_DATUM);
+      spi->drawString(b.foot, 160, 36);
+    }
+    spi->setTextDatum(TL_DATUM);
+    const int top = 54, hh = 98;
+    auto side = [&](int x, int w, uint8_t icon, uint8_t arrow, int tx, uint16_t edge, uint16_t acol, float s, int dy) {
+      bubble(spi, x, top, w, hh, tx, top + hh + 12, edge);
+      if (icon) handArt(spi, x + w / 2, top + hh / 2 + dy, icon, s);
+      else bigArrow(spi, x + w / 2, top + hh / 2 - 2 + dy, arrow, s * 0.9f, acol);
+    };
+    if (hasA && hasB) {
+      side(8, 170, b.aIcon, b.aArrow, 138, ZUN, RED, 0.8f, 0);        // ずんだもん(左・大きく)
+      side(188, 124, b.bIcon, b.bArrow, 290, SKY, BLU, 0.6f, 9);      // きみ(右)
+      spi->setFont(&fonts::efontJA_16);
+      spi->setTextColor(INK, 0xFFFF);
+      spi->setTextDatum(TC_DATUM);
+      spi->drawString("きみ", 250, top + 7);
+      spi->setTextDatum(TL_DATUM);
+    } else if (hasA) {
+      side(70, 180, b.aIcon, b.aArrow, 138, ZUN, RED, 0.88f, 0);
+    } else if (hasB) {
+      side(70, 180, b.bIcon, b.bArrow, 200, SKY, BLU, 0.92f, 0);
+    }
+    if (b.fx == 1) {                                             // 勝ちのきらきら(金色)
+      uint32_t t = millis() / 220;
+      for (int i = 0; i < 12; i++) {
+        uint32_t r = (t * 2654435761u) ^ (i * 40503u + 977u);
+        r ^= r >> 13; r *= 1274126177u; r ^= r >> 16;
+        int x = 8 + (int)(r % 304u), y = 26 + (int)((r >> 9) % 130u), z = 3 + (int)((r >> 20) % 4);
+        spi->fillTriangle(x, y - z * 2, x - z, y, x + z, y, GOLD);
+        spi->fillTriangle(x, y + z * 2, x - z, y, x + z, y, GOLD);
+        spi->fillTriangle(x - z * 2, y, x, y - z, x, y + z, GOLD);
+        spi->fillTriangle(x + z * 2, y, x, y - z, x, y + z, GOLD);
+      }
+    }
+  }
   // 遊びの表示カード(字幕の上)。2 列なら左右、a だけなら中央に大きく出す
   static void drawBoard(M5Canvas *spi, uint16_t fg, uint16_t bg) {
     static AvatarBoard b;
@@ -104,6 +242,10 @@ class Balloon final : public Drawable {
       if (q == avatarBoardSeq) { b = t; seenSeq = q; }
     }
     if (!b.on) return;
+    if (!b.nList && (b.aIcon || b.bIcon || b.aArrow || b.bArrow)) {   // 手・向きは、吹き出しのイラストで見せる
+      drawBubbles(spi, b);
+      return;
+    }
     const int x0 = 6, y0 = 26, w = 308, h = b.nList ? 150 : 128;
     spi->fillRoundRect(x0, y0, w, h, 10, fg);
     spi->fillRoundRect(x0 + 2, y0 + 2, w - 4, h - 4, 9, bg);
