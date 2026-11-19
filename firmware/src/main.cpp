@@ -205,6 +205,16 @@ static float mouthFromPcm(const int16_t *pcm, size_t n, size_t pos) {
 
 static volatile bool hushReq = false;                  // 管理画面の「中止」: いま鳴っている声と、あとに続く声をすぐ止める
 
+// 声を出している間も、顔を追えるように、カメラ画像を間引いて送る(音の受信中は送らない。音を最優先)
+static void camWhileSpeaking() {
+  static uint32_t last = 0;
+  if (!cam::ready || recvActive || active == LK_NONE) return;
+  if (millis() - last < 700) return;
+  last = millis();
+  linkBin(cam::jpg, cam::jpgLen + 1);
+  cam::ready = false;
+}
+
 static void playOne(int idx) {
   if (!speechLenB[idx] || hushReq) return;
   const uint8_t *buf = speechBuf[idx];
@@ -223,6 +233,7 @@ static void playOne(int idx) {
     else if (millis() - lastBob > 300) { gOffT = 0; gOffP = bobDir * 10; }
     servoStep();
     zface::keepCaption();
+    camWhileSpeaking();
     linkPoll();                                          // 再生中に次の文が届く(別の面に入る)
     delay(15);
   }
