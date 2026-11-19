@@ -157,8 +157,8 @@ class DirTests(unittest.TestCase):
             self.assertEqual(k.quiz_kind(t), kind, t)
         for t in ("これをえいごにして", "さんすうしよう", "クイズやろう", "かんじしよう", "えいごしよう"):          # 勉強の遊びは廃止
             self.assertIsNone(k.quiz_kind(t), t)
-        self.assertEqual(k.ACT_DEFAULT, ["shiritori", "janken", "riddle", "omikuji", "mimic"])
-        for w in ("しりとり", "じゃんけん", "なぞなぞ", "おみくじ", "ものまね"):
+        self.assertEqual(k.ACT_DEFAULT, ["shiritori", "janken", "riddle", "omikuji", "mimic", "chari"])
+        for w in ("しりとり", "じゃんけん", "なぞなぞ", "おみくじ", "ものまね", "チャリはしり"):
             self.assertIn(w, k.MENU)
             self.assertIn(w, k.menu_text(k.ACT_DEFAULT))
         self.assertNotIn("クイズ", k.MENU)
@@ -553,7 +553,7 @@ class SnapshotTests(PlayBase):
         for key in ("dev_id", "kind", "kind_label", "turn", "msg", "question", "answer", "stat", "big", "history", "score", "qno", "rounds"):
             self.assertIn(key, x)
         self.assertEqual(x["kind_label"], "おみくじ")
-        self.assertEqual(set(s["kinds"]), {"riddle", "hoi", "omikuji", "mimic"})
+        self.assertEqual(set(s["kinds"]), {"riddle", "hoi", "omikuji", "mimic", "chari"})
         for key in ("hoi_wins", "omikuji_n", "mimic_n", "plays"):
             self.assertIn(key, s)
         qh.stop()

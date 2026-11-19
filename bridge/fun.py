@@ -6,6 +6,7 @@ quiz.py の Play(開始・聞き取り・首と顔の演出・管理画面の状
 """
 from __future__ import annotations
 
+import queue
 import re
 import statistics
 import threading
@@ -470,6 +471,119 @@ class Omikuji(Play):
             if not self._again(eng):
                 self._say(eng, self._o("bye"), "joy", face="happy")
                 return
+
+
+# ---------------------------------------------------------------- ずんだの チャリはしり
+# 機器の画面の中で、自転車のずんだもんが走る(画面タッチでジャンプ)。画面の動きは機器が自分で動かし、ブリッジは実況と記録だけ。
+CHARI = {
+    "intro": ["ずんだの チャリはしり！がめんを タッチすると ジャンプ！いわや コーンを よけて、とおくまで はしろう！",
+              "チャリで はしるよ！がめんを タッチして ジャンプ！ぶつからないように とおくまで いこう！",
+              "チャリはしり、はじまるよ！タッチで ジャンプ！いくつ よけられるかな？"],
+    "mile": ["{m}メートル！いい ちょうし！", "{m}メートル！すごい すごい！", "{m}メートル！そのまま そのまま！", "{m}メートル！とまらないね！"],
+    "over0": ["ガッシャーン！{m}メートル！もういっかい いこう！", "いたた！{m}メートル！タッチで もういちど！", "あっ、ぶつかった！{m}メートル！つぎは いけるよ！"],
+    "over1": ["{m}メートル！よく はしったね！", "{m}メートル！いい はしり！もういっかい！", "おしい！{m}メートル！もっと いけるよ！"],
+    "over2": ["{m}メートルも はしった！すごいよ！", "{m}メートル！かっこいい はしりだね！", "すごい！{m}メートル！チャリ めいじん！"],
+    "best": ["しんきろく！{m}メートル！すごい すごい！", "やったー！{m}メートル！じぶんの きろくを こえたよ！"],
+    "bye": ["たのしかった！また チャリで はしろうね！", "いっぱい はしったね！またね！", "ありがとう！また あそぼうね！"],
+}
+JUMP_WORDS = re.compile(r"ジャンプ|じゃんぷ|とべ|飛べ|ぴょん|ピョン|いまだ|今だ")
+
+
+class Chari(Play):
+    KIND = "chari"
+
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self.runs = 0
+        self.run_best = 0
+        self.evq: queue.Queue = queue.Queue()
+
+    def event(self, j: dict) -> None:
+        """機器からの知らせ(ぶつかった・100m ごと)。別スレッドから呼ばれる。声を出している間も取りこぼさないよう、専用の入れ物に入れる。"""
+        if self.on:
+            self.evq.put(dict(j))
+            self.q.put("")                                        # 待っている遊びを起こす
+
+    def _dev(self, cmd: str) -> None:
+        s = self._sess(0) if self.robots else None
+        if s is not None:
+            try:
+                s.send({"t": "chari", "cmd": cmd})
+            except Exception:  # noqa: BLE001
+                pass
+
+    def _c(self, scene: str, **kw) -> str:
+        return self.L(scene, CHARI[scene], **kw)
+
+    def _finish(self) -> None:
+        self._dev("stop")                                    # 画面のゲームを止めて、顔にもどす
+        super()._finish()
+
+    def _over(self, eng, m: int) -> None:
+        prev = int(self.stats.get("chari_best", 0))
+        self.runs += 1
+        self.stats["chari_n"] = int(self.stats.get("chari_n", 0)) + 1
+        self.score = m
+        self.run_best = max(self.run_best, m)
+        newbest = prev > 0 and m > prev
+        if m > prev:
+            self.stats["chari_best"] = m
+        self._save()
+        self.big = f"{m}メートル"
+        self.stat = f"{self.runs}かいめ / この遊びの ベスト {self.run_best}メートル / これまでの ベスト {max(prev, m)}メートル"
+        self.history.append({"q": f"{self.runs}かいめ: {m}メートル", "ok": m >= 100})
+        line = self._c("best", m=m) if newbest else self._c("over2" if m >= 300 else ("over1" if m >= 100 else "over0"), m=m)
+        self._say(eng, line, "excited" if m >= 100 else "joy", face="happy" if m >= 100 else "surprise")
+        self.turn = "kid"
+
+    def _run(self, eng) -> None:
+        self._say(eng, self._c("intro"), "excited", face="happy")
+        if self._stop.is_set():
+            return
+        while not self.evq.empty():
+            self.evq.get_nowait()
+        self._dev("start")
+        self.qtext = "ずんだの チャリはしり"
+        self.big = "はしっています"
+        self.msg = "画面タッチで ジャンプ"
+        self.turn = "kid"
+        t_start = last_cheer = self.clock()
+        over_at = None
+        while not self._stop.is_set():
+            while not self.evq.empty() and not self._stop.is_set():           # 機器からの知らせを、順番に
+                j = self.evq.get_nowait()
+                m = int(j.get("m", 0))
+                if j.get("name") == "chari_over":
+                    over_at = self.clock()
+                    self._over(eng, m)
+                elif j.get("name") == "chari_mile":
+                    over_at = None
+                    self.big = f"{m}メートル"
+                    if self.evq.empty() and self.clock() - last_cheer > 12:
+                        last_cheer = self.clock()
+                        self._say(eng, self._c("mile", m=m), "excited", face="giggle")
+                        self.turn = "kid"
+            if self._stop.is_set():
+                return
+            try:
+                item = self.q.get(timeout=0.5)
+            except queue.Empty:
+                now = self.clock()
+                if over_at is not None and now - over_at > 90:        # おわってから 90 秒だれも触らない
+                    break
+                if now - t_start > 900:                                # 15 分で、ひと区切り
+                    break
+                continue
+            if item is None:
+                return
+            text = (item or "").strip()
+            if not text:
+                continue
+            if QUIT.search(text):
+                break
+            if JUMP_WORDS.search(text):                                # 声でも ジャンプ(少し遅れる)
+                self._dev("jump")
+        self._say(eng, self._c("bye"), "joy", face="happy")
 
 
 def tone_text(game, text: str) -> str:

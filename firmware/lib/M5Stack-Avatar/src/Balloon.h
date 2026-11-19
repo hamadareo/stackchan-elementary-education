@@ -33,6 +33,13 @@ struct AvatarBoard {
   char list[6][32];
   bool on;
 };
+// ずんだもんの チャリはしり(画面の中で動くゲーム)。入力は jump(画面タッチ・頭タッチ・ブリッジ)。結果は evSeq/evKind/evVal で main が読んで、ブリッジへ知らせる
+struct AvatarChari {
+  volatile bool on, jump, reset;
+  volatile uint32_t evSeq, evVal;
+  volatile uint8_t evKind;               // 1=ぶつかった(evVal=メートル) 2=100m ごと
+};
+extern AvatarChari avatarChari;
 extern AvatarBoard avatarBoard;
 extern volatile uint32_t avatarBoardSeq;
 extern char avatarCaption[512];
@@ -360,6 +367,130 @@ class Balloon final : public Drawable {
       }
     }
   }
+
+  // ---- ずんだもんの チャリはしり ----
+  static void chariDraw(M5Canvas *spi) {
+    const int GY = 196;                                          // 地面の高さ
+    struct Ob { float x; uint8_t type; int16_t w, h; bool on; };
+    static Ob obs[5];
+    static float dist = 0, speed = 140, yo = 0, vy = 0, nextGap = 0, ang = 0, cloud = 0, hills = 0, stripe = 0, overT = 0, readyT = 0;
+    static uint32_t last = 0, seed = 12345, rec = 0;
+    static uint8_t phase = 0;                                   // 0=よーい 1=はしる 2=ぶつかった
+    static uint32_t mileDone = 0;
+    auto rnd = [&]() { seed = seed * 1664525u + 1013904223u; return (seed >> 8) & 0xFFFF; };
+    uint32_t now = millis();
+    float dt = last ? (now - last) / 1000.0f : 0.016f;
+    last = now;
+    if (dt > 0.05f) dt = 0.05f;
+    if (avatarChari.reset) {
+      avatarChari.reset = false; avatarChari.jump = false;
+      for (auto &o : obs) o.on = false;
+      dist = 0; speed = 140; yo = 0; vy = 0; nextGap = 260; phase = 0; readyT = 0; mileDone = 0; seed ^= now;
+    }
+    bool jmp = avatarChari.jump;
+    avatarChari.jump = false;
+    const uint16_t SKY = spi->color565(150, 214, 255), SKY2 = spi->color565(196, 234, 255), GRASS = spi->color565(96, 190, 80), DIRT = spi->color565(150, 110, 70);
+    const uint16_t INK = spi->color565(40, 40, 52), ZUN = spi->color565(86, 176, 64), SKIN = spi->color565(255, 224, 190), HAIR = spi->color565(150, 224, 100);
+    // ---- 進める
+    if (phase == 0) { readyT += dt; if (readyT > 1.3f) phase = 1; }
+    if (phase == 1) {
+      speed = fminf(290.0f, speed + 6.0f * dt);
+      dist += speed * dt;
+      cloud += speed * 0.1f * dt; hills += speed * 0.3f * dt; stripe += speed * dt; ang += speed * dt / 13.0f;
+      if (jmp && yo <= 0.5f) { vy = 430.0f; }
+      if (yo > 0 || vy > 0) { yo += vy * dt; vy -= 1400.0f * dt; if (yo <= 0) { yo = 0; vy = 0; } }
+      for (auto &o : obs) if (o.on) { o.x -= speed * dt; if (o.x < -50) o.on = false; }
+      nextGap -= speed * dt;
+      if (nextGap <= 0) {
+        for (auto &o : obs) if (!o.on) {
+          uint8_t t = rnd() % 3; o.type = t; o.on = true; o.x = 335;
+          o.w = t == 0 ? 30 : (t == 1 ? 22 : 28); o.h = t == 0 ? 22 : (t == 1 ? 34 : 28);
+          break;
+        }
+        nextGap = speed * (0.95f + (rnd() % 100) / 100.0f * 0.9f) + 80;
+      }
+      uint32_t m = (uint32_t)(dist / 12.0f);
+      if (m / 100 > mileDone && m >= 100) { mileDone = m / 100; avatarChari.evKind = 2; avatarChari.evVal = m; avatarChari.evSeq++; }
+      for (auto &o : obs) if (o.on) {                            // ぶつかったか(少しゆるめ)
+        float px0 = 62, px1 = 88, py0 = GY - yo - 46, py1 = GY - yo;
+        if (px1 - 3 > o.x + 3 && px0 + 3 < o.x + o.w - 3 && py1 - 3 > GY - o.h + 3 && py0 < GY) {
+          phase = 2; overT = 0; rec = m;
+          avatarChari.evKind = 1; avatarChari.evVal = m; avatarChari.evSeq++;
+        }
+      }
+    } else if (phase == 2) {
+      overT += dt;
+      if (jmp && overT > 0.8f) { avatarChari.reset = true; }
+    }
+    // ---- 描く: 空・雲・山・地面
+    spi->fillRect(0, 0, 320, 120, SKY);
+    spi->fillRect(0, 120, 320, GY - 120, SKY2);
+    for (int i = 0; i < 3; i++) {
+      int cx = 330 - (int)fmodf(cloud + i * 130.0f, 450.0f), cy = 40 + i * 22;
+      spi->fillCircle(cx, cy, 13, 0xFFFF); spi->fillCircle(cx + 14, cy + 3, 11, 0xFFFF); spi->fillCircle(cx - 14, cy + 3, 10, 0xFFFF);
+    }
+    const uint16_t HILL = spi->color565(150, 205, 150);
+    for (int i = 0; i < 4; i++) {
+      int hx = 330 - (int)fmodf(hills + i * 120.0f, 480.0f);
+      spi->fillTriangle(hx - 70, GY, hx, GY - 56 - (i % 2) * 16, hx + 70, GY, HILL);
+    }
+    spi->fillRect(0, GY, 320, 240 - GY, DIRT);
+    spi->fillRect(0, GY, 320, 7, GRASS);
+    for (int i = 0; i < 8; i++) { int sx = 330 - (int)fmodf(stripe + i * 48.0f, 384.0f); spi->fillRect(sx, GY + 22, 22, 4, spi->color565(122, 86, 52)); }
+    // ---- 障害物
+    for (auto &o : obs) if (o.on) {
+      int x = (int)o.x, y = GY - o.h;
+      if (o.type == 0) { spi->fillRoundRect(x, y, o.w, o.h, 10, INK); spi->fillRoundRect(x + 2, y + 2, o.w - 4, o.h - 3, 8, spi->color565(150, 150, 160)); spi->fillRoundRect(x + 6, y + 5, 9, 5, 2, spi->color565(200, 200, 210)); }
+      else if (o.type == 1) { spi->fillTriangle(x - 2, GY, x + o.w / 2, y - 2, x + o.w + 2, GY, INK); spi->fillTriangle(x + 1, GY - 1, x + o.w / 2, y + 2, x + o.w - 1, GY - 1, spi->color565(255, 140, 40)); spi->fillRect(x + 6, y + 14, o.w - 12, 5, 0xFFFF); }
+      else { spi->fillRect(x - 1, y - 1, o.w + 2, o.h + 2, INK); spi->fillRect(x + 1, y + 1, o.w - 2, o.h - 2, spi->color565(196, 142, 84)); spi->drawLine(x + 2, y + 2, x + o.w - 3, y + o.h - 3, INK); spi->drawLine(x + o.w - 3, y + 2, x + 2, y + o.h - 3, INK); }
+    }
+    // ---- ずんだもん(自転車)
+    float by = GY - 13 - yo;                                      // 車輪の中心
+    float tilt = phase == 2 ? 0.0f : fminf(6.0f, yo * 0.08f);
+    int bx = 70;
+    if (phase == 2 && overT < 0.5f) { by -= sinf(overT * 12.0f) * 6.0f; }
+    for (int w = 0; w < 2; w++) {                                 // 車輪
+      int wx = bx - 18 + w * 36;
+      spi->fillCircle(wx, (int)by, 13, INK); spi->fillCircle(wx, (int)by, 10, SKY2);
+      for (int k = 0; k < 3; k++) { float a = ang + k * 1.0472f; spi->drawLine(wx - (int)(10 * cosf(a)), (int)by - (int)(10 * sinf(a)), wx + (int)(10 * cosf(a)), (int)by + (int)(10 * sinf(a)), INK); }
+    }
+    const uint16_t FR = spi->color565(238, 82, 60);               // フレーム(赤)
+    cap(spi, bx - 18, (int)by, bx, (int)by - 4, 2, FR); cap(spi, bx, (int)by - 4, bx + 14, (int)by - 26, 2, FR); cap(spi, bx + 14, (int)by - 26, bx + 18, (int)by, 2, FR);
+    cap(spi, bx - 18, (int)by, bx - 6, (int)by - 26, 2, FR); cap(spi, bx - 6, (int)by - 26, bx + 14, (int)by - 26, 2, FR);
+    cap(spi, bx + 14, (int)by - 26, bx + 18, (int)by - 33, 2, INK);        // ハンドル
+    int hipx = bx - 6, hipy = (int)by - 30;
+    float pa = ang * 1.6f;
+    for (int l = 0; l < 2; l++) {                                 // 足(ペダル)
+      float a = pa + l * 3.14159f;
+      int fx = bx + (int)(7 * cosf(a)), fy = (int)by - 4 + (int)(7 * sinf(a));
+      cap(spi, hipx, hipy + 4, fx, fy, 3, l ? ZUN : spi->color565(60, 130, 50));
+    }
+    cap(spi, hipx, hipy, hipx + 5 + (int)tilt, hipy - 20, 7, ZUN);       // からだ
+    cap(spi, hipx + 5, hipy - 17, bx + 16, (int)by - 34, 3, ZUN);        // うで
+    int hx = hipx + 8 + (int)tilt, hy = hipy - 34;
+    spi->fillCircle(hx, hy, 14, INK); spi->fillCircle(hx, hy, 12, SKIN);
+    spi->fillCircle(hx - 2, hy - 5, 11, HAIR); spi->fillRect(hx - 13, hy - 1, 26, 8, SKIN);   // 髪(上半分)
+    spi->fillCircle(hx - 12, hy + 1, 4, HAIR);
+    cap(spi, hx, hy - 12, hx - 3, hy - 20, 2, HAIR); cap(spi, hx + 4, hy - 11, hx + 9, hy - 18, 2, HAIR);   // あほ毛
+    if (phase == 2) { cap(spi, hx + 2, hy - 1, hx + 8, hy + 3, 1, INK); cap(spi, hx + 8, hy - 1, hx + 2, hy + 3, 1, INK); spi->drawFastHLine(hx + 3, hy + 8, 6, INK); }
+    else { spi->fillCircle(hx + 5, hy + 1, 2, INK); spi->drawLine(hx + 2, hy + 7, hx + 8, hy + 7, INK); }
+    // ---- 画面の文字
+    spi->setFont(&fonts::efontJA_24); spi->setTextSize(1); spi->setTextDatum(TR_DATUM);
+    char buf[24]; snprintf(buf, sizeof buf, "%um", (unsigned)(phase == 2 ? rec : (uint32_t)(dist / 12.0f)));
+    spi->setTextColor(INK, SKY); spi->drawString(buf, 312, 26);
+    spi->setTextDatum(MC_DATUM);
+    if (phase == 0) {
+      spi->setTextColor(INK, SKY); spi->setTextSize(2); spi->drawString(readyT < 0.9f ? "よーい…" : "ドン！", 160, 80);
+    } else if (phase == 2) {
+      spi->fillRoundRect(40, 54, 240, 90, 16, INK); spi->fillRoundRect(44, 58, 232, 82, 13, 0xFFFF);
+      spi->setTextColor(INK, 0xFFFF); spi->setTextSize(1);
+      spi->drawString("ガッシャーン！", 160, 80);
+      snprintf(buf, sizeof buf, "%um はしった！", (unsigned)rec);
+      spi->drawString(buf, 160, 108);
+      if (overT > 0.8f) { spi->setFont(&fonts::efontJA_16); spi->setTextColor(FR, 0xFFFF); spi->drawString("タッチで もういちど", 160, 130); }
+    }
+    spi->setTextDatum(TL_DATUM);
+  }
   // 遊びの表示カード(字幕の上)。2 列なら左右、a だけなら中央に大きく出す
   static void drawBoard(M5Canvas *spi, uint16_t fg, uint16_t bg) {
     static AvatarBoard b;
@@ -436,6 +567,7 @@ class Balloon final : public Drawable {
   }
   void draw(M5Canvas *spi, BoundingRect rect,
             DrawContext *drawContext) override {
+    if (avatarChari.on) { chariDraw(spi); return; }         // ゲーム中は、ゲームの画面だけ(字幕も出さない)
     drawBoard(spi, drawContext->getColorPalette()->get(COLOR_BALLOON_FOREGROUND), drawContext->getColorPalette()->get(COLOR_BALLOON_BACKGROUND));
     // 折り返しの計算は字幕が変わったときだけ(毎フレームやると重く、通信タスクを圧迫して切断の原因になった)
     static uint32_t cachedSeq = 0xFFFFFFFF;

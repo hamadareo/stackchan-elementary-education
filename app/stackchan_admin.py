@@ -1212,7 +1212,7 @@ class Win(QMainWindow):
         row = QHBoxLayout()
         row.addWidget(QLabel("子どもに出す遊び(教材モード。これ以外は話しません。「あそぼう」と言われたら案内します):"))
         self.g_acts = {}
-        for key, label in (("shiritori", "しりとり"), ("janken", "じゃんけん"), ("riddle", "なぞなぞ"), ("omikuji", "おみくじ"), ("mimic", "ものまね")):
+        for key, label in (("shiritori", "しりとり"), ("janken", "じゃんけん"), ("riddle", "なぞなぞ"), ("omikuji", "おみくじ"), ("mimic", "ものまね"), ("chari", "チャリはしり")):
             cb = QCheckBox(label)
             cb.setChecked(True)
             cb.toggled.connect(lambda _on, self=self: self.act("menu_set", {"acts": [k for k, c in self.g_acts.items() if c.isChecked()]}))
@@ -1468,7 +1468,7 @@ class Win(QMainWindow):
             w["hist"].setText("<br>".join(f'きみ <b>{h["kid"]}</b>{"(カメラ)" if h.get("via") == "camera" else ""} ・ ロボット <b>{h["robot"]}</b> → <span style="color:{col[h["res"]]}">{lab[h["res"]]}</span>' for h in reversed(x["hands"])) or '<span style="color:#6f8aa6">ここに、じゃんけんの結果が出ます</span>')
 
     # ---------------- ほかの遊び(なぞなぞ・あっちむいてホイ・おみくじ・ものまね)
-    QZ_KINDS = [("riddle", "なぞなぞ"), ("omikuji", "おみくじ"), ("mimic", "ものまね")]
+    QZ_KINDS = [("riddle", "なぞなぞ"), ("omikuji", "おみくじ"), ("mimic", "ものまね"), ("chari", "チャリ")]
 
     def page_quiz(self) -> QWidget:
         w = QWidget()

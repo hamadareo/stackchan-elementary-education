@@ -35,7 +35,7 @@ class LessonBase(PlayBase):
 class LessonTests(LessonBase):
     def test_start_each_kind(self):
         les, gh, jh, qh, sent = self._lesson()
-        for kind in ("shiritori", "janken", "riddle", "omikuji", "mimic"):
+        for kind in ("shiritori", "janken", "riddle", "omikuji", "mimic", "chari"):
             self.assertTrue(les.start(kind, ["a"])[0], kind)
             self.assertTrue(self._wait(lambda: les.current("a") == kind, 100), kind)
             les.stop("a")
@@ -252,7 +252,7 @@ class ChunkTests(LessonBase):
 
 class RehearsalTests(LessonBase):
     """授業の通し稽古: 先生が管理画面で押す順番を、そのまま再現する。"""
-    KINDS = ("shiritori", "janken", "riddle", "omikuji", "mimic")
+    KINDS = ("shiritori", "janken", "riddle", "omikuji", "mimic", "chari")
 
     def test_full_lesson_all_devices(self):
         les, gh, jh, qh, sent = self._lesson()
@@ -324,3 +324,50 @@ class StyleBoardTests(unittest.TestCase):
         self.assertEqual((m["st"], m["hl"], m["am"], m["cc"]), ("word", 1, "star", "e63c32"))
         board.show(S(), "じゃんけん", a_icon="gu")
         self.assertEqual(out[1]["st"], "")                       # 手の絵は、これまでどおり
+
+
+class ChariTests(LessonBase):
+    """ずんだの チャリはしり: 画面のゲームは機器が動かす。ブリッジは、はじめ・知らせ(ぶつかった・100m)・中止だけ。"""
+    def cmds(self, sent, dev="a"):
+        return [m.get("cmd") for n, m in sent if n == dev and m.get("t") == "chari"]
+
+    def test_start_sends_game_start_and_stop_sends_stop(self):
+        les, gh, jh, qh, sent = self._lesson()
+        self.assertTrue(les.start("chari", ["a"])[0])
+        self.assertTrue(self._wait(lambda: "start" in self.cmds(sent), 200))
+        self.assertEqual(les.current("a"), "chari")
+        les.stop("a")
+        self.assertTrue(self._wait(lambda: not les.busy("a"), 200))
+        self.assertIn("stop", self.cmds(sent))
+
+    def test_over_event_is_recorded_and_cheered(self):
+        les, gh, jh, qh, sent = self._lesson()
+        les.start("chari", ["a"])
+        self.assertTrue(self._wait(lambda: "start" in self.cmds(sent), 200))
+        self.assertTrue(qh.chari_event("a", {"name": "chari_over", "m": 120}))
+        g = qh.games["a"]
+        self.assertTrue(self._wait(lambda: g.score == 120, 100))
+        self.assertEqual(self.hub.ss["a"].n, "a")
+        self.assertGreaterEqual(qh.stats.get("chari_best", 0), 120)
+        qh.chari_event("a", {"name": "chari_over", "m": 60})                  # 低い記録で、ベストは下がらない
+        self.assertTrue(self._wait(lambda: g.runs == 2, 100))
+        self.assertGreaterEqual(qh.stats.get("chari_best", 0), 120)
+        les.stop("a")
+
+    def test_event_for_other_device_or_idle_is_ignored(self):
+        les, gh, jh, qh, sent = self._lesson()
+        self.assertFalse(qh.chari_event("a", {"name": "chari_over", "m": 10}))   # 遊んでいない
+        les.start("chari", ["a"])
+        self.assertFalse(qh.chari_event("b", {"name": "chari_over", "m": 10}))   # 別の機器
+        les.stop("a")
+
+    def test_voice_jump_and_quit(self):
+        les, gh, jh, qh, sent = self._lesson()
+        les.start("chari", ["a"])
+        self.assertTrue(self._wait(lambda: "start" in self.cmds(sent), 200))
+        self.assertTrue(self._wait(lambda: qh.games["a"].turn == "kid", 100))
+        qh.say("ジャンプ", "a")
+        self.assertTrue(self._wait(lambda: "jump" in self.cmds(sent), 100))
+        qh.say("やめる", "a")
+        self.assertTrue(self._wait(lambda: not les.busy("a"), 300))
+        self.assertIn("stop", self.cmds(sent))

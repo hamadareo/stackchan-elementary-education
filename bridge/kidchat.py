@@ -69,9 +69,9 @@ def clean_reply(out: str, prev: str = "neutral") -> "tuple[str, str]":
 
 
 ASOBO = re.compile(r"あそぼ|遊ぼ|あそびたい|遊びたい|なにしよう|何しよう|なにして遊|なにしてあそ")
-ACT_LABEL = {"shiritori": "しりとり", "janken": "じゃんけん", "riddle": "なぞなぞ", "omikuji": "おみくじ", "mimic": "ものまね"}
-ACT_DEFAULT = ["shiritori", "janken", "riddle", "omikuji", "mimic"]      # 子どもに出す遊びは、この5個だけ(ほかのことはしない)
-MENU = "しりとり、じゃんけん、なぞなぞ、おみくじ、ものまねが、できるよ！やりたいのを、言ってね！"
+ACT_LABEL = {"shiritori": "しりとり", "janken": "じゃんけん", "riddle": "なぞなぞ", "omikuji": "おみくじ", "mimic": "ものまね", "chari": "チャリはしり"}
+ACT_DEFAULT = ["shiritori", "janken", "riddle", "omikuji", "mimic", "chari"]      # 子どもに出す遊びは、この6個だけ(ほかのことはしない)
+MENU = "しりとり、じゃんけん、なぞなぞ、おみくじ、ものまね、チャリはしりが、できるよ！やりたいのを、言ってね！"
 GUIDE_GAP = 7.0         # 遊びを選ぶ案内を、同じ機器でくり返すまでの最短の秒数
 
 
@@ -111,7 +111,8 @@ PLAY = re.compile(r"しよう|しよ|やろう|やろ|あそぼ|遊ぼ|したい
 NOT_PLAY = re.compile(r"にして|に翻訳|に訳|通訳|で言って|でいって|で話|でしゃべ|ほんやく")
 KIND_PAT = [("omikuji", re.compile(r"おみくじ|オミクジ|お神籤|御神籤|おみくじ")),
             ("mimic", re.compile(r"ものまね|モノマネ|物まね|物真似|まねっこ|マネッコ|おうむがえし|オウム返し|まねして|マネして|真似して")),
-            ("riddle", re.compile(r"なぞなぞ|ナゾナゾ|謎々|謎謎"))]
+            ("riddle", re.compile(r"なぞなぞ|ナゾナゾ|謎々|謎謎")),
+            ("chari", re.compile(r"チャリ|ちゃり|じてんしゃ|自転車"))]
 
 
 def quiz_kind(text: str) -> "str | None":

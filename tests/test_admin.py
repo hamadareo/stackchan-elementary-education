@@ -81,7 +81,7 @@ class HubTests(unittest.TestCase):
 
     def test_menu_acts_six_fun_games_and_migration(self):
         h = admin.Hub()
-        self.assertEqual(h.menu_acts, ["shiritori", "janken", "riddle", "omikuji", "mimic"])      # 既定は 5 個すべて
+        self.assertEqual(h.menu_acts, ["shiritori", "janken", "riddle", "omikuji", "mimic", "chari"])      # 既定は 6 個すべて
         self.assertEqual(h.state()["menu_acts"], h.menu_acts) if hasattr(h, "state") else None
         self.assertTrue(h.act("menu_set", {"acts": ["janken", "omikuji", "quiz", "math", "english", "kanji", "mimic"]})["ok"])
         self.assertEqual(h.menu_acts, ["janken", "omikuji", "mimic"])                  # 勉強の遊びは受け付けない

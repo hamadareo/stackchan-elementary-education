@@ -949,6 +949,10 @@ class Session:
             print(f"[bridge] 端末イベント: {j}", flush=True)
             if j.get("name") == "touch":
                 self.on_pat()
+            elif str(j.get("name", "")).startswith("chari_"):           # 画面のゲーム(チャリはしり)の結果
+                q = getattr(admin.HUB, "quiz", None)
+                if q is not None:
+                    q.chari_event(self.dev_id, j)
 
     PAT_LINES = {                                   # 頭を撫でられたときの一言(キャラごと)。子どもにやさしい言葉だけ
         0: ["えへへ、くすぐったいのだ", "なでなで、うれしいのだ", "もっとなでてほしいのだ"],

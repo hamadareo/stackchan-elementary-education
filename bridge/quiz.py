@@ -24,9 +24,9 @@ UNCLEAR_MAX = 4                 # 聞き取れない言葉が続く回数
 AGAIN_WAIT = 15.0               # 「もういっかい?」の返事を待つ秒数
 DONT = re.compile(r"わからない|わかんない|わかりません|わからん|しらない|知らない|ヒント|ひんと|おしえて|教えて|パス|ぱす|ギブ|ぎぶ|こたえは?(なに|なあに)")
 
-KINDS = {"riddle": "なぞなぞ", "hoi": "あっちむいてホイ", "omikuji": "おみくじ", "mimic": "ものまねボイス"}
+KINDS = {"riddle": "なぞなぞ", "hoi": "あっちむいてホイ", "omikuji": "おみくじ", "mimic": "ものまねボイス", "chari": "ずんだの チャリはしり"}
 STAT_KEYS = ("plays", "rounds", "correct", "answered", "perfect", "hoi_rounds", "hoi_wins", "hoi_points", "hoi_streak_best",
-             "omikuji_n", "omikuji_big", "mimic_n", "mimic_rounds")
+             "omikuji_n", "omikuji_big", "mimic_n", "mimic_rounds", "chari_n", "chari_best")
 
 
 # ---------------------------------------------------------------- 言葉の整え
@@ -458,7 +458,7 @@ class QuizHub(GameHub):
     @staticmethod
     def classes() -> dict:
         import fun
-        return {"riddle": Quiz, "hoi": fun.Hoi, "omikuji": fun.Omikuji, "mimic": fun.Mimic}
+        return {"riddle": Quiz, "hoi": fun.Hoi, "omikuji": fun.Omikuji, "mimic": fun.Mimic, "chari": fun.Chari}
 
     def start(self, kind: str = "riddle", level: str = "", dev_ids: "list | None" = None) -> "tuple[bool, str]":
         """dev_ids の機器それぞれで、独立に始める(省略なら、接続中の全機器)。kind: riddle / hoi / omikuji / mimic"""
@@ -492,10 +492,18 @@ class QuizHub(GameHub):
                     err = e
         return (True, "") if started else (False, err)
 
+    def chari_event(self, dev_id: str, j: dict) -> bool:
+        """機器の画面のゲーム(チャリはしり)からの知らせを、その機器の遊びへ。"""
+        g = self.games.get(dev_id)
+        if g is not None and g.on and getattr(g, "kind", "") == "chari":
+            g.event(j)
+            return True
+        return False
+
     def snapshot(self) -> dict:
         gs = [g.snapshot() for g in self.games.values() if g.robots]
         s = self.stats
         return {"on": self.own_on, "games": gs, "kinds": KINDS, "plays": s.get("plays", 0), "correct": s.get("correct", 0),
                 "answered": s.get("answered", 0), "rounds": s.get("rounds", 0), "perfect": s.get("perfect", 0),
                 "hoi_rounds": s.get("hoi_rounds", 0), "hoi_wins": s.get("hoi_wins", 0), "hoi_streak_best": s.get("hoi_streak_best", 0),
-                "omikuji_n": s.get("omikuji_n", 0), "omikuji_big": s.get("omikuji_big", 0), "mimic_n": s.get("mimic_n", 0)}
+                "omikuji_n": s.get("omikuji_n", 0), "omikuji_big": s.get("omikuji_big", 0), "mimic_n": s.get("mimic_n", 0), "chari_n": s.get("chari_n", 0), "chari_best": s.get("chari_best", 0)}

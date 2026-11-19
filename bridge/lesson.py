@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import time
 
-KINDS = [("shiritori", "しりとり"), ("janken", "じゃんけん"), ("riddle", "なぞなぞ"), ("omikuji", "おみくじ"), ("mimic", "ものまねボイス")]
+KINDS = [("shiritori", "しりとり"), ("janken", "じゃんけん"), ("riddle", "なぞなぞ"), ("omikuji", "おみくじ"), ("mimic", "ものまねボイス"), ("chari", "チャリはしり")]
 LABEL = dict(KINDS)
 STOP_WAIT_S = 5.0                 # 止めた遊びが、完全に終わるのを待つ最長の秒数
 
@@ -49,6 +49,7 @@ class Lesson:
                 continue
             try:
                 sess.send({"t": "hush"})
+                sess.send({"t": "chari", "cmd": "stop"})
                 sess.send({"t": "board", "clear": True})
                 sess.send({"t": "face", "state": "neutral"})
             except Exception:  # noqa: BLE001

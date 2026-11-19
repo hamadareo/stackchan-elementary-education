@@ -381,6 +381,12 @@ static void onWs(WStype_t type, uint8_t *p, size_t n) {
         tiltTarget = constrain(tiltTarget, SERVO_TILT_MIN, SERVO_TILT_MAX);
         gestSpeed = d["speed"] | SERVO_SPEED;
         zface::setGaze(0, 0);
+      } else if (t == "chari") {                         // ずんだもんの チャリはしり: start / stop / jump
+        const char *c = d["cmd"] | "";
+        if (!strcmp(c, "start")) { m5avatar::avatarChari.reset = true; m5avatar::avatarChari.on = true; zface::clearBoard(); }
+        else if (!strcmp(c, "stop")) { m5avatar::avatarChari.on = false; }
+        else if (!strcmp(c, "jump")) { m5avatar::avatarChari.jump = true; }
+        lastActivity = millis();
       } else if (t == "hush") {                          // 中止: 声をすぐ止める(再生中は playOne が抜ける。受信中・待機中は捨てる)
         pendingIdx = -1;
         recvActive = false;
@@ -506,6 +512,7 @@ static void touchStep() {
     cool = millis() + 3000; since = 0; armed = false;
     JsonDocument d; d["t"] = "event"; d["name"] = "touch"; d["lv"] = mx;
     String o; serializeJson(d, o); linkText(o);
+    if (m5avatar::avatarChari.on) m5avatar::avatarChari.jump = true;   // ゲーム中の頭タッチは、ジャンプ
     onTouch();
   }
 }
@@ -756,6 +763,17 @@ void loop() {
       tapAt = millis();
       if (t.x >= 175 && t.x < 218) setVolume((int)spkVol - 30);        // 「音」の左=下げる
       else if (t.x >= 218 && t.x < 265) setVolume((int)spkVol + 30);   // 右=上げる
+    }
+    if (m5avatar::avatarChari.on) {                      // ゲーム中: 画面のどこでもタッチでジャンプ。眠らない。結果をブリッジへ
+      if (t.wasPressed() && t.y >= 30) m5avatar::avatarChari.jump = true;
+      lastActivity = millis();
+      static uint32_t seenEv = 0;
+      uint32_t es = m5avatar::avatarChari.evSeq;
+      if (es != seenEv) {
+        seenEv = es;
+        JsonDocument d; d["t"] = "event"; d["name"] = m5avatar::avatarChari.evKind == 1 ? "chari_over" : "chari_mile"; d["m"] = (uint32_t)m5avatar::avatarChari.evVal;
+        String o; serializeJson(d, o); linkText(o);
+      }
     } }
   statusBar(false);
   shotPump();
