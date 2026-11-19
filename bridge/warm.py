@@ -68,11 +68,12 @@ def build_plan(names: list) -> list:
     plan, seen = [], set()
 
     def add(prio, text, emo=None, raw=None):
-        t = playfx.yomi((text or "").strip())
-        k = (t, emo, tuple(sorted(raw.items())) if raw else None)
-        if t and k not in seen:
-            seen.add(k)
-            plan.append((prio, t, emo, raw))
+        for ch in playfx.split_chunks((text or "").strip()):         # 遊びは、文ごとに声にして送る(最初の文を早く鳴らすため)。作り置きも同じ単位
+            t = playfx.yomi(ch.strip())
+            k = (t, emo, tuple(sorted(raw.items())) if raw else None)
+            if t and k not in seen:
+                seen.add(k)
+                plan.append((prio, t, emo, raw))
 
     def bank(prio, name, tpls, emo, extra=None, cnt=None, suffix=""):
         for tpl in tpls:

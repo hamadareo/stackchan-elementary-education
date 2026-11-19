@@ -739,6 +739,7 @@ class Win(QMainWindow):
             except ValueError:
                 j = {"ok": False, "error": "応答が読めません"}
             self.msg.setText(ok_msg if j.get("ok") and ok_msg else ("" if j.get("ok") else "⚠ " + str(j.get("error", "失敗"))))
+            QTimer.singleShot(100, self.poll)                      # 押した結果を、1 秒待たずに画面へ出す
         self.api.post(name, body, cb)
 
     # ---------------- ページ: ステータス

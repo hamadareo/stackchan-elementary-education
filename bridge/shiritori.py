@@ -465,7 +465,10 @@ class Shiritori(Stage):
                             time.sleep(0.05)
             except Exception:  # noqa: BLE001
                 pass
-        th.join()
+        while th.is_alive():                                  # 作っている間も、中止をすぐ受けつける
+            th.join(0.1)
+            if self._stop.is_set():
+                return None
         kind, val = box[0] if box else ("err", RuntimeError("synth"))
         if kind == "err":
             raise val
@@ -473,8 +476,10 @@ class Shiritori(Stage):
 
     def _speak(self, eng, i: int, text: str, emo: str = "joy", caption: "str | None" = None, raw: "dict | None" = None, face: "str | None" = None) -> None:
         """ロボット i が声に出す(顔と字幕つき)。話している間と直後は、聞き取りを捨てる。
-        raw: 声の調子を直接指定する(speed/pitch/intonation/volume。ものまねなど。省略なら感情 emo の調子)。face: 顔を感情と別に指定。"""
+        raw: 声の調子を直接指定する(speed/pitch/intonation/volume。ものまねなど。省略なら感情 emo の調子)。face: 顔を感情と別に指定。
+        長い台詞は、文ごとに分けて、最初の文をすぐ鳴らし始める(次の文は、鳴っている間に作って送る)。"""
         from discuss import EMOTIONS
+        from playfx import split_chunks
         s = self._sess(i)
         for _ in range(60):                                  # 機器が切れていたら、つなぎ直すのを少し待つ(6 秒)。戻らなければ遊びを終える
             if s is not None or self._stop.is_set():
@@ -496,12 +501,31 @@ class Shiritori(Stage):
                         sk.send({"t": "caption", "lang": "ja", "to": "ja", "orig": f'{self.robots[i]["name"]}: {caption or text}', "trans": "", "final": True})
             if self._stop.is_set():
                 return
-            pcm = self._synth(eng, i, text, pr[1], raw)
-            if self._stop.is_set():                          # 声を作っている間に中止された: 鳴らさない
+            chunks = split_chunks(text) or [text]
+            pcm = self._synth(eng, i, chunks[0], pr[1], raw)
+            if self._stop.is_set() or pcm is None:           # 声を作っている間に中止された: 鳴らさない
                 return
+            nxt = self._synth_bg(eng, i, chunks[1], pr[1], raw) if len(chunks) > 1 else None
             dur = s._send_pcm(pcm, caption=caption or text, lang="ja")
-            t0 = self.clock()
-            while self.clock() - t0 < (dur or 0) + 0.3 and not self._stop.is_set():
+            ends = [self.clock() + (dur or 0)]                # 機器が、この文を鳴らし終える時刻
+            for n in range(1, len(chunks)):
+                while nxt[0].is_alive() and not self._stop.is_set():
+                    nxt[0].join(0.05)
+                if self._stop.is_set():
+                    return
+                kind, val = nxt[1][0] if nxt[1] else ("err", RuntimeError("synth"))
+                if kind == "err":
+                    raise val
+                nxt = self._synth_bg(eng, i, chunks[n + 1], pr[1], raw) if n + 1 < len(chunks) else None
+                if n >= 2:                                    # 機器が受けとれる声は「鳴っている 1 つ+つぎの 1 つ」。2 つ前が鳴り終わるのを待つ
+                    while self.clock() < ends[n - 2] + 0.25 and not self._stop.is_set():
+                        time.sleep(0.05)
+                    if self._stop.is_set():
+                        return
+                d = s._send_pcm(val, caption="", lang="ja")
+                ends.append(max(self.clock(), ends[n - 1]) + (d or 0))
+                dur = (dur or 0) + (d or 0)
+            while self.clock() < ends[-1] + 0.3 and not self._stop.is_set():
                 time.sleep(0.1)
         finally:
             self.speaking = False
@@ -513,6 +537,25 @@ class Shiritori(Stage):
                     break
             if self._stop.is_set():                          # 中止の合図(None)まで捨てないよう、入れ直す(待ちがすぐ終わる)
                 self.q.put(None)
+
+    def _synth_bg(self, eng, i: int, text: str, emo_params, raw):
+        """つぎの文の声を、別スレッドで作りはじめる。(スレッド, 結果の入れ物)"""
+        v = self.robots[i]["voice"]
+        from playfx import yomi
+        t = yomi(text)
+        box: list = []
+
+        def work():
+            try:
+                try:
+                    box.append(("ok", eng.speech_pcm_as(t, v, raw=raw) if raw is not None else eng.speech_pcm_as(t, v, emotion=emo_params)))
+                except TypeError:
+                    box.append(("ok", eng.speech_pcm_as(t, v)))
+            except Exception as e:  # noqa: BLE001
+                box.append(("err", e))
+        th = threading.Thread(target=work, daemon=True)
+        th.start()
+        return th, box
 
     def _reading(self, eng, text: str) -> str:
         """子どもの言葉 → よみ(ひらがな)。かな・辞書にある言葉はそのまま。それ以外は AI に読みを聞く。"""

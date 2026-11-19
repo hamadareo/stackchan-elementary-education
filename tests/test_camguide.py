@@ -230,7 +230,8 @@ class LinesTests(unittest.TestCase):
         import warm
         plan = {t for _p, t, _e, _r in warm.build_plan(["ずんだ"])}
         for t in cg.all_lines("ずんだ"):
-            self.assertIn(playfx.yomi(t.strip()), plan)
+            for ch in playfx.split_chunks(t.strip()):                    # 先読みは、文ごと
+                self.assertIn(playfx.yomi(ch.strip()), plan)
 
 
 class Rig:

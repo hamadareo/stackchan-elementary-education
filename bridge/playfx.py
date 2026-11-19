@@ -36,6 +36,26 @@ def yomi(text: str) -> str:
     return re.sub(r"(?<![一-鿿])手(?![一-鿿])", "て", t)
 
 
+CHUNK_MIN = 40                    # これより短い台詞は、分けない
+CHUNK_PART_MIN = 8                # これより短い断片は、前の文にくっつける
+
+
+def split_chunks(text: str) -> list:
+    """長い台詞を、文の切れ目(。！？)で分ける。最初の文だけ先に作って・送って鳴らし始めれば、待ち時間が短くなる。
+    先読み(warm.py)も同じ分け方で作り置きするので、ここを変えたら先読みも作り直しになる。"""
+    t = (text or "").strip()
+    if len(t) < CHUNK_MIN:
+        return [t] if t else []
+    parts = [x for x in re.findall(r"[^。！？!?]+[。！？!?]*", t) if x.strip()]
+    out: list = []
+    for x in parts:
+        if out and (len(x) < CHUNK_PART_MIN or len(out[-1]) < CHUNK_PART_MIN):
+            out[-1] += x
+        else:
+            out.append(x)
+    return out or [t]
+
+
 def tone(name: str, text: str, pick=None) -> str:
     """台詞の記号({d} {n} {cheer} {oops})を、キャラの言い方に置きかえる。"""
     t = TONE.get(name, TONE["つむぎ"])

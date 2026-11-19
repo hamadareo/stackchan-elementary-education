@@ -170,3 +170,81 @@ class TeacherOnlyTests(LessonBase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ChunkTests(LessonBase):
+    def test_split_chunks(self):
+        import playfx
+        self.assertEqual(playfx.split_chunks("ホイ！"), ["ホイ！"])
+        self.assertEqual(playfx.split_chunks(""), [])
+        long = "あっちむいてホイを しよう！ぼくが ゆびを さすから、おなじ むきを むかないでね。つぎは きみが ゆびを さす番。さきに 3てん とったら かち！"
+        ch = playfx.split_chunks(long)
+        self.assertGreaterEqual(len(ch), 3)
+        self.assertEqual("".join(ch), long)                                 # 分けても、文字は変わらない
+        self.assertTrue(all(len(c) >= playfx.CHUNK_PART_MIN for c in ch[:-1]))
+
+
+    def test_first_sentence_is_sent_before_the_rest_is_made(self):
+        import threading
+        import shiritori as sh
+        les, gh, jh, qh, sent = self._lesson()
+        order = []
+        gate = threading.Event()
+
+        class Eng:
+            face = None
+            def speech_pcm_as(e, text, voice, emotion=None, raw=None):
+                order.append(("synth", text))
+                if "つぎは" in text:
+                    gate.wait(3)                                            # 2 つめの文は、わざと遅くする
+                import numpy as np
+                return np.zeros(2400, dtype=np.float32)
+        self.hub.ss["a"]._send_pcm = lambda pcm, caption="", lang="": (order.append(("send", caption)), 0.0)[1]
+        g = gh.games.get("a") or sh.Shiritori(self.hub, None, gh.discuss, lambda: Eng(), gh.path, gh.rnd, stats=gh.stats, save_cb=gh.save)
+        g.robots = [{"id": "a", "name": "ずんだ", "dev_name": "A", "voice": "voicevox:3"}]
+        long = "あっちむいてホイを しよう！ぼくが ゆびを さすから、おなじ むきを むかないでね。つぎは きみが ゆびを さす番。さきに 3てん とったら かち！"
+        t = threading.Thread(target=lambda: g._speak(Eng(), 0, long, "joy"), daemon=True)
+        t.start()
+        self.assertTrue(self._wait(lambda: any(o[0] == "send" for o in order), 60))      # 後ろの文を待たずに、先頭の文が送られた
+        self.assertFalse(gate.is_set())
+        gate.set()
+        t.join(10)
+        self.assertFalse(t.is_alive())
+        sends = [o for o in order if o[0] == "send"]
+        self.assertGreaterEqual(len(sends), 3)
+        self.assertEqual(sends[0][1], long)                                  # 字幕は、最初の 1 回だけ全文
+        self.assertTrue(all(s[1] == "" for s in sends[1:]))
+
+    def test_stop_during_chunks_sends_no_more(self):
+        import threading
+        import shiritori as sh
+        les, gh, jh, qh, sent = self._lesson()
+        sends = []
+
+        class Eng:
+            face = None
+            def speech_pcm_as(e, text, voice, emotion=None, raw=None):
+                import numpy as np, time as _t
+                _t.sleep(0.2)
+                return np.zeros(2400, dtype=np.float32)
+        self.hub.ss["a"]._send_pcm = lambda pcm, caption="", lang="": (sends.append(caption), 0.5)[1]
+        g = sh.Shiritori(self.hub, None, gh.discuss, lambda: Eng(), gh.path, gh.rnd, stats=gh.stats, save_cb=gh.save)
+        g.robots = [{"id": "a", "name": "ずんだ", "dev_name": "A", "voice": "voicevox:3"}]
+        long = "あっちむいてホイを しよう！ぼくが ゆびを さすから、おなじ むきを むかないでね。つぎは きみが ゆびを さす番。さきに 3てん とったら かち！"
+        t = threading.Thread(target=lambda: g._speak(Eng(), 0, long, "joy"), daemon=True)
+        t.start()
+        self.assertTrue(self._wait(lambda: len(sends) >= 1, 60))
+        g._stop.set()
+        t.join(5)
+        self.assertFalse(t.is_alive())                                       # 中止したら、すぐ抜ける
+        self.assertLess(len(sends), 4)
+
+    def test_ack_on_button_press(self):
+        les, gh, jh, qh, sent = self._lesson()
+        t0 = time.time()
+        self.assertTrue(les.start("omikuji", ["a"])[0])
+        faces = [m for n, m in sent if n == "a" and m.get("t") == "face" and m.get("state") == "happy"]
+        boards = [m for n, m in sent if n == "a" and m.get("t") == "board" and m.get("ab") == "はじまるよ！"]
+        self.assertTrue(faces and boards)                                    # 押した瞬間の反応
+        self.assertLess(time.time() - t0, 1.0)
+        les.stop()

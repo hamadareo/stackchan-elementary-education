@@ -235,14 +235,14 @@ class DeviceCard(QFrame):
             b = QPushButton(lab)
             b.setCursor(Qt.PointingHandCursor)
             b.setStyleSheet(BTN_OFF)
-            b.clicked.connect(lambda _c=False, k=k: self.act("lesson_start", {"kind": k, "id": self.dev_id}, f"{LABEL[k]}を始めます"))
+            b.clicked.connect(lambda _c=False, k=k: self._go(k))
             g.addWidget(b, n // 2, n % 2)
             self.b[k] = b
         v.addLayout(g)
         self.stop = QPushButton("■ 中止")
         self.stop.setCursor(Qt.PointingHandCursor)
         self.stop.setStyleSheet(STOP_QSS)
-        self.stop.clicked.connect(lambda: self.act("lesson_stop", {"id": self.dev_id}, "中止しました"))
+        self.stop.clicked.connect(self._halt)
         v.addWidget(self.stop)
         self.cam = QLabel()
         self.cam.setTextFormat(Qt.RichText)
@@ -265,6 +265,14 @@ class DeviceCard(QFrame):
         self.hint.setStyleSheet(f"color:{MUTE};font-size:12px")
         v.addWidget(self.hint)
         v.addStretch(1)
+
+    def _halt(self) -> None:
+        self.status.setText(f'<span style="font-size:20px;font-weight:700;color:{RD}">中止しています…</span>')
+        self.act("lesson_stop", {"id": self.dev_id}, "中止しました")
+
+    def _go(self, k: str) -> None:
+        self.status.setText(f'<span style="font-size:20px;font-weight:700;color:{AM}">{esc(LABEL[k])}を はじめています…</span>')       # 押した瞬間に反応を見せる
+        self.act("lesson_start", {"kind": k, "id": self.dev_id}, f"{LABEL[k]}を始めます")
 
     def _type(self) -> None:
         t = self.typ.text().strip()

@@ -72,6 +72,8 @@ class Lesson:
         if not ids:
             return False, "接続中の機器がありません"
         started, err = [], ""
+        for i in ids:                                     # 押した瞬間に、機器の顔と画面を変える(声ができるまでの間も、反応が見える)
+            self._ack(kind, i)
         for i in ids:
             if self.busy(i):
                 self.stop(i)
@@ -84,6 +86,17 @@ class Lesson:
             else:
                 err = e
         return (True, "") if started else (False, err or "始められませんでした")
+
+    def _ack(self, kind: str, dev: str) -> None:
+        sess = self.hub.by_id(dev)
+        if sess is None:
+            return
+        try:
+            import board
+            sess.send({"t": "face", "state": "happy"})
+            board.show(sess, LABEL.get(kind, ""), a=("", "はじまるよ！"), ms=3000)
+        except Exception:  # noqa: BLE001
+            pass
 
     def _start_one(self, kind: str, dev: str) -> "tuple[bool, str]":
         hub = self.hub
