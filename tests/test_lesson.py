@@ -248,3 +248,66 @@ class ChunkTests(LessonBase):
         self.assertTrue(faces and boards)                                    # 押した瞬間の反応
         self.assertLess(time.time() - t0, 1.0)
         les.stop()
+
+
+class RehearsalTests(LessonBase):
+    """授業の通し稽古: 先生が管理画面で押す順番を、そのまま再現する。"""
+    KINDS = ("shiritori", "janken", "riddle", "hoi", "omikuji", "mimic")
+
+    def test_full_lesson_all_devices(self):
+        les, gh, jh, qh, sent = self._lesson()
+        ids = list(self.hub.ss)
+        for kind in self.KINDS:                                  # 全機器で、6 つを順に(前の遊びの上から押す)
+            self.assertTrue(les.start(kind, ids)[0], kind)
+            for d in ids:
+                self.assertTrue(self._wait(lambda: les.current(d) == kind, 200), (kind, d))
+        les.stop()                                               # 全員の「中止」
+        for d in ids:
+            self.assertTrue(self._wait(lambda: not les.busy(d), 200), d)
+        snap = les.snapshot([{"id": d, "name": d, "online": True} for d in ids])
+        self.assertTrue(all(not s["on"] for s in snap))
+
+    def test_rapid_button_mashing(self):
+        les, gh, jh, qh, sent = self._lesson()
+        for kind in self.KINDS * 2:                              # 連打しても、壊れず最後に押した遊びになる
+            les.start(kind, ["a"])
+        self.assertTrue(self._wait(lambda: les.current("a") == self.KINDS[-1], 300))
+        les.stop("a")
+        self.assertTrue(self._wait(lambda: not les.busy("a"), 200))
+
+    def test_stop_then_next_immediately(self):
+        les, gh, jh, qh, sent = self._lesson()
+        for kind in self.KINDS:
+            self.assertTrue(les.start(kind, ["a"])[0])
+            les.stop("a")
+            t0 = time.time()
+            self.assertTrue(les.start("janken", ["a"])[0], kind)  # 中止の直後に、次の機能へ
+            self.assertLess(time.time() - t0, 5.0)
+            les.stop("a")
+
+    def test_device_unplugged_mid_game(self):
+        les, gh, jh, qh, sent = self._lesson()
+        self.assertTrue(les.start("riddle", ["a"])[0])
+        self.assertTrue(self._wait(lambda: les.current("a") == "riddle", 100))
+        self.hub.ss["a"].alive = False                           # USB を抜いた
+        les.stop("a")                                            # 先生が中止を押しても、例外にならない
+        self.assertTrue(self._wait(lambda: not les.busy("a"), 300))
+        snap = les.snapshot([{"id": "a", "name": "a", "online": False}])
+        self.assertFalse(snap[0]["online"])
+        self.assertFalse(snap[0]["on"])
+
+    def test_snapshot_is_safe_while_games_change(self):
+        les, gh, jh, qh, sent = self._lesson()
+        ids = list(self.hub.ss)
+        devs = [{"id": d, "name": d, "online": True} for d in ids]
+        for kind in self.KINDS:
+            les.start(kind, ids)
+            for _ in range(5):
+                les.snapshot(devs)
+        les.stop()
+
+    def test_nothing_speaks_until_button(self):
+        les, gh, jh, qh, sent = self._lesson()
+        time.sleep(0.3)
+        self.assertFalse([m for n, m in sent if m.get("t") in ("audio", "say", "board")])
+        self.assertFalse(les.busy("a"))

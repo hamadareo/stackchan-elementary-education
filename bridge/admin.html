@@ -83,6 +83,7 @@ h1 small{display:block;font:500 11px var(--mono);letter-spacing:.2em;color:var(-
 .cand{display:flex;gap:8px;flex-wrap:wrap}
 .cand span{border:1px solid var(--line);border-radius:4px;padding:2px 8px}
 .cand span.use{border-color:var(--gr);color:var(--gr);box-shadow:0 0 10px rgba(65,255,168,.25)}
+
 /* ---- controls ---- */
 .cols{display:grid;grid-template-columns:minmax(0,1fr);gap:0 14px}
 .cols>div{min-width:0}
@@ -201,6 +202,12 @@ img{border-radius:14px;box-shadow:0 6px 20px rgba(0,0,0,.25);border-color:var(--
   <div class="tools"><button id="theme" title="色を変える">◐ COLOR</button><button id="fs" title="全画面">⛶</button></div>
   <div class="badge"><b><span class="led" id="led"></span><span id="conn">OFFLINE</span></b><br><span id="clock"></span></div>
 </header>
+
+<section class="panel" id="lessonp">
+  <h2>Lesson <span>授業(押すまで、ロボットは何もしません。中止はすぐ効きます)</span></h2>
+  <div class="row"><button id="lstopall" style="background:#ff9fae;color:#1b1020;font-weight:700">■ 全員 中止</button><label style="display:flex;gap:6px;align-items:center;font-size:13px"><input type="checkbox" id="lteach"> 先生のボタンだけで始める(子どもの声では始まらない)</label></div>
+  <div id="lcards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-top:10px"></div>
+</section>
 
 <section class="panel">
   <h2>Discussion <span>3人会話モード(議題を入れると、接続中の機器が順番に話し合います)</span></h2>
@@ -364,6 +371,25 @@ async function api(name,body){
   try{const r=await fetch('/api/'+name+q,{method:'POST',body:JSON.stringify(body||{})});const j=await r.json();
     $('msg').textContent=j.ok?'':'⚠ '+(j.error||'失敗');if(!j.ok)toast('⚠ '+(j.error||'失敗'));return j}catch(e){$('msg').textContent='⚠ 通信できません'}
 }
+/* ---- lesson ---- */
+const LKINDS=[['shiritori','しりとり'],['janken','じゃんけん'],['riddle','なぞなぞ'],['hoi','あっちむいてホイ'],['omikuji','おみくじ'],['mimic','ものまねボイス']];
+let lKey='';
+function renderLesson(s){
+  const L=s.lesson||[];$('lteach').checked=!!s.teacher_only;
+  const k=JSON.stringify(L.map(d=>[d.id,d.name,d.online,d.on,d.kind]))+s.teacher_only;if(k===lKey)return;lKey=k;
+  $('lcards').innerHTML=L.map(d=>{
+    const st=!d.online?'つながっていません':d.on?(d.label||'あそび中')+' を しています':'待機中(なにもしていません)';
+    const btns=LKINDS.map(([kd,lb])=>`<button data-go="${esc(kd)}" data-id="${esc(d.id)}" ${d.online?'':'disabled'} style="${d.kind===kd?'outline:2px solid var(--gr)':''}">${lb}</button>`).join('');
+    return `<div style="border:1px solid var(--line);border-radius:6px;padding:10px"><b>${esc(d.name||d.id)}</b> <small style="color:var(--mute)">${st}</small>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:8px 0">${btns}</div>
+      <button data-halt="${esc(d.id)}" ${d.on?'':'disabled'} style="width:100%">■ 中止</button></div>`}).join('')||'<small>機器がありません</small>';
+}
+$('lcards').addEventListener('click',async e=>{const b=e.target.closest('button');if(!b)return;
+  if(b.dataset.go){b.textContent='はじめています…';await api('lesson_start',{kind:b.dataset.go,id:b.dataset.id})}
+  else if(b.dataset.halt){await api('lesson_stop',{id:b.dataset.halt})}
+  lKey='';poll()});
+$('lstopall').onclick=async()=>{await api('lesson_stop',{});lKey='';poll()};
+$('lteach').onchange=async e=>{await api('teacher_only_set',{on:e.target.checked})};
 /* ---- controls ---- */
 let dragging=false,lastSent=0,bright=140;
 function setVolUi(v){ if(v==null)return; if(!dragging)$('vol').value=v; $('volnum').textContent=Math.round(v*100/255)+'%'}
@@ -539,6 +565,7 @@ function setNode(id,o){
 }
 function render(s){
   if(!built)build();
+  try{renderLesson(s)}catch(e){}
   const st=s.stages||{},M=s.models||{},conn=s.connected;
   const act=id=>st[id]&&st[id].state==='active';
   const rec=id=>st[id]&&st[id].state==='done'&&st[id].age<3;
