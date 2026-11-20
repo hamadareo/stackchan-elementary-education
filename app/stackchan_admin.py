@@ -602,6 +602,21 @@ class Slider(QWidget):
 
 
 # ---------------------------------------------------------------- 本体
+def _scroll_wrap(page):
+    """大きい画面向けに作った頁を、小さい画面でも、はみ出さず(スクロールで)見られるようにする。"""
+    if isinstance(page, QScrollArea):
+        return page
+    sa = QScrollArea()
+    sa.setWidgetResizable(True)
+    sa.setFrameShape(QFrame.NoFrame)
+    sa.setWidget(page)
+    page.setAutoFillBackground(False)                      # 頁の背景を、灰色で塗りつぶさない
+    sa.viewport().setAutoFillBackground(False)
+    sa.setStyleSheet("QScrollArea{background:transparent;border:0}")
+    sa.viewport().setStyleSheet("background:transparent")
+    return sa
+
+
 class Win(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -614,7 +629,9 @@ class Win(QMainWindow):
         self.ph_key = ""
         self.edit_ph = False
         self.setWindowTitle("StackChan")
-        self.resize(1180, 860)
+        scr = QApplication.primaryScreen().availableGeometry()           # 画面に収まる大きさにする(小さい画面でも、はみ出さない)
+        self.resize(min(1180, int(scr.width() * 0.94)), min(860, int(scr.height() * 0.88)))
+        self.setMinimumSize(520, 360)
 
         root = Root()
         root.setObjectName("root")
@@ -679,15 +696,15 @@ class Win(QMainWindow):
         self.tabs = QTabWidget()
         top.addWidget(self.tabs, 1)
         self.lesson_page = LessonPage(lambda n, b=None, m="": self.act(n, b, m))
-        self.tabs.addTab(self.lesson_page, "授業")
+        self.tabs.addTab(_scroll_wrap(self.lesson_page), "授業")
         self.tabs.addTab(self.page_status(), "ステータス")
         self.tabs.addTab(self.page_ctrl(), "操作")
         self.tabs.addTab(self.page_devices(), "機器")
-        self.tabs.addTab(self.page_discuss(), "3人会話")
-        self.tabs.addTab(self.page_profile(), "プロフィール")
-        self.tabs.addTab(self.page_journal(), "活動記録")
-        self.tabs.addTab(self.page_edu(), "教材の詳細")
-        self.tabs.addTab(self.page_talk(), "会話")
+        self.tabs.addTab(_scroll_wrap(self.page_discuss()), "3人会話")
+        self.tabs.addTab(_scroll_wrap(self.page_profile()), "プロフィール")
+        self.tabs.addTab(_scroll_wrap(self.page_journal()), "活動記録")
+        self.tabs.addTab(_scroll_wrap(self.page_edu()), "教材の詳細")
+        self.tabs.addTab(_scroll_wrap(self.page_talk()), "会話")
 
         self.msg = muted()
         top.addWidget(self.msg)
@@ -2234,6 +2251,11 @@ def main() -> int:
     if os.environ.get('SC_SIZE'):
         w.resize(*[int(x) for x in os.environ['SC_SIZE'].split('x')])
     w.show()
+    try:
+        g = QApplication.primaryScreen().availableGeometry()
+        w.move(g.x() + max(0, (g.width() - w.width()) // 2), g.y() + max(0, (g.height() - w.height()) // 2))
+    except Exception:  # noqa: BLE001
+        pass
     if shot:                                               # 画面の確認用: 少し待って、各ページを画像にして終わる
         def grab():
             base = shot.rsplit(".", 1)[0]
