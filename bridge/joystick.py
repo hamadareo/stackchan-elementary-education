@@ -17,7 +17,7 @@ import time
 
 ARDUINO_VIDS = ("2341", "2a03", "1a86", "0403", "10c4")      # Arduino 純正・互換(CH340)・FTDI・CP210x。StackChan(303a)は含めない
 PUSH, RELEASE = 0.35, 0.2                                       # 倒した量(中心から端までを 1)。倒す / 戻す のしきい値(ヒステリシス)
-DEAD = 0.07                                                     # これより小さい倒しは、首を動かさない
+DEAD = 0.10                                                     # これより小さい倒しは、首を動かさない
 PAN_RANGE, TILT_HOME, TILT_RANGE = 520, 250, 200                # 首の動かす範囲(0.1 度単位。機器の可動域の内側)
 HOLD_S = 4.0                                                    # 首を動かしたあと、顔追従を止めておく秒数
 MOVE_EVERY_S = 0.04                                             # 首へ送る間隔
@@ -86,7 +86,7 @@ class Pad:
                 if t - self._move_t >= MOVE_EVERY_S:
                     self._move_t = t
                     self._moving = True
-                    s = min(1.0, (mag - DEAD) / (0.7 - DEAD))                  # 不感帯の外を 0〜1 に引きのばす(動き出しがなめらか)
+                    s = 1.0                  # 不感帯を出たら、最初から最高速
                     self.on_move(self.x / mag * s, self.y / mag * s)
             elif self._moving:
                 self._moving = False
