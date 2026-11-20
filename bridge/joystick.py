@@ -122,6 +122,7 @@ class Joystick:
         self.port = ""
         self._vec: dict = {}
         self._open: set = set()
+        self._tried: set = set()
         self.last_rx = 0.0
         self._stop = threading.Event()
         self._t = None
@@ -206,13 +207,45 @@ class Joystick:
                 if port not in self._open:
                     self._open.add(port)
                     threading.Thread(target=self._read, args=(port,), daemon=True, name="joystick-" + port).start()
+            self._tried &= set(find_ports()) | self._open          # 抜かれたポートは、次に挿したとき、また調べる
             if not self._open:
                 self.port = ""
             self._stop.wait(3.0)
 
+    def _provision(self, port: str) -> bool:
+        """スケッチが入っていない新しい Arduino に、arduino-cli でスケッチを自動で書き込む。"""
+        import shutil
+        import subprocess
+        cli = shutil.which("arduino-cli") or os.path.expanduser("~/bin/arduino-cli")
+        sketch = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "arduino", "joystick")
+        if not (os.path.exists(cli) and os.path.isdir(sketch)):
+            print("[bridge] ジョイスティック: 自動セットアップに必要な arduino-cli またはスケッチがありません", flush=True)
+            return False
+        print(f"[bridge] ジョイスティック: 新しいスティックを自動セットアップ中 {port}", flush=True)
+        try:
+            r = subprocess.run([cli, "compile", "--upload", "-p", port, "--fqbn", "arduino:avr:uno", sketch],
+                               capture_output=True, text=True, timeout=180)
+            ok = r.returncode == 0
+        except Exception as e:  # noqa: BLE001
+            print(f"[bridge] ジョイスティック: 自動セットアップ失敗({e})", flush=True)
+            return False
+        print("[bridge] ジョイスティック: 自動セットアップ" + ("完了" if ok else "失敗: " + (r.stderr or "")[-200:]), flush=True)
+        return ok
+
     def _read(self, port: str) -> None:
         import serial
         try:
+            if port not in self._tried:                      # 信号が来ない(スケッチ未書き込み)なら、1 度だけ自動で書き込む
+                self._tried.add(port)
+                with serial.Serial(port, 115200, timeout=0.5) as probe:
+                    time.sleep(2.0)
+                    end = time.time() + 2.0
+                    seen = False
+                    while time.time() < end and not seen:
+                        seen = parse(probe.readline().decode("ascii", "ignore")) is not None
+                if not seen:
+                    self._provision(port)
+                    time.sleep(1.0)
             with serial.Serial(port, 115200, timeout=0.5) as s:
                 self.port = port
                 print(f"[bridge] ジョイスティック: 接続 {port}", flush=True)
