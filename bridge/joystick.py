@@ -17,7 +17,7 @@ import time
 
 ARDUINO_VIDS = ("2341", "2a03", "1a86", "0403", "10c4")      # Arduino 純正・互換(CH340)・FTDI・CP210x。StackChan(303a)は含めない
 PUSH, RELEASE = 0.35, 0.2                                       # 倒した量(中心から端までを 1)。倒す / 戻す のしきい値(ヒステリシス)
-DEAD = 0.10                                                     # これより小さい倒しは、首を動かさない
+DEAD = 0.15                                                     # これより小さい倒しは、首を動かさない
 PAN_RANGE, TILT_HOME, TILT_RANGE = 520, 250, 200                # 首の動かす範囲(0.1 度単位。機器の可動域の内側)
 HOLD_S = 4.0                                                    # 首を動かしたあと、顔追従を止めておく秒数
 MOVE_EVERY_S = 0.04                                             # 首へ送る間隔
@@ -123,6 +123,8 @@ class Joystick:
         self._vec: dict = {}
         self._open: set = set()
         self._tried: set = set()
+        self._owner = ""
+        self._owner_t = 0.0
         self.last_rx = 0.0
         self._stop = threading.Event()
         self._t = None
@@ -190,12 +192,26 @@ class Joystick:
         self._stop.set()
 
     def _move_from(self, port: str, x: float, y: float) -> None:
-        """複数のスティックがあるとき、1 本が戻しても、もう 1 本が倒されていれば止めない。"""
-        if self._vec.get(port, (0.0, 0.0)) == (0.0, 0.0) != (x, y):
-            print(f"[bridge] 入力開始 {port} {x:.2f},{y:.2f} 機器={len(list(self.hub.live()))}台", flush=True)
+        """複数の入力があるとき、最後に動かし始めた 1 つだけを首に使う(戻しきれていないスティックに邪魔されない)。"""
+        now = self.clock()
+        zero = (x, y) == (0.0, 0.0)
+        if self._vec.get(port, (0.0, 0.0)) == (0.0, 0.0) and not zero:
+            self._owner = port                                   # 触り始めた入力が、持ち主になる
+            print(f"[bridge] 入力開始 {port} {x:.2f},{y:.2f}", flush=True)
         self._vec[port] = (x, y)
-        if (x, y) == (0.0, 0.0) and any(v != (0.0, 0.0) for p, v in self._vec.items() if p != port):
-            return
+        if self._owner and self._owner != port and now - self._owner_t < 0.5:
+            return                                               # 別の入力が操作中
+        if zero:
+            if port == self._owner:
+                self._owner = ""
+            elif self._owner:
+                return
+        else:
+            self._owner = self._owner or port
+            if port == self._owner:
+                self._owner_t = now
+            elif now - self._owner_t >= 0.5:
+                self._owner, self._owner_t = port, now           # 持ち主が止まっていたら、交代
         self.move(x, y)
 
     def _run(self) -> None:
