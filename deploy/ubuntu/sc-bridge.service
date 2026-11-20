@@ -2,7 +2,7 @@
 Description=StackChan bridge + admin
 After=sc-voicevox.service sc-llm.service sc-s109.service
 [Service]
-Environment=PYTHONPATH=%h/stackchan/stubs PYTHONUNBUFFERED=1 TSUYAKU_SRC=%h/stackchan/tsuyaku/src SC_DEVICE_NAME=Ubu
+Environment=HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 PYTHONPATH=%h/stackchan/stubs PYTHONUNBUFFERED=1 TSUYAKU_SRC=%h/stackchan/tsuyaku/src SC_DEVICE_NAME=Ubu
 WorkingDirectory=%h/stackchan/bridge
 ExecStart=%h/stackchan/.venv/bin/python %h/stackchan/bridge/stackchan_bridge.py
 Restart=always
