@@ -1436,11 +1436,17 @@ async def advertise(port: int):
         return None
 
 
+USB_ONLY = os.environ.get("SC_USB_ONLY", "") == "1"      # 1: Wi-Fi(WebSocket)の接続を受けない。USB だけで動かす(学校と同じ。他の PC の機器に割り込まない)
+
+
 async def serve(host: str, port: int, eng: Engine) -> None:
     import websockets
-    _zc = await advertise(port)
+    _zc = None if USB_ONLY else await advertise(port)
 
     async def handler(ws):
+        if USB_ONLY:
+            await ws.close()
+            return
         loop = asyncio.get_running_loop()
 
         def send(msg):  # ワーカースレッドから安全に送る
