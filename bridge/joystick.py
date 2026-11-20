@@ -208,9 +208,54 @@ class Joystick:
                     self._open.add(port)
                     threading.Thread(target=self._read, args=(port,), daemon=True, name="joystick-" + port).start()
             self._tried &= set(find_ports()) | self._open          # 抜かれたポートは、次に挿したとき、また調べる
+            self._pads()
             if not self._open:
                 self.port = ""
             self._stop.wait(3.0)
+
+    def _pads(self) -> None:
+        """USB ゲームパッド(/dev/input/js*)を、Arduino のスティックと同じように使う。"""
+        import glob
+        for path in glob.glob("/dev/input/js*"):
+            if path not in self._open:
+                self._open.add(path)
+                threading.Thread(target=self._read_pad, args=(path,), daemon=True, name="gamepad-" + path).start()
+
+    def _read_pad(self, path: str) -> None:
+        import select
+        import struct
+        try:
+            with open(path, "rb", buffering=0) as f:
+                print(f"[bridge] ゲームパッド: 接続 {path}", flush=True)
+                pad = Pad(self.handle, lambda x, y, _p=path: self._move_from(_p, x, y))
+                ax: dict = {}
+                held: set = set()
+                while not self._stop.is_set():
+                    r, _, _ = select.select([f], [], [], 0.02)
+                    while r:
+                        ev = f.read(8)
+                        if not ev or len(ev) < 8:
+                            raise OSError("切断")
+                        _t, val, typ, num = struct.unpack("IhBB", ev)
+                        if typ & 0x80:
+                            continue                              # 起動時の初期状態は、ボタンとして扱わない
+                        if typ == 1:
+                            (held.add if val else held.discard)(num)
+                        elif typ == 2:
+                            ax[num] = val / 32767.0
+                        r, _, _ = select.select([f], [], [], 0)
+                    # 左スティック(軸 0,1)。倒していなければ、十字キー(軸 4,5 または 6,7)
+                    x, y = ax.get(0, 0.0), ax.get(1, 0.0)
+                    if (x * x + y * y) ** 0.5 < 0.2:
+                        x = ax.get(4, ax.get(6, 0.0))
+                        y = ax.get(5, ax.get(7, 0.0))
+                    self.last_rx = self.clock()
+                    self.port = path
+                    pad.feed(int(512 + x * 511), int(512 + y * 511), 1 if held else 0)
+        except Exception as e:  # noqa: BLE001
+            print(f"[bridge] ゲームパッド: 切断({path}: {e})", flush=True)
+        self._vec.pop(path, None)
+        self._open.discard(path)
 
     def _provision(self, port: str) -> bool:
         """スケッチが入っていない新しい Arduino に、arduino-cli でスケッチを自動で書き込む。"""
