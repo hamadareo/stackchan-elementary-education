@@ -291,8 +291,8 @@ class Joystick:
                             ax[num] = val / 32767.0
                         r, _, _ = select.select([f], [], [], 0)
                     # 左右は軸 0・2・4、上下は軸 1・3・5 のうち、いちばん倒れているもの(十字キー・左右のスティックのどれでも効く)。
-                    # ゲームパッドは「上」がマイナスなので、Arduino のスティックと同じ向きになるよう、上下を反転する。
-                    x = max((ax.get(k, 0.0) for k in (0, 2, 4)), key=abs)
+                    # ゲームパッドは「上」がマイナスなので、Arduino のスティックと同じ向きになるよう、上下と左右を反転する。
+                    x = -max((ax.get(k, 0.0) for k in (0, 2, 4)), key=abs)
                     y = -max((ax.get(k, 0.0) for k in (1, 3, 5)), key=abs)
                     self.last_rx = self.clock()
                     self.port = path
