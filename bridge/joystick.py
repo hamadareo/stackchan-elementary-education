@@ -19,6 +19,7 @@ ARDUINO_VIDS = ("2341", "2a03", "1a86", "0403", "10c4")      # Arduino 純正・
 PUSH, RELEASE = 0.35, 0.2                                       # 倒した量(中心から端までを 1)。倒す / 戻す のしきい値(ヒステリシス)
 DEAD = 0.15                                                     # これより小さい倒しは、首を動かさない
 PAN_RANGE, TILT_HOME, TILT_RANGE = 520, 250, 200                # 首の動かす範囲(0.1 度単位。機器の可動域の内側)
+STILL_N = 100                                                    # 中心を合わせ直すのに、動かない値を見る個数(50 回/秒で約 2 秒)
 HOLD_S = 4.0                                                    # 首を動かしたあと、顔追従を止めておく秒数
 MOVE_EVERY_S = 0.04                                             # 首へ送る間隔
 SAY = {                                                         # (遊び, 操作) → 子どもの代わりに入れる言葉
@@ -56,6 +57,8 @@ class Pad:
         self._move_t = 0.0
         self._moving = False
         self.cal: list = []
+        self.recenter = True
+        self.still: list = []                                    # 直近の値。ずっと動かなければ、そこを中心に合わせ直す
         self.cx = self.cy = 512.0
         self.pushed = False
         self.btn = False
@@ -69,6 +72,15 @@ class Pad:
                 xs, ys = sorted(c[0] for c in self.cal), sorted(c[1] for c in self.cal)
                 self.cx, self.cy = float(xs[7]), float(ys[7])
             return
+        self.still.append((x, y))
+        if len(self.still) > STILL_N:
+            self.still.pop(0)
+        if self.recenter and len(self.still) == STILL_N:                           # 約 2 秒、ほとんど動かない = 手を離している。中心がずれていたら合わせ直す
+            xs, ys = [v[0] for v in self.still], [v[1] for v in self.still]
+            if max(xs) - min(xs) <= 12 and max(ys) - min(ys) <= 12:
+                mx, my = sorted(xs)[STILL_N // 2], sorted(ys)[STILL_N // 2]
+                if (abs(mx - self.cx) > 20 or abs(my - self.cy) > 20) and abs(mx - self.cx) < 320 and abs(my - self.cy) < 320:   # 端まで倒して止めているのは、手を離していない
+                    self.cx, self.cy = float(mx), float(my)
         self.x, self.y = (x - self.cx) / 512.0, (y - self.cy) / 512.0
         mag = max(abs(self.x), abs(self.y))
         if not self.pushed and mag >= PUSH:
@@ -272,6 +284,7 @@ class Joystick:
                 g = float(os.environ.get("SC_PAD_GAIN", "0.15"))      # 十字キーは、倒すか倒さないかの 2 段階。最高速のままだと、すぐ端に当たるので、ゆっくりにする
                 pad = Pad(self.handle, lambda x, y, _p=path, _g=g: self._move_from(_p, x * _g, y * _g))
                 self.pad = pad
+                pad.recenter = False                                  # 十字キーは、押しっぱなしが正しい操作
                 ax: dict = {}
                 held: set = set()
                 while not self._stop.is_set():

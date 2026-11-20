@@ -117,6 +117,16 @@ class HubTests(unittest.TestCase):
         j.move(0.5, 0.0)
         self.assertGreater(getattr(s, "_manual_until", 0), j.clock())
 
+    def test_recenters_when_held_still_off_center(self):
+        moves = []
+        p = js.Pad(lambda k: None, lambda x, y: moves.append((x, y)))
+        for _ in range(15):
+            p.feed(512, 512, 0)
+        for _ in range(js.STILL_N + 5):
+            p.feed(512, 800, 0)                                # 手を離したのに、中心がずれたまま(ドリフト)
+        self.assertEqual(moves[-1], (0.0, 0.0))
+        self.assertAlmostEqual(p.cy, 800, delta=1)
+
     def test_pad_calls_move_only_outside_deadzone(self):
         moves = []
         p = js.Pad(lambda k: None, lambda x, y: moves.append((x, y)))
