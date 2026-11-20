@@ -136,6 +136,7 @@ class Joystick:
         self.pad = Pad(self.handle, self.move)
         self.pan_sign = -1 if os.environ.get("SC_JOY_PAN_SIGN", "1") == "-1" else 1
         self.tilt_sign = -1 if os.environ.get("SC_JOY_TILT_SIGN", "1") == "-1" else 1
+        self.tilt_gain = float(os.environ.get("SC_JOY_TILT_GAIN", "0.45"))   # 上下は動く幅が小さい(パンの 4 割ほど)ので、遅くする。1 で最速
         self.port = ""
         self._vec: dict = {}
         self._open: set = set()
@@ -203,7 +204,7 @@ class Joystick:
     def move(self, x: float, y: float) -> None:
         """待機中の機器の首を、倒した量に比例した速さで動かす(遊んでいる機器は動かさない)。顔追従は、しばらく止める。
         機器は、0.3 秒信号が来なければ止まる。(0, 0) は、止める合図。"""
-        vx, vy = max(-1.0, min(1.0, x)) * self.pan_sign, max(-1.0, min(1.0, y)) * self.tilt_sign
+        vx, vy = max(-1.0, min(1.0, x)) * self.pan_sign, max(-1.0, min(1.0, y)) * self.tilt_sign * self.tilt_gain
         now = self.clock()
         for s in list(self.hub.live()):
             dev = getattr(s, "dev_id", "")

@@ -105,6 +105,7 @@ class HubTests(unittest.TestCase):
 
     def test_stick_moves_neck_only_of_idle_devices(self):
         j, _, sent = self.mk({"a": "janken", "b": ""})
+        j.tilt_gain = 1.0
         j.move(0.5, -0.5)
         self.assertEqual([d for d, _ in sent], ["b"])
         m = sent[0][1]
