@@ -180,7 +180,8 @@ class Joystick:
 
     def press(self, num: int) -> None:
         """ゲームパッドのボタン(番号 num)を押した。チャリはしり=ジャンプ。じゃんけん・おみくじ・なぞなぞ=ボタンごとの言葉。"""
-        self.jump()
+        n = self.jump()
+        print(f"[bridge] ゲームパッド: ボタン {num} → ジャンプ {n} 台", flush=True)
         for dev in self._devs():
             kind = self._kind(dev)
             word = BTN.get((kind, num)) or ("" if any(k == kind for k, _ in BTN) else SAY.get((kind, "button")))
@@ -268,7 +269,7 @@ class Joystick:
         try:
             with open(path, "rb", buffering=0) as f:
                 print(f"[bridge] ゲームパッド: 接続 {path}", flush=True)
-                g = float(os.environ.get("SC_PAD_GAIN", "0.4"))      # 十字キーは、倒すか倒さないかの 2 段階。最高速のままだと、すぐ端に当たるので、ゆっくりにする
+                g = float(os.environ.get("SC_PAD_GAIN", "0.15"))      # 十字キーは、倒すか倒さないかの 2 段階。最高速のままだと、すぐ端に当たるので、ゆっくりにする
                 pad = Pad(self.handle, lambda x, y, _p=path, _g=g: self._move_from(_p, x * _g, y * _g))
                 self.pad = pad
                 ax: dict = {}
@@ -289,11 +290,10 @@ class Joystick:
                         elif typ == 2:
                             ax[num] = val / 32767.0
                         r, _, _ = select.select([f], [], [], 0)
-                    # 左スティック(軸 0,1)。倒していなければ、十字キー(軸 4,5 または 6,7)
-                    x, y = ax.get(0, 0.0), ax.get(1, 0.0)
-                    if (x * x + y * y) ** 0.5 < 0.2:
-                        x = ax.get(4, ax.get(6, 0.0))
-                        y = ax.get(5, ax.get(7, 0.0))
+                    # 左右は軸 0・2・4、上下は軸 1・3・5 のうち、いちばん倒れているもの(十字キー・左右のスティックのどれでも効く)。
+                    # ゲームパッドは「上」がマイナスなので、Arduino のスティックと同じ向きになるよう、上下を反転する。
+                    x = max((ax.get(k, 0.0) for k in (0, 2, 4)), key=abs)
+                    y = -max((ax.get(k, 0.0) for k in (1, 3, 5)), key=abs)
                     self.last_rx = self.clock()
                     self.port = path
                     pad.feed(int(512 + x * 511), int(512 + y * 511), 0)          # ボタンは press() で扱う
