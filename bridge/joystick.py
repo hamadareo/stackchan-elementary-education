@@ -2,9 +2,11 @@
 
 - Arduino は "J,x,y,b" の行を 50 回/秒で USB シリアルに流す(arduino/joystick/joystick.ino)。
 - ブリッジは、Arduino らしい USB(StackChan の ESP32 以外)を見つけて読む。挿し直しにも自動で追従する。
-- スティックを、どの向きでも「ぐいっ」と倒す / ボタンを押す = ジャンプ(倒しっぱなしで連続はしない。いったん戻す)。
-  向きを問わないので、スティックの取り付け向きを気にしなくてよい。
-- ジャンプは、いまチャリはしりを遊んでいる機器すべてに送る。
+- チャリはしり: スティックをどの向きでも「ぐいっ」と倒す / ボタンを押す = ジャンプ(倒しっぱなしで連続はしない。いったん戻す)。
+- じゃんけん: 左=ぐー / 上=ちょき / 右=ぱー。おみくじ: ボタン=やる / 下=やめる。なぞなぞ: ボタン=ヒント / 下=わからない。
+  (しりとり・ものまねは声だけ。)
+- 待機中(遊んでいない機器): スティックを倒すと、StackChan の首がその向きに動く(顔追従は、動かしている間と、そのあと数秒は止める)。
+- 操作は、その遊び(や待機)をしている機器すべてに送る。向きの符号は SC_JOY_PAN_SIGN / SC_JOY_TILT_SIGN(1 か -1)で反転できる。
 """
 from __future__ import annotations
 
@@ -15,6 +17,15 @@ import time
 
 ARDUINO_VIDS = ("2341", "2a03", "1a86", "0403", "10c4")      # Arduino 純正・互換(CH340)・FTDI・CP210x。StackChan(303a)は含めない
 PUSH, RELEASE = 0.55, 0.35                                      # 倒した量(中心から端までを 1)。倒す / 戻す のしきい値(ヒステリシス)
+DEAD = 0.18                                                     # これより小さい倒しは、首を動かさない
+PAN_RANGE, TILT_HOME, TILT_RANGE = 520, 250, 200                # 首の動かす範囲(0.1 度単位。機器の可動域の内側)
+HOLD_S = 4.0                                                    # 首を動かしたあと、顔追従を止めておく秒数
+MOVE_EVERY_S = 0.1                                              # 首へ送る間隔
+SAY = {                                                         # (遊び, 操作) → 子どもの代わりに入れる言葉
+    ("janken", "left"): "ぐー", ("janken", "up"): "ちょき", ("janken", "right"): "ぱー",
+    ("omikuji", "button"): "やる", ("omikuji", "down"): "やめる",
+    ("riddle", "button"): "ヒント", ("riddle", "down"): "わからない",
+}
 
 
 def parse(line: str):
@@ -34,8 +45,10 @@ def parse(line: str):
 class Pad:
     """スティックの値から、「ジャンプ」の合図を作る(中心は、最初の十数個の中央値で自動合わせ)。"""
 
-    def __init__(self, on_jump):
-        self.on_jump = on_jump
+    def __init__(self, on_event, on_move=None):
+        self.on_event = on_event                                 # on_event(kind): "push"(どの向きでも)/ "left|right|up|down" / "button"
+        self.on_move = on_move                                   # on_move(x, y): 倒し量(-1〜1)。倒している間、0.1 秒ごと
+        self._move_t = 0.0
         self.cal: list = []
         self.cx = self.cy = 512.0
         self.pushed = False
@@ -52,17 +65,25 @@ class Pad:
             return
         self.x, self.y = (x - self.cx) / 512.0, (y - self.cy) / 512.0
         mag = max(abs(self.x), abs(self.y))
-        fire = False
         if not self.pushed and mag >= PUSH:
-            self.pushed, fire = True, True
+            self.pushed = True
+            self.jumps += 1
+            d = ("right" if self.x > 0 else "left") if abs(self.x) >= abs(self.y) else ("down" if self.y > 0 else "up")
+            self.on_event("push")
+            self.on_event(d)
         elif self.pushed and mag <= RELEASE:
             self.pushed = False
         if b and not self.btn:
-            fire = True
-        self.btn = bool(b)
-        if fire:
             self.jumps += 1
-            self.on_jump()
+            self.on_event("push")
+            self.on_event("button")
+        self.btn = bool(b)
+        if self.on_move is not None and mag >= DEAD:
+            import time as _t
+            t = _t.time()
+            if t - self._move_t >= MOVE_EVERY_S:
+                self._move_t = t
+                self.on_move(self.x, self.y)
 
 
 def find_ports() -> list:
@@ -88,11 +109,23 @@ def find_ports() -> list:
 class Joystick:
     def __init__(self, hub, clock=time.time):
         self.hub, self.clock = hub, clock
-        self.pad = Pad(self.jump)
+        self.pad = Pad(self.handle, self.move)
+        self.pan_sign = -1 if os.environ.get("SC_JOY_PAN_SIGN", "1") == "-1" else 1
+        self.tilt_sign = -1 if os.environ.get("SC_JOY_TILT_SIGN", "1") == "-1" else 1
         self.port = ""
         self.last_rx = 0.0
         self._stop = threading.Event()
         self._t = None
+
+    def _devs(self) -> list:
+        return [getattr(s, "dev_id", "") for s in list(self.hub.live()) if getattr(s, "dev_id", "")]
+
+    def _kind(self, dev: str) -> str:
+        les = getattr(self.hub, "lesson", None)
+        try:
+            return les.current(dev) if les is not None else ""
+        except Exception:  # noqa: BLE001
+            return ""
 
     def jump(self) -> int:
         """いま チャリはしりを遊んでいる機器すべてを、ジャンプさせる。ジャンプさせた機器の数を返す。"""
@@ -103,6 +136,37 @@ class Joystick:
                 g._dev("jump")
                 n += 1
         return n
+
+    def handle(self, kind: str) -> None:
+        """スティックの操作(push / left / right / up / down / button)を、遊びごとの操作にする。"""
+        if kind == "push":
+            self.jump()                                          # チャリはしり(向きを問わない)
+            return
+        for dev in self._devs():
+            word = SAY.get((self._kind(dev), kind))
+            if not word:
+                continue
+            for h in (getattr(self.hub, "game", None), getattr(self.hub, "janken", None), getattr(self.hub, "quiz", None)):
+                try:
+                    if h is not None and h.say(word, dev):
+                        break
+                except Exception:  # noqa: BLE001
+                    pass
+
+    def move(self, x: float, y: float) -> None:
+        """待機中の機器の首を、スティックの向きへ動かす(遊んでいる機器は動かさない)。顔追従は、しばらく止める。"""
+        pan = int(max(-1.0, min(1.0, x)) * PAN_RANGE * self.pan_sign)
+        tilt = int(TILT_HOME + max(-1.0, min(1.0, y)) * TILT_RANGE * self.tilt_sign)
+        now = self.clock()
+        for s in list(self.hub.live()):
+            dev = getattr(s, "dev_id", "")
+            if not dev or self._kind(dev):
+                continue
+            s._manual_until = now + HOLD_S
+            try:
+                s.send({"t": "servo", "pan": pan, "tilt": tilt, "speed": 500})
+            except Exception:  # noqa: BLE001
+                pass
 
     def status(self) -> dict:
         ok = bool(self.port) and self.clock() - self.last_rx < 3.0
@@ -130,7 +194,7 @@ class Joystick:
                 with serial.Serial(ports[0], 115200, timeout=0.5) as s:
                     self.port = ports[0]
                     print("[bridge] ジョイスティック: 接続", flush=True)
-                    self.pad = Pad(self.jump)
+                    self.pad = Pad(self.handle, self.move)
                     time.sleep(2.0)                              # UNO は、開くと再起動する
                     s.reset_input_buffer()
                     while not self._stop.is_set():

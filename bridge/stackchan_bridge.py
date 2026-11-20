@@ -850,7 +850,7 @@ class Session:
             st["look_t"] = now
             self.send({"t": "look", "ex": round(ex, 2), "ey": round(ey, 2), "size": round(size, 2)})
         cal = st["calib"]
-        if cal is None or now < st["settle"]:
+        if cal is None or now < st["settle"] or now < getattr(self, "_manual_until", 0.0):      # ジョイスティックで首を動かしている間は、追従しない
             return
         if abs(ex) < 0.12 and abs(ey) < 0.14:                          # 中央付近なら動かさない
             return

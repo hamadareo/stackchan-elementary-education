@@ -6,7 +6,8 @@ import joystick as js
 class PadTests(unittest.TestCase):
     def mk(self):
         self.n = 0
-        p = js.Pad(lambda: setattr(self, "n", self.n + 1))
+        self.ev = []
+        p = js.Pad(lambda k: (self.ev.append(k), setattr(self, "n", self.n + (1 if k == "push" else 0))))
         for _ in range(15):
             p.feed(510, 515, 0)                                  # 中心合わせ
         return p
@@ -38,7 +39,7 @@ class PadTests(unittest.TestCase):
 
     def test_no_jump_during_calibration(self):
         n = []
-        p = js.Pad(lambda: n.append(1))
+        p = js.Pad(lambda k: n.append(k))
         for _ in range(10):
             p.feed(1000, 1000, 1)
         self.assertEqual(n, [])
@@ -55,6 +56,71 @@ class PadTests(unittest.TestCase):
         class H: quiz = Q()
         self.assertEqual(js.Joystick(H()).jump(), 1)
         self.assertEqual(sent, ["jump"])
+
+    def test_direction_names(self):
+        for x, y, want in ((1000, 515, "right"), (10, 515, "left"), (510, 1000, "down"), (510, 10, "up")):
+            p = self.mk(); self.ev.clear()
+            p.feed(x, y, 0)
+            self.assertEqual(self.ev, ["push", want], (x, y))
+        p = self.mk(); self.ev.clear(); p.feed(510, 515, 1)
+        self.assertEqual(self.ev, ["push", "button"])
+
+
+class HubTests(unittest.TestCase):
+    def mk(self, kinds):
+        said, sent = [], []
+
+        class S:
+            def __init__(self, d): self.dev_id, self.n = d, d
+            def send(self, m): sent.append((self.dev_id, m))
+
+        class Les:
+            def current(_, dev): return kinds.get(dev, "")
+
+        class Hub1:
+            def say(_, w, dev): said.append((dev, w)); return True
+
+        class H:
+            lesson = Les()
+            game = janken = quiz = None
+            def live(_): return [S(d) for d in kinds]
+        h = H(); h.janken = Hub1()
+        return js.Joystick(h), said, sent
+
+    def test_janken_directions_become_words(self):
+        j, said, _ = self.mk({"a": "janken", "b": ""})
+        j.handle("left"); j.handle("up"); j.handle("right"); j.handle("down")
+        self.assertEqual(said, [("a", "ぐー"), ("a", "ちょき"), ("a", "ぱー")])
+
+    def test_unmapped_kind_or_key_does_nothing(self):
+        j, said, _ = self.mk({"a": "shiritori", "b": "janken"})
+        j.handle("button"); j.handle("up")
+        self.assertEqual(said, [("b", "ちょき")])
+
+    def test_stick_moves_neck_only_of_idle_devices(self):
+        j, _, sent = self.mk({"a": "janken", "b": ""})
+        j.move(0.5, -0.5)
+        self.assertEqual([d for d, _ in sent], ["b"])
+        m = sent[0][1]
+        self.assertEqual((m["t"], m["pan"], m["tilt"]), ("servo", 260, 150))
+        self.assertTrue(-700 <= m["pan"] <= 700 and 60 <= m["tilt"] <= 600)
+
+    def test_neck_move_pauses_face_tracking(self):
+        j, _, sent = self.mk({"b": ""})
+        s = j.hub.live()[0]
+        j.hub.live = lambda: [s]
+        j.move(0.5, 0.0)
+        self.assertGreater(getattr(s, "_manual_until", 0), j.clock())
+
+    def test_pad_calls_move_only_outside_deadzone(self):
+        moves = []
+        p = js.Pad(lambda k: None, lambda x, y: moves.append((x, y)))
+        for _ in range(15):
+            p.feed(512, 512, 0)
+        p.feed(560, 512, 0)                                    # 0.09: 不感帯
+        self.assertEqual(moves, [])
+        p.feed(700, 512, 0)
+        self.assertEqual(len(moves), 1)
 
 
 if __name__ == "__main__":
