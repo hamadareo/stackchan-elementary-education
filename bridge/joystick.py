@@ -77,7 +77,7 @@ class Pad:
             self.still.pop(0)
         if self.recenter and len(self.still) == STILL_N:                           # 約 2 秒、ほとんど動かない = 手を離している。中心がずれていたら合わせ直す
             xs, ys = [v[0] for v in self.still], [v[1] for v in self.still]
-            if max(xs) - min(xs) <= 12 and max(ys) - min(ys) <= 12:
+            if max(xs) - min(xs) <= 60 and max(ys) - min(ys) <= 60:         # ノイズ(縦は ±20 ほど揺れるスティックがある)を許す
                 mx, my = sorted(xs)[STILL_N // 2], sorted(ys)[STILL_N // 2]
                 if (abs(mx - self.cx) > 20 or abs(my - self.cy) > 20) and 330 <= mx <= 690 and 330 <= my <= 690:   # 本来の中心付近で止まっている=手を離している(端で止めているのは違う)   # 端まで倒して止めているのは、手を離していない
                     self.cx, self.cy = float(mx), float(my)
