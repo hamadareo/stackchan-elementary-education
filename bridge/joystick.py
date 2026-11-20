@@ -197,7 +197,8 @@ class Joystick:
         zero = (x, y) == (0.0, 0.0)
         if self._vec.get(port, (0.0, 0.0)) == (0.0, 0.0) and not zero:
             self._owner = port                                   # 触り始めた入力が、持ち主になる
-            print(f"[bridge] 入力開始 {port} {x:.2f},{y:.2f}", flush=True)
+            tg = [(getattr(q, "dev_id", "") or "?")[-4:] + ("*" if self._kind(getattr(q, "dev_id", "")) else "") for q in list(self.hub.live())]
+            print(f"[bridge] 入力開始 {port} {x:.2f},{y:.2f} 送り先={tg}(*は遊び中で除外)", flush=True)
         self._vec[port] = (x, y)
         if self._owner and self._owner != port and now - self._owner_t < 0.5:
             return                                               # 別の入力が操作中
@@ -326,7 +327,9 @@ class Joystick:
                         last = self.last_rx = self.clock()
                         pad.feed(*v)
                     elif not line and self.clock() - last > 5.0:
-                        break                                # 何も来ない: 開き直す
+                        print(f"[bridge] ジョイスティック: 信号が 5 秒止まったので、つなぎ直します {port}", flush=True)
+                        self._tried.discard(port)            # 開き直したとき、まだ無反応ならスケッチを書き直す
+                        break
         except Exception as e:  # noqa: BLE001 - 抜かれたら、また探す
             print(f"[bridge] ジョイスティック: 切断({port}: {e})", flush=True)
         self._vec.pop(port, None)
