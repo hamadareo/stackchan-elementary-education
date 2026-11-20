@@ -92,6 +92,12 @@ class HubTests(unittest.TestCase):
         j.handle("left"); j.handle("up"); j.handle("right"); j.handle("down")
         self.assertEqual(said, [("a", "ぐー"), ("a", "ちょき"), ("a", "ぱー")])
 
+    def test_gamepad_buttons_become_words_per_game(self):
+        j, said, _ = self.mk({"a": "janken", "b": "omikuji", "c": "riddle", "d": "shiritori"})
+        j.press(0); j.press(1); j.press(2)
+        self.assertEqual(said, [("a", "ぐー"), ("b", "やる"), ("c", "ヒント"),
+                                ("a", "ちょき"), ("b", "やめる"), ("c", "わからない"), ("a", "ぱー")])
+
     def test_unmapped_kind_or_key_does_nothing(self):
         j, said, _ = self.mk({"a": "shiritori", "b": "janken"})
         j.handle("button"); j.handle("up")

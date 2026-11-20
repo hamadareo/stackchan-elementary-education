@@ -26,6 +26,11 @@ SAY = {                                                         # (遊び, 操�
     ("omikuji", "button"): "やる", ("omikuji", "down"): "やめる",
     ("riddle", "button"): "ヒント", ("riddle", "down"): "わからない",
 }
+BTN = {                                                         # ゲームパッドのボタン番号(0 から) → 遊びごとの言葉。決まっていないボタンは「ボタン」と同じ
+    ("janken", 0): "ぐー", ("janken", 1): "ちょき", ("janken", 2): "ぱー",
+    ("omikuji", 0): "やる", ("omikuji", 1): "やめる",
+    ("riddle", 0): "ヒント", ("riddle", 1): "わからない",
+}
 
 
 def parse(line: str):
@@ -165,6 +170,23 @@ class Joystick:
                 except Exception:  # noqa: BLE001
                     pass
 
+    def _say(self, dev: str, word: str) -> None:
+        for h in (getattr(self.hub, "game", None), getattr(self.hub, "janken", None), getattr(self.hub, "quiz", None)):
+            try:
+                if h is not None and h.say(word, dev):
+                    break
+            except Exception:  # noqa: BLE001
+                pass
+
+    def press(self, num: int) -> None:
+        """ゲームパッドのボタン(番号 num)を押した。チャリはしり=ジャンプ。じゃんけん・おみくじ・なぞなぞ=ボタンごとの言葉。"""
+        self.jump()
+        for dev in self._devs():
+            kind = self._kind(dev)
+            word = BTN.get((kind, num)) or ("" if any(k == kind for k, _ in BTN) else SAY.get((kind, "button")))
+            if word:
+                self._say(dev, word)
+
     def move(self, x: float, y: float) -> None:
         """待機中の機器の首を、倒した量に比例した速さで動かす(遊んでいる機器は動かさない)。顔追従は、しばらく止める。
         機器は、0.3 秒信号が来なければ止まる。(0, 0) は、止める合図。"""
@@ -262,6 +284,8 @@ class Joystick:
                             continue                              # 起動時の初期状態は、ボタンとして扱わない
                         if typ == 1:
                             (held.add if val else held.discard)(num)
+                            if val:
+                                self.press(num)
                         elif typ == 2:
                             ax[num] = val / 32767.0
                         r, _, _ = select.select([f], [], [], 0)
@@ -272,7 +296,7 @@ class Joystick:
                         y = ax.get(5, ax.get(7, 0.0))
                     self.last_rx = self.clock()
                     self.port = path
-                    pad.feed(int(512 + x * 511), int(512 + y * 511), 1 if held else 0)
+                    pad.feed(int(512 + x * 511), int(512 + y * 511), 0)          # ボタンは press() で扱う
         except Exception as e:  # noqa: BLE001
             print(f"[bridge] ゲームパッド: 切断({path}: {e})", flush=True)
         self._vec.pop(path, None)
