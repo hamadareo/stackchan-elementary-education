@@ -119,6 +119,15 @@ bash deploy/ubuntu/deploy.sh                 # ブリッジと管理アプリを
 その後、管理アプリの「機器」タブの **「USB の機器を更新する」** で、つながっている機器が 1 台ずつ(約 1 分)更新されます。
 更新中は USB を抜かないでください。管理アプリ(Qt)の画面は、配備後に手動で再起動します。
 
+### 3b. 新しい Ubuntu PC を足す(自動セットアップ)
+```bash
+bash deploy/ubuntu/setup_host.sh <ssh の宛先> <機器名の頭>      # 例: setup_host.sh latitude Lat
+```
+hamada の環境を Mac 経由で配り(約 5.5GB)、Python 環境・systemd(声・翻訳・ブリッジ)・管理アプリ・自動起動までを入れます。
+宛先で一度だけ `sudo loginctl enable-linger $USER` と `sudo usermod -aG dialout $USER`(その後、再起動)を実行しておいてください。
+このあと、StackChan を USB で挿すだけで、何も書き込まれていない新品は自動でファームウェアが書かれ、登録済みの機器はそのまま使えます。
+新しい Arduino のスティックも、挿すと自動でスケッチが書き込まれます(Ubuntu 26.04 には `sg` が無いので、グループの反映には再起動が要ります)。
+
 ### 4. テスト
 ```bash
 PYTHONPATH=bridge python3 -m unittest discover -s tests      # 約 4 分。`requests` が無い環境では 2 件のエラーは想定内
