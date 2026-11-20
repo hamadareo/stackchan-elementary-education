@@ -134,6 +134,8 @@ static void lampStep() {
 struct GStep { uint32_t at; int dp, dt; };               // ジェスチャーの1コマ(開始からの ms, 基準からのずれ)
 static GStep gest[10]; static int gestN = 0, gestI = 0; static uint32_t gestT0 = 0;
 static int gOffP = 0, gOffT = 0, gestSpeed = 0;
+static volatile float joyVx = 0, joyVy = 0;               // ジョイスティックの倒し量(-1..1)。倒した量に比例した速さで首を動かす
+static uint32_t joyUntil = 0, joyLast = 0;
 static void gesture(const GStep *s, int n, int speed = 650) {
   gestN = min(n, 10); for (int i = 0; i < gestN; i++) gest[i] = s[i];
   gestI = 0; gestT0 = millis(); gestSpeed = speed;
@@ -147,11 +149,22 @@ static void servoStep() {
 #if SERVO_ENABLE
   static uint32_t last = 0;
   if (gestI < gestN && millis() - gestT0 >= gest[gestI].at) { gOffP = gest[gestI].dp; gOffT = gest[gestI].dt; gestI++; last = 0; }
-  if (millis() - last < 60) return;
-  last = millis();
+  uint32_t nowm = millis();
+  bool joy = nowm < joyUntil;                              // ジョイスティック操作中(信号が 0.3 秒途切れたら終わり)
+  if (joy) {                                               // 目標を、倒した量に比例した速さで、細かく進める(なめらか)
+    float dt = joyLast ? (nowm - joyLast) / 1000.0f : 0.03f;
+    if (dt > 0.1f) dt = 0.03f;
+    joyLast = nowm;
+    panTarget = constrain(panTarget + joyVx * 700.0f * dt, SERVO_PAN_MIN, SERVO_PAN_MAX);
+    tiltTarget = constrain(tiltTarget + joyVy * 400.0f * dt, SERVO_TILT_MIN, SERVO_TILT_MAX);
+    gestSpeed = 300 + (int)(500.0f * fmaxf(fabsf(joyVx), fabsf(joyVy)));
+    lastLookMs = nowm;
+  } else joyLast = 0;
+  if (nowm - last < (joy ? 30u : 60u)) return;
+  last = nowm;
   float pt = constrain(panTarget + gOffP, SERVO_PAN_MIN, SERVO_PAN_MAX);
   float tt = constrain(tiltTarget + gOffT, SERVO_TILT_MIN, SERVO_TILT_MAX);
-  if (fabsf(pt - panDeg) < 20 && fabsf(tt - tiltDeg) < 20) return;          // 2度未満は動かさない
+  if (fabsf(pt - panDeg) < (joy ? 4 : 20) && fabsf(tt - tiltDeg) < (joy ? 4 : 20)) return;          // 通常は2度未満は動かさない(操作中は0.4度)
   panDeg = pt; tiltDeg = tt; lastServoMs = millis();
   M5StackChan.Motion.move((int)panDeg, (int)tiltDeg, gestSpeed ? gestSpeed : SERVO_SPEED);
 #endif
@@ -381,6 +394,12 @@ static void onWs(WStype_t type, uint8_t *p, size_t n) {
         tiltTarget = constrain(tiltTarget, SERVO_TILT_MIN, SERVO_TILT_MAX);
         gestSpeed = d["speed"] | SERVO_SPEED;
         zface::setGaze(0, 0);
+      } else if (t == "joy") {                           // ジョイスティックで首を動かす: vx, vy = 倒し量(-1..1)。0.3 秒ごとに来なければ止まる
+        joyVx = constrain((float)(d["vx"] | 0.0f), -1.0f, 1.0f);
+        joyVy = constrain((float)(d["vy"] | 0.0f), -1.0f, 1.0f);
+        joyUntil = millis() + 300;
+        zface::setGaze(0, 0);
+        lastActivity = millis();
       } else if (t == "chari") {                         // ずんだもんの チャリはしり: start / stop / jump
         const char *c = d["cmd"] | "";
         if (!strcmp(c, "start")) { m5avatar::avatarChari.reset = true; m5avatar::avatarChari.on = true; zface::clearBoard(); cam::fast(d["body"] | false); }

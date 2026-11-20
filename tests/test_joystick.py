@@ -102,8 +102,7 @@ class HubTests(unittest.TestCase):
         j.move(0.5, -0.5)
         self.assertEqual([d for d, _ in sent], ["b"])
         m = sent[0][1]
-        self.assertEqual((m["t"], m["pan"], m["tilt"]), ("servo", 260, 150))
-        self.assertTrue(-700 <= m["pan"] <= 700 and 60 <= m["tilt"] <= 600)
+        self.assertEqual((m["t"], m["vx"], m["vy"]), ("joy", 0.5, -0.5))      # 倒し量に比例した速さ(位置ではない)
 
     def test_neck_move_pauses_face_tracking(self):
         j, _, sent = self.mk({"b": ""})
@@ -121,6 +120,12 @@ class HubTests(unittest.TestCase):
         self.assertEqual(moves, [])
         p.feed(700, 512, 0)
         self.assertEqual(len(moves), 1)
+        self.assertGreater(moves[0][0], 0.2)
+        self.assertAlmostEqual(moves[0][1], 0.0, places=2)
+        p.feed(512, 512, 0)                                    # 戻した: 止める合図(0, 0)を 1 回
+        p.feed(512, 512, 0)
+        self.assertEqual(moves[-1], (0.0, 0.0))
+        self.assertEqual(len(moves), 2)
 
 
 if __name__ == "__main__":

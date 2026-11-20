@@ -20,7 +20,7 @@ PUSH, RELEASE = 0.55, 0.35                                      # 倒した量(�
 DEAD = 0.18                                                     # これより小さい倒しは、首を動かさない
 PAN_RANGE, TILT_HOME, TILT_RANGE = 520, 250, 200                # 首の動かす範囲(0.1 度単位。機器の可動域の内側)
 HOLD_S = 4.0                                                    # 首を動かしたあと、顔追従を止めておく秒数
-MOVE_EVERY_S = 0.1                                              # 首へ送る間隔
+MOVE_EVERY_S = 0.04                                             # 首へ送る間隔
 SAY = {                                                         # (遊び, 操作) → 子どもの代わりに入れる言葉
     ("janken", "left"): "ぐー", ("janken", "up"): "ちょき", ("janken", "right"): "ぱー",
     ("omikuji", "button"): "やる", ("omikuji", "down"): "やめる",
@@ -47,8 +47,9 @@ class Pad:
 
     def __init__(self, on_event, on_move=None):
         self.on_event = on_event                                 # on_event(kind): "push"(どの向きでも)/ "left|right|up|down" / "button"
-        self.on_move = on_move                                   # on_move(x, y): 倒し量(-1〜1)。倒している間、0.1 秒ごと
+        self.on_move = on_move                                   # on_move(x, y): 倒し量(-1〜1)。倒している間、約 0.04 秒ごと。戻したときに (0, 0) を 1 回
         self._move_t = 0.0
+        self._moving = False
         self.cal: list = []
         self.cx = self.cy = 512.0
         self.pushed = False
@@ -78,12 +79,18 @@ class Pad:
             self.on_event("push")
             self.on_event("button")
         self.btn = bool(b)
-        if self.on_move is not None and mag >= DEAD:
-            import time as _t
-            t = _t.time()
-            if t - self._move_t >= MOVE_EVERY_S:
-                self._move_t = t
-                self.on_move(self.x, self.y)
+        if self.on_move is not None:
+            if mag >= DEAD:
+                import time as _t
+                t = _t.time()
+                if t - self._move_t >= MOVE_EVERY_S:
+                    self._move_t = t
+                    self._moving = True
+                    s = (mag - DEAD) / (1.0 - DEAD)                  # 不感帯の外を 0〜1 に引きのばす(動き出しがなめらか)
+                    self.on_move(self.x / mag * s, self.y / mag * s)
+            elif self._moving:
+                self._moving = False
+                self.on_move(0.0, 0.0)
 
 
 def find_ports() -> list:
@@ -154,9 +161,9 @@ class Joystick:
                     pass
 
     def move(self, x: float, y: float) -> None:
-        """待機中の機器の首を、スティックの向きへ動かす(遊んでいる機器は動かさない)。顔追従は、しばらく止める。"""
-        pan = int(max(-1.0, min(1.0, x)) * PAN_RANGE * self.pan_sign)
-        tilt = int(TILT_HOME + max(-1.0, min(1.0, y)) * TILT_RANGE * self.tilt_sign)
+        """待機中の機器の首を、倒した量に比例した速さで動かす(遊んでいる機器は動かさない)。顔追従は、しばらく止める。
+        機器は、0.3 秒信号が来なければ止まる。(0, 0) は、止める合図。"""
+        vx, vy = max(-1.0, min(1.0, x)) * self.pan_sign, max(-1.0, min(1.0, y)) * self.tilt_sign
         now = self.clock()
         for s in list(self.hub.live()):
             dev = getattr(s, "dev_id", "")
@@ -164,7 +171,7 @@ class Joystick:
                 continue
             s._manual_until = now + HOLD_S
             try:
-                s.send({"t": "servo", "pan": pan, "tilt": tilt, "speed": 500})
+                s.send({"t": "joy", "vx": round(vx, 3), "vy": round(vy, 3)})
             except Exception:  # noqa: BLE001
                 pass
 
