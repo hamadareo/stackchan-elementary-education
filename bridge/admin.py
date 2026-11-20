@@ -428,6 +428,9 @@ class Hub:
         tdevs = [vdev] if self.target != "all" else [x.dev_id for x in self.live()]
         e = self.engine
         st = {"uptime_s": int(time.time() - self.started), "connected": bool(s), "now": time.strftime("%H:%M:%S")}
+        js = getattr(self, "joystick", None)
+        if js is not None:
+            st["joystick"] = js.status()
         try:
             import health
             st["ready"] = health.checks(self, e)                # 授業前の準備チェック

@@ -205,7 +205,7 @@ img{border-radius:14px;box-shadow:0 6px 20px rgba(0,0,0,.25);border-color:var(--
 
 <section class="panel" id="lessonp">
   <h2>Lesson <span>授業(押すまで、ロボットは何もしません。中止はすぐ効きます)</span></h2>
-  <div class="row"><button id="lstopall" style="background:#ff9fae;color:#1b1020;font-weight:700">■ 全員 中止</button><label style="display:flex;gap:6px;align-items:center;font-size:13px"><input type="checkbox" id="lteach"> 先生のボタンだけで始める(子どもの声では始まらない)</label></div>
+  <div class="row"><button id="lstopall" style="background:#ff9fae;color:#1b1020;font-weight:700">■ 全員 中止</button><label style="display:flex;gap:6px;align-items:center;font-size:13px"><input type="checkbox" id="lteach"> 先生のボタンだけで始める(子どもの声では始まらない)</label><small id="ljoy" style="color:var(--mute)"></small></div>
   <div id="lcards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-top:10px"></div>
 </section>
 
@@ -376,6 +376,7 @@ const LKINDS=[['shiritori','しりとり'],['janken','じゃんけん'],['riddle
 let lKey='';
 function renderLesson(s){
   const L=s.lesson||[];$('lteach').checked=!!s.teacher_only;
+  {const j=s.joystick;$('ljoy').textContent=j?(j.connected?'🕹 ジョイスティック: つながっています(倒す・ボタンでジャンプ)':'🕹 ジョイスティック: つながっていません'):''}
   const k=JSON.stringify(L.map(d=>[d.id,d.name,d.online,d.on,d.kind,d.detail&&d.detail.msg]))+s.teacher_only;if(k===lKey)return;lKey=k;
   $('lcards').innerHTML=L.map(d=>{
     const st=!d.online?'つながっていません':d.on?(d.label||'あそび中')+' を しています':'待機中(なにもしていません)';

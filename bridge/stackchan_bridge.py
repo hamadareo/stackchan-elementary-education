@@ -1620,6 +1620,12 @@ def main() -> None:
     admin.HUB.quiz = quiz.QuizHub(admin.HUB, admin.REG, admin.HUB.discuss, lambda: eng)
     import lesson
     admin.HUB.lesson = lesson.Lesson(admin.HUB)
+    try:                                                              # ジョイスティック(Arduino)。つながっていなくても、ほうっておく
+        import joystick
+        admin.HUB.joystick = joystick.Joystick(admin.HUB)
+        admin.HUB.joystick.start()
+    except Exception as _e:  # noqa: BLE001
+        print(f"[bridge] ジョイスティックは使えません({_e})", flush=True)
     _hubs = [admin.HUB.game, admin.HUB.janken, admin.HUB.quiz]
     for _h in _hubs:
         _h.peers = [x for x in _hubs if x is not _h]              # 同じ機器で 2 つの教材(しりとり・じゃんけん・ほかの遊び)を同時に動かさない
