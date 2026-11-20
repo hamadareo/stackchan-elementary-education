@@ -6,6 +6,7 @@ PY="$D/../.venv-gui/bin/python"
 QT_QPA_PLATFORM=offscreen "$PY" "$D/stackchan_admin.py" --make-icon "$D/stackchan.png" 2>/dev/null
 cat > "$D/run.sh" <<RUN
 #!/usr/bin/env bash
+export QT_ENABLE_HIGHDPI_SCALING="\${QT_ENABLE_HIGHDPI_SCALING:-0}"      # 画面の拡大表示(1.5 倍など)で、ウィンドウが画面より大きくならないようにする
 export QT_QPA_PLATFORM="\${QT_QPA_PLATFORM:-wayland;xcb}"
 [ -d "$D/../xcblib" ] && export LD_LIBRARY_PATH="$D/../xcblib/usr/lib/x86_64-linux-gnu:\${LD_LIBRARY_PATH:-}"
 exec "$PY" "$D/stackchan_admin.py" "\$@"
