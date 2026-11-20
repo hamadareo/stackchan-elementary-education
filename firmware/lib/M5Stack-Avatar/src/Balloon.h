@@ -521,31 +521,18 @@ class Balloon final : public Drawable {
     }
     spi->setTextDatum(TL_DATUM);
   }
-  // ゲームの 1 コマを、全面の入れ物(2 枚を交代で使う)に描き、送信専用のタスクに渡す(送信 33ms と、次のコマの描画が、並んで進む)
-  struct Push { M5Canvas *c; int x, y; };
-  static void pushTask(void *) {
-    for (;;) {
-      ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-      Push p = pushJob();
-      if (p.c) { M5.Display.startWrite(); p.c->pushSprite(&M5.Display, p.x, p.y); M5.Display.endWrite(); }
-      xSemaphoreGive(pushDone());
-    }
-  }
-  static Push &pushJob() { static Push p{nullptr, 0, 0}; return p; }
-  static SemaphoreHandle_t pushDone() { static SemaphoreHandle_t s = nullptr; if (!s) { s = xSemaphoreCreateBinary(); xSemaphoreGive(s); } return s; }
-  static TaskHandle_t &pushHandle() { static TaskHandle_t h = nullptr; return h; }
-  static void chariWait() { if (pushHandle()) { xSemaphoreTake(pushDone(), portMAX_DELAY); xSemaphoreGive(pushDone()); } }   // 送信中のコマが終わるのを待つ
+  // ゲームの 1 コマを、全面の入れ物に描いて、同じタスクから画面へ送る
+  // (画面は描画タスクだけが触る。別タスクから startWrite すると、共有の数え方が壊れて SPI が固まり、通信まで止まった)
+  static void chariWait() {}
   static void chariPresent(M5Canvas *st[2], int left, int top) {
-    static int k = 0;
-    if (!pushHandle()) { pushDone(); xTaskCreatePinnedToCore(pushTask, "chariPush", 8192, nullptr, 2, &pushHandle(), 0); }
-    M5Canvas *c = st[k]; k ^= 1;
+    M5Canvas *c = st[0];
     Tr t{c, 0};
     uint32_t a0 = micros();
     chariDraw(&t, true);
     uint32_t a1 = micros();
-    xSemaphoreTake(pushDone(), portMAX_DELAY);   // 前のコマの送信が終わるのを待つ(描いている間に進んでいる)
-    pushJob() = Push{c, left, top};
-    xTaskNotifyGive(pushHandle());
+    M5.Display.startWrite();
+    c->pushSprite(&M5.Display, left, top);
+    M5.Display.endWrite();
     avatarChari.tDraw = (a1 - a0) / 1000; avatarChari.tPush = (micros() - a1) / 1000;
   }
   // 遊びの表示カード(字幕の上)。2 列なら左右、a だけなら中央に大きく出す

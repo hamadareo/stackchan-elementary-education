@@ -90,3 +90,28 @@ class JumpTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FaceLockTests(unittest.TestCase):
+    def test_find_swallows_cv_errors_and_serializes(self):
+        import threading
+        import numpy as np
+        import stackchan_bridge as sb
+        f = sb.Face.__new__(sb.Face)
+        f.cv2, f.det, f.sface = object(), None, None
+        active, worst = [0], [0]
+
+        class Net:
+            def setInputSize(self, s): pass
+            def detect(self, img):
+                active[0] += 1; worst[0] = max(worst[0], active[0])
+                import time; time.sleep(0.02)
+                active[0] -= 1
+                raise RuntimeError("OpenCV: Assertion failed")
+        f.yunet = Net()
+        img = np.zeros((10, 10, 3), np.uint8)
+        out = []
+        ts = [threading.Thread(target=lambda: out.append(f.find(img))) for _ in range(4)]
+        [t.start() for t in ts]; [t.join() for t in ts]
+        self.assertEqual(out, [None] * 4)                     # 例外は握りつぶして「顔なし」
+        self.assertEqual(worst[0], 1)                         # 同時には 1 つだけ

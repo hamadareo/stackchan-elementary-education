@@ -88,7 +88,7 @@ BoundingRect *Face::getBoundingRect() { return boundingRect; }
 void Face::draw(DrawContext *ctx) {
   static M5Canvas *strips[2] = {nullptr, nullptr};
   if (avatarChari.on) {                      // ゲーム中: 顔は描かず、ゲームの画面を、帯に分けて描きながら送る(なめらか)
-    for (int i = 0; i < 2; i++) if (!strips[i]) {
+    for (int i = 0; i < 1; i++) if (!strips[i]) {
       strips[i] = new M5Canvas(&M5.Display);
       strips[i]->setColorDepth(M5.Display.getColorDepth());
       if (!strips[i]->createSprite(boundingRect->getWidth(), boundingRect->getHeight())) { delete strips[i]; strips[i] = nullptr; return; }

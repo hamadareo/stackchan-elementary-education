@@ -464,6 +464,9 @@ def _wav_bytes_to_pcm16k(data: bytes) -> np.ndarray:
 
 
 # ---------------------------------------------------------------- 顔検出(任意: cv2 があれば)
+_CV_LOCK = threading.RLock()                                    # 顔検出・識別(OpenCV の dnn)は、同時に 1 つだけ
+
+
 class Face:
     """顔検出。OpenCV 公式の YuNet(bridge/models)を使い、無ければ Haar に落ちる。"""
 
@@ -505,19 +508,24 @@ class Face:
             return None
         cv2 = self.cv2
         h, w = img.shape[:2]
-        if self.yunet is not None:
-            self.yunet.setInputSize((w, h))
-            _, f = self.yunet.detect(img)
-            if f is None or len(f) == 0:
+        try:
+            with _CV_LOCK:                                    # 3 台のスレッドが同時に呼ぶと、OpenCV の dnn が壊れて例外になり、USB の読み取りまで切れた
+                if self.yunet is not None:
+                    self.yunet.setInputSize((w, h))
+                    _, f = self.yunet.detect(img)
+                    if f is None or len(f) == 0:
+                        return None
+                    row = max(f, key=lambda r: r[2] * r[3])
+                    return (float(row[0]), float(row[1]), float(row[2]), float(row[3]), row)
+                g = cv2.equalizeHist(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY))
+                r = self.det.detectMultiScale(g, 1.1, 3, minSize=(max(28, w // 10),) * 2)
+            if len(r) == 0:
                 return None
-            row = max(f, key=lambda r: r[2] * r[3])
-            return (float(row[0]), float(row[1]), float(row[2]), float(row[3]), row)
-        g = cv2.equalizeHist(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY))
-        r = self.det.detectMultiScale(g, 1.1, 3, minSize=(max(28, w // 10),) * 2)
-        if len(r) == 0:
+            x, y, fw, fh = max(r, key=lambda b: b[2] * b[3])
+            return (float(x), float(y), float(fw), float(fh), None)
+        except Exception as e:  # noqa: BLE001 - 顔が見つからなかった扱いにして、接続は切らない
+            print(f"[bridge] 顔検出の失敗(無視): {e}", flush=True)
             return None
-        x, y, fw, fh = max(r, key=lambda b: b[2] * b[3])
-        return (float(x), float(y), float(fw), float(fh), None)
 
     @staticmethod
     def rel(f, shape) -> "tuple[float, float, float] | None":
@@ -537,7 +545,8 @@ class Face:
         if self.sface is None or f is None or f[4] is None:
             return None
         try:
-            return self.sface.feature(self.sface.alignCrop(img, f[4])).flatten().astype(np.float32)
+            with _CV_LOCK:
+                return self.sface.feature(self.sface.alignCrop(img, f[4])).flatten().astype(np.float32)
         except Exception:  # noqa: BLE001
             return None
 

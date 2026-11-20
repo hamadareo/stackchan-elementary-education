@@ -52,7 +52,7 @@ TaskResult_t drawLoop(void *args) {
       avatar->draw();
       if (avatarPostDraw) avatarPostDraw();
     }
-    TaskDelay(avatarChari.on ? 10 : 10);   // ゲーム中は待たずに次のコマへ
+    TaskDelay(avatarChari.on ? 2 : 10);   // ゲーム中は短く待って次のコマへ
   }
   TaskResult();
 }
