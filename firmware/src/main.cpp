@@ -155,9 +155,9 @@ static void servoStep() {
     float dt = joyLast ? (nowm - joyLast) / 1000.0f : 0.03f;
     if (dt > 0.1f) dt = 0.03f;
     joyLast = nowm;
-    panTarget = constrain(panTarget + joyVx * 700.0f * dt, SERVO_PAN_MIN, SERVO_PAN_MAX);
-    tiltTarget = constrain(tiltTarget + joyVy * 400.0f * dt, SERVO_TILT_MIN, SERVO_TILT_MAX);
-    gestSpeed = 300 + (int)(500.0f * fmaxf(fabsf(joyVx), fabsf(joyVy)));
+    panTarget = constrain(panTarget + joyVx * 2800.0f * dt, SERVO_PAN_MIN, SERVO_PAN_MAX);
+    tiltTarget = constrain(tiltTarget + joyVy * 1600.0f * dt, SERVO_TILT_MIN, SERVO_TILT_MAX);
+    gestSpeed = 600 + (int)(400.0f * fmaxf(fabsf(joyVx), fabsf(joyVy)));
     lastLookMs = nowm;
   } else joyLast = 0;
   if (nowm - last < (joy ? 30u : 60u)) return;
