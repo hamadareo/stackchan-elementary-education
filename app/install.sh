@@ -7,6 +7,7 @@ QT_QPA_PLATFORM=offscreen "$PY" "$D/stackchan_admin.py" --make-icon "$D/stackcha
 cat > "$D/run.sh" <<RUN
 #!/usr/bin/env bash
 export QT_QPA_PLATFORM="\${QT_QPA_PLATFORM:-wayland;xcb}"
+[ -d "$D/../xcblib" ] && export LD_LIBRARY_PATH="$D/../xcblib/usr/lib/x86_64-linux-gnu:\${LD_LIBRARY_PATH:-}"
 exec "$PY" "$D/stackchan_admin.py" "\$@"
 RUN
 chmod +x "$D/run.sh"
