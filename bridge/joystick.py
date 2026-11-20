@@ -120,6 +120,8 @@ class Joystick:
         self.pan_sign = -1 if os.environ.get("SC_JOY_PAN_SIGN", "1") == "-1" else 1
         self.tilt_sign = -1 if os.environ.get("SC_JOY_TILT_SIGN", "1") == "-1" else 1
         self.port = ""
+        self._vec: dict = {}
+        self._open: set = set()
         self.last_rx = 0.0
         self._stop = threading.Event()
         self._t = None
@@ -186,34 +188,48 @@ class Joystick:
     def stop(self) -> None:
         self._stop.set()
 
+    def _move_from(self, port: str, x: float, y: float) -> None:
+        """複数のスティックがあるとき、1 本が戻しても、もう 1 本が倒されていれば止めない。"""
+        self._vec[port] = (x, y)
+        if (x, y) == (0.0, 0.0) and any(v != (0.0, 0.0) for p, v in self._vec.items() if p != port):
+            return
+        self.move(x, y)
+
     def _run(self) -> None:
+        """見つかったスティックを、1 本ずつ別のスレッドで読む(何本でも)。"""
         try:
-            import serial
+            import serial  # noqa: F401
         except Exception:  # noqa: BLE001
             return
         while not self._stop.is_set():
-            ports = find_ports()
-            if not ports:
+            for port in find_ports():
+                if port not in self._open:
+                    self._open.add(port)
+                    threading.Thread(target=self._read, args=(port,), daemon=True, name="joystick-" + port).start()
+            if not self._open:
                 self.port = ""
-                self._stop.wait(3.0)
-                continue
-            try:
-                with serial.Serial(ports[0], 115200, timeout=0.5) as s:
-                    self.port = ports[0]
-                    print("[bridge] ジョイスティック: 接続", flush=True)
-                    self.pad = Pad(self.handle, self.move)
-                    time.sleep(2.0)                              # UNO は、開くと再起動する
-                    s.reset_input_buffer()
-                    while not self._stop.is_set():
-                        line = s.readline().decode("ascii", "ignore")
-                        v = parse(line)
-                        if v:
-                            self.last_rx = self.clock()
-                            self.pad.feed(*v)
-                        elif not line:
-                            if self.clock() - self.last_rx > 5.0:
-                                break                            # 何も来ない: 開き直す
-            except Exception as e:  # noqa: BLE001 - 抜かれたら、また探す
-                print(f"[bridge] ジョイスティック: 切断({e})", flush=True)
-            self.port = ""
-            self._stop.wait(2.0)
+            self._stop.wait(3.0)
+
+    def _read(self, port: str) -> None:
+        import serial
+        try:
+            with serial.Serial(port, 115200, timeout=0.5) as s:
+                self.port = port
+                print(f"[bridge] ジョイスティック: 接続 {port}", flush=True)
+                pad = Pad(self.handle, lambda x, y, _p=port: self._move_from(_p, x, y))
+                self.pad = pad
+                time.sleep(2.0)                              # UNO は、開くと再起動する
+                s.reset_input_buffer()
+                last = self.clock()
+                while not self._stop.is_set():
+                    line = s.readline().decode("ascii", "ignore")
+                    v = parse(line)
+                    if v:
+                        last = self.last_rx = self.clock()
+                        pad.feed(*v)
+                    elif not line and self.clock() - last > 5.0:
+                        break                                # 何も来ない: 開き直す
+        except Exception as e:  # noqa: BLE001 - 抜かれたら、また探す
+            print(f"[bridge] ジョイスティック: 切断({port}: {e})", flush=True)
+        self._vec.pop(port, None)
+        self._open.discard(port)
