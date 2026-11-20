@@ -23,5 +23,7 @@ Terminal=false
 Categories=Utility;
 StartupWMClass=stackchan
 DESK
+mkdir -p ~/.config/autostart                      # ログインしたら、管理アプリを自動で開く(ブリッジが先に立ち上がるよう、少し待つ)
+sed 's/^Terminal=false/Terminal=false\nX-GNOME-Autostart-Delay=10/' ~/.local/share/applications/stackchan.desktop > ~/.config/autostart/stackchan.desktop
 update-desktop-database ~/.local/share/applications 2>/dev/null || true
 echo "登録しました: アプリ一覧の「StackChan」から起動できます"
