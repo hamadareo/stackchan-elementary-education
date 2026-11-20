@@ -116,7 +116,7 @@ class HubTests(unittest.TestCase):
         p = js.Pad(lambda k: None, lambda x, y: moves.append((x, y)))
         for _ in range(15):
             p.feed(512, 512, 0)
-        p.feed(560, 512, 0)                                    # 0.09: 不感帯
+        p.feed(540, 512, 0)                                    # 0.05: 不感帯
         self.assertEqual(moves, [])
         p.feed(700, 512, 0)
         self.assertEqual(len(moves), 1)
