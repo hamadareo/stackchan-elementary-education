@@ -191,6 +191,8 @@ class Joystick:
 
     def _move_from(self, port: str, x: float, y: float) -> None:
         """複数のスティックがあるとき、1 本が戻しても、もう 1 本が倒されていれば止めない。"""
+        if self._vec.get(port, (0.0, 0.0)) == (0.0, 0.0) != (x, y):
+            print(f"[bridge] 入力開始 {port} {x:.2f},{y:.2f} 機器={len(list(self.hub.live()))}台", flush=True)
         self._vec[port] = (x, y)
         if (x, y) == (0.0, 0.0) and any(v != (0.0, 0.0) for p, v in self._vec.items() if p != port):
             return
@@ -227,7 +229,9 @@ class Joystick:
         try:
             with open(path, "rb", buffering=0) as f:
                 print(f"[bridge] ゲームパッド: 接続 {path}", flush=True)
-                pad = Pad(self.handle, lambda x, y, _p=path: self._move_from(_p, x, y))
+                g = float(os.environ.get("SC_PAD_GAIN", "0.4"))      # 十字キーは、倒すか倒さないかの 2 段階。最高速のままだと、すぐ端に当たるので、ゆっくりにする
+                pad = Pad(self.handle, lambda x, y, _p=path, _g=g: self._move_from(_p, x * _g, y * _g))
+                self.pad = pad
                 ax: dict = {}
                 held: set = set()
                 while not self._stop.is_set():
