@@ -79,7 +79,7 @@ class Pad:
             xs, ys = [v[0] for v in self.still], [v[1] for v in self.still]
             if max(xs) - min(xs) <= 12 and max(ys) - min(ys) <= 12:
                 mx, my = sorted(xs)[STILL_N // 2], sorted(ys)[STILL_N // 2]
-                if (abs(mx - self.cx) > 20 or abs(my - self.cy) > 20) and abs(mx - self.cx) < 320 and abs(my - self.cy) < 320:   # 端まで倒して止めているのは、手を離していない
+                if (abs(mx - self.cx) > 20 or abs(my - self.cy) > 20) and 330 <= mx <= 690 and 330 <= my <= 690:   # 本来の中心付近で止まっている=手を離している(端で止めているのは違う)   # 端まで倒して止めているのは、手を離していない
                     self.cx, self.cy = float(mx), float(my)
         self.x, self.y = (x - self.cx) / 512.0, (y - self.cy) / 512.0
         mag = max(abs(self.x), abs(self.y))

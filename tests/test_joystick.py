@@ -124,9 +124,21 @@ class HubTests(unittest.TestCase):
         for _ in range(15):
             p.feed(512, 512, 0)
         for _ in range(js.STILL_N + 5):
-            p.feed(512, 800, 0)                                # 手を離したのに、中心がずれたまま(ドリフト)
+            p.feed(512, 650, 0)                                # 手を離したのに、中心がずれたまま(ドリフト)
         self.assertEqual(moves[-1], (0.0, 0.0))
-        self.assertAlmostEqual(p.cy, 800, delta=1)
+        self.assertAlmostEqual(p.cy, 650, delta=1)
+
+    def test_recenters_after_calibrating_while_held_at_edge(self):
+        moves = []
+        p = js.Pad(lambda k: None, lambda x, y: moves.append((x, y)))
+        for _ in range(15):
+            p.feed(10, 1000, 0)                                # 起動時に、端まで倒したまま(中心を取り違える)
+        for _ in range(js.STILL_N // 2):
+            p.feed(505, 490, 0)                                # 手を離して、本来の中心に戻った
+        for _ in range(js.STILL_N + 5):
+            p.feed(505, 490, 0)
+        self.assertEqual(moves[-1], (0.0, 0.0))
+        self.assertAlmostEqual(p.cx, 505, delta=1)
 
     def test_pad_calls_move_only_outside_deadzone(self):
         moves = []
