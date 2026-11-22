@@ -206,6 +206,9 @@ class Joystick:
         機器は、0.3 秒信号が来なければ止まる。(0, 0) は、止める合図。"""
         vx, vy = max(-1.0, min(1.0, x)) * self.pan_sign, max(-1.0, min(1.0, y)) * self.tilt_sign * self.tilt_gain
         now = self.clock()
+        if (vx or vy) and now - getattr(self, "_logt", 0.0) > 0.5:
+            self._logt = now
+            print(f"[bridge] 首の指示 vx={vx:+.2f} vy={vy:+.2f}", flush=True)
         for s in list(self.hub.live()):
             dev = getattr(s, "dev_id", "")
             if not dev or self._kind(dev):
