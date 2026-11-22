@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 470" font-family="'Hiragino Sans','Noto Sans CJK JP','Yu Gothic',sans-serif">
+  <style>.t{font-size:14px;fill:#374151}.h{font-size:18px;font-weight:700;fill:#0f172a}.k{font-size:13px;fill:#6b7280}</style>
+  <rect width="960" height="470" fill="#fff"/>
+  <text x="480" y="34" text-anchor="middle" class="h" font-size="22">先生が選ぶ 6 つの遊び</text>
+  <g>
+    <rect x="30" y="60" width="290" height="170" rx="14" fill="#fef3c7" stroke="#f59e0b" stroke-width="2"/>
+    <text x="50" y="92" class="h">① しりとり</text>
+    <text x="50" y="120" class="t">ロボットから始めます</text><text x="50" y="142" class="t">吹き出しと、最後の字を赤で表示</text>
+    <text x="50" y="190" class="k">操作: 声</text>
+  </g>
+  <g>
+    <rect x="335" y="60" width="290" height="170" rx="14" fill="#dbeafe" stroke="#3b82f6" stroke-width="2"/>
+    <text x="355" y="92" class="h">② じゃんけん</text>
+    <text x="355" y="120" class="t">声、またはカメラに手をかざして判定</text><text x="355" y="142" class="t">出した手を画面に大きく表示</text>
+    <text x="355" y="182" class="k">操作: 声 / カメラ</text><text x="355" y="202" class="k">ゲームパッド(ぐー・ちょき・ぱー)</text>
+  </g>
+  <g>
+    <rect x="640" y="60" width="290" height="170" rx="14" fill="#fce7f3" stroke="#ec4899" stroke-width="2"/>
+    <text x="660" y="92" class="h">③ なぞなぞ</text>
+    <text x="660" y="120" class="t">5 問。ヒントと「わからない」にも対応</text>
+    <text x="660" y="182" class="k">操作: 声</text><text x="660" y="202" class="k">ゲームパッド(ヒント・わからない)</text>
+  </g>
+  <g>
+    <rect x="30" y="250" width="290" height="170" rx="14" fill="#ede9fe" stroke="#8b5cf6" stroke-width="2"/>
+    <text x="50" y="282" class="h">④ おみくじ</text>
+    <text x="50" y="310" class="t">「ガラガラ…」のあと、運勢と</text><text x="50" y="332" class="t">ラッキーカラーを表示</text>
+    <text x="50" y="372" class="k">操作: 声</text><text x="50" y="392" class="k">ゲームパッド(やる・やめる)</text>
+  </g>
+  <g>
+    <rect x="335" y="250" width="290" height="170" rx="14" fill="#dcfce7" stroke="#22c55e" stroke-width="2"/>
+    <text x="355" y="282" class="h">⑤ ものまねボイス</text>
+    <text x="355" y="310" class="t">いろいろな声の調子で、</text><text x="355" y="332" class="t">言った言葉をまねします</text>
+    <text x="355" y="380" class="k">操作: 声</text>
+  </g>
+  <g>
+    <rect x="640" y="250" width="290" height="170" rx="14" fill="#ccfbf1" stroke="#14b8a6" stroke-width="2"/>
+    <text x="660" y="282" class="h">⑥ チャリはしり</text>
+    <text x="660" y="310" class="t">自転車で走って、いわ・コーン・はこを</text><text x="660" y="332" class="t">ジャンプでよけます</text>
+    <text x="660" y="380" class="k">操作: 6 通り(下の図)</text>
+  </g>
+  <text x="480" y="452" text-anchor="middle" class="k">どの遊びも、先生が管理アプリで押すまで始まりません。「中止」を押すと、声もすぐ止まります。</text>
+</svg>

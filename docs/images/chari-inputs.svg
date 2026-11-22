@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 330" font-family="'Hiragino Sans','Noto Sans CJK JP','Yu Gothic',sans-serif">
+  <style>.t{font-size:14px;fill:#374151}.h{font-size:17px;font-weight:700;fill:#0f172a}.k{font-size:13px;fill:#6b7280}</style>
+  <rect width="960" height="330" fill="#fff"/>
+  <text x="480" y="32" text-anchor="middle" class="h" font-size="22">チャリはしり: ジャンプの入力は 6 通り</text>
+  <g fill-opacity=".14" stroke-width="2">
+    <rect x="30" y="56" width="290" height="110" rx="12" fill="#3b82f6" stroke="#3b82f6"/>
+    <rect x="335" y="56" width="290" height="110" rx="12" fill="#10b981" stroke="#10b981"/>
+    <rect x="640" y="56" width="290" height="110" rx="12" fill="#f59e0b" stroke="#f59e0b"/>
+    <rect x="30" y="182" width="290" height="110" rx="12" fill="#8b5cf6" stroke="#8b5cf6"/>
+    <rect x="335" y="182" width="290" height="110" rx="12" fill="#ec4899" stroke="#ec4899"/>
+    <rect x="640" y="182" width="290" height="110" rx="12" fill="#14b8a6" stroke="#14b8a6"/>
+  </g>
+  <text x="50" y="88" class="h">① 画面タッチ</text><text x="50" y="114" class="t">画面を指でタッチ</text>
+  <text x="355" y="88" class="h">② 頭のてっぺんタッチ</text><text x="355" y="114" class="t">StackChan の天面をタッチ</text>
+  <text x="660" y="88" class="h">③ 実際にジャンプ</text><text x="660" y="114" class="t">カメラが顔の高さの変化を見る</text>
+  <text x="50" y="214" class="h">④ 声</text><text x="50" y="240" class="t">「ジャンプ」と言う</text>
+  <text x="355" y="214" class="h">⑤ スティック・ゲームパッド</text><text x="355" y="240" class="t">ぐいっと倒す / ボタン</text>
+  <text x="660" y="214" class="h">⑥ 先生が代わりに押す</text><text x="660" y="240" class="t">管理アプリの「ジャンプ」ボタン</text>
+  <text x="480" y="316" text-anchor="middle" class="k">ぶつかると、走った距離とベスト記録をずんだもんが実況します。画面の遅れに関係なく、速さは実時間のままです。</text>
+</svg>
