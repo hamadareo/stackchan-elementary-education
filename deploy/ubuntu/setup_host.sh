@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # 新しい Ubuntu PC に、StackChan のサーバー一式を自動で入れる(Mac から実行)。
-#   bash deploy/ubuntu/setup_host.sh <ssh の宛先> <機器名の頭(例: Lat)> [コピー元(既定: user@server)]
+#   bash deploy/ubuntu/setup_host.sh <ssh の宛先> <機器名の頭(例: Lat)> [コピー元(既定: 環境変数 SC_SERVER)]
 # 前提: Mac から宛先へ公開鍵で SSH できること。宛先で一度だけ `sudo loginctl enable-linger $USER` と
 #       `sudo usermod -aG dialout $USER`(その後 再起動)を実行しておくと、再起動後も自動で動き、USB も使える。
 # 内容: コピー元の ~/stackchan(声・翻訳モデル・聞き取りモデル・ブリッジ)と uv・arduino-cli を Mac 経由で配る
 #       → Python 3.12 の環境を作る → systemd(声・翻訳・ブリッジ)を登録して起動 → 管理アプリ(Qt)と自動起動を登録。
 # 聞き取りと翻訳は、その PC の CPU で動く(s109 のトンネルは入れない)。
 set -euo pipefail
-T="${1:?宛先(例: user@host や ssh の別名)}"; NAME="${2:?機器名の頭(例: Lat)}"; SRC="${3:-user@server}"
+T="${1:?宛先(例: user@host や ssh の別名)}"; NAME="${2:?機器名の頭(例: Lat)}"; SRC="${3:-${SC_SERVER:?コピー元を第 3 引数で渡すか、環境変数 SC_SERVER=user@host を設定してください}}"
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 echo "[1/5] 配布(約 5.5GB。数十分かかります)"
 ssh "$SRC" 'cd ~ && tar c --exclude=stackchan/.venv --exclude=stackchan/.venv-gui --exclude=stackchan/logs --exclude=stackchan/bridge/logs --exclude=__pycache__ --exclude=stackchan/llm/server.log --exclude=stackchan/xcblib stackchan .local/bin/uv .local/bin/uvx bin/arduino-cli .arduino15' \

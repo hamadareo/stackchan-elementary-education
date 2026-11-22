@@ -13,7 +13,7 @@
   ③ 再起動した機器が Wi-Fi につながり、ブリッジへ自動登録されるのを待つ(名前・音量などは自動設定)
 経過と結果は macOS の通知で知らせる。書き込んだあとは USB を抜いて構いません。
 
-環境変数: PIO(pio のパス) / SC_ADMIN_URL(既定 http://SERVER_ADDR:8080)
+環境変数: PIO(pio のパス) / SC_ADMIN_URL(既定 http://localhost:8080)
 """
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ import urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FW = os.path.join(ROOT, "firmware")
-ADMIN = os.environ.get("SC_ADMIN_URL", "http://SERVER_ADDR:8080").rstrip("/")
+ADMIN = os.environ.get("SC_ADMIN_URL", "http://localhost:8080").rstrip("/")
 PORT_GLOBS = os.environ.get("SC_PORT_GLOBS", "/dev/cu.usbmodem*:/dev/ttyACM*").split(":")     # ESP32-S3 の USB(CoreS3)
 PENV = os.path.expanduser("~/.platformio/penv/bin")
 ESPTOOL = os.path.expanduser("~/.platformio/packages/tool-esptoolpy/esptool.py")

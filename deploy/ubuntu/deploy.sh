@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Mac から Ubuntu サーバーへ、ブリッジと管理画面を配って再起動する(更新・指示はこの Mac から)。
-#   bash deploy/ubuntu/deploy.sh [user@host]      既定: user@server
+#   bash deploy/ubuntu/deploy.sh [user@host]      既定: 環境変数 SC_SERVER
 # 初回のセットアップ(uv・Python環境・VOICEVOX・llama.cpp・モデル)は SETUP.md の「Ubuntu サーバー」を参照。
 set -euo pipefail
-U="${1:-user@server}"
+U="${1:-${SC_SERVER:?宛先を引数で渡すか、環境変数 SC_SERVER=user@host を設定してください}}"
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 rsync -a --exclude .venv --exclude logs --exclude __pycache__ --exclude .ctl --exclude calib.json "$ROOT/bridge/" "$U:stackchan/bridge/"
 rsync -a --exclude __pycache__ --exclude stackchan.png --exclude run.sh "$ROOT/app/" "$U:stackchan/app/"

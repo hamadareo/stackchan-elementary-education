@@ -19,7 +19,7 @@ import urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FW = os.path.join(ROOT, "firmware")
-ADMIN = os.environ.get("SC_ADMIN_URL", "http://SERVER_ADDR:8080").rstrip("/")
+ADMIN = os.environ.get("SC_ADMIN_URL", "http://localhost:8080").rstrip("/")
 
 
 def ota_pass() -> str:

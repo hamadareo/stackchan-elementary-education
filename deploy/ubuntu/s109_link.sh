@@ -1,7 +1,7 @@
 #!/bin/bash
 # s109 の GPU(聞き取り=9941 / 小さな翻訳モデル=9951)を、このサーバーの 12346 / 12345 へ転送し、落ちていれば s109 側を起こす。
 # s109 に届かないときは、ブリッジが自動でこのサーバーの CPU に落ちる(auto)。
-H=user@gpu-server
+H="${SC_GPU_HOST:?環境変数 SC_GPU_HOST=user@host を設定してください}"
 SSH="ssh -o BatchMode=yes -o ConnectTimeout=6 -o StrictHostKeyChecking=accept-new"
 ensure() {
   $SSH $H "~/stackchan_llm/start.sh; curl -sf -m2 http://127.0.0.1:9941/health >/dev/null 2>&1 || (cd ~/tsuyaku_stt && setsid -f ~/ai_boss_local/stt-venv/bin/python s109_stt_server.py --port 9941 > stt.log 2>&1 < /dev/null)" </dev/null >/dev/null 2>&1
