@@ -114,6 +114,7 @@ pio run -e m5stack-cores3 -t upload          # USB で書き込み
 
 ### 3. 配備と更新(Mac → Ubuntu)
 ```bash
+export SC_SERVER=user@server                 # 配る先のサーバー(SSH の宛先)
 bash deploy/ubuntu/deploy.sh                 # ブリッジと管理アプリを配って再起動(約 15〜20 秒)
 ```
 その後、管理アプリの「機器」タブの **「USB の機器を更新する」** で、つながっている機器が 1 台ずつ(約 1 分)更新されます。
